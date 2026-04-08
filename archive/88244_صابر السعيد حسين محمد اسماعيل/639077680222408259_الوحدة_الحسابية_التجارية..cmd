@@ -1,0 +1,1 @@
+start "oracle fusion middleware service" cmd /k " java -jar frmsal.jar -url "http://wls1910:9001/forms/frmservlet?config=com_shatb" -t 30000 -showconfig false"
