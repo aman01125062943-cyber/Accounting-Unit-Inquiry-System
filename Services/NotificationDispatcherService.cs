@@ -8,7 +8,6 @@ public class NotificationDispatcherService : BackgroundService
 {
     private readonly DatabaseService _db;
     private readonly IHubContext<NotificationHub> _hub;
-    private long _lastEventId = 0;
     private bool _initialized = false;
 
     public NotificationDispatcherService(DatabaseService db, IHubContext<NotificationHub> hub)
@@ -19,6 +18,22 @@ public class NotificationDispatcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // ═══ تنظيف أولي عند بدء التشغيل لمحاربة "طوفان" الإشعارات القديمة ═══
+        try
+        {
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync(stoppingToken);
+            var deletedCount = await conn.ExecuteAsync("DELETE FROM NotificationEvents");
+            if (deletedCount > 0)
+            {
+                Console.WriteLine($"[RealTime] Startup: تم تنظيف {deletedCount} إشعار قديم لتجنب التكرار.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[RealTime] Startup cleanup error: " + ex.Message);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -26,17 +41,9 @@ public class NotificationDispatcherService : BackgroundService
                 using var conn = _db.GetConnection();
                 await conn.OpenAsync(stoppingToken);
 
-                // تهيئة رقم آخر حدث عند تشغيل التطبيق لعدم جلب الإشعارات القديمة
-                if (!_initialized)
-                {
-                    var maxId = await conn.ExecuteScalarAsync<long?>("SELECT MAX(Id) FROM NotificationEvents");
-                    _lastEventId = maxId ?? 0;
-                    _initialized = true;
-                }
-
+                // جلب الأحداث ومعالجتها ثم حذفها فوراً (مع جلب اسم المستخدم CreatedBy)
                 var rows = await conn.QueryAsync<dynamic>(
-                    "SELECT Id, TableName, Operation, RowId, CreatedAt FROM NotificationEvents WHERE Id > @LastId ORDER BY Id LIMIT 200",
-                    new { LastId = _lastEventId }
+                    "SELECT Id, TableName, Operation, RowId, CreatedBy, CreatedAt FROM NotificationEvents ORDER BY Id LIMIT 100"
                 );
 
                 var events = rows.ToList();
@@ -49,33 +56,32 @@ public class NotificationDispatcherService : BackgroundService
                             table = (string)r.TableName,
                             operation = (string)r.Operation,
                             rowId = (long)r.RowId,
+                            user = (string)r.CreatedBy ?? "النظام",
                             timestamp = (string)r.CreatedAt,
                             status = "ناجحة"
                         };
                         
                         try
                         {
+                            // بث الإشعار للجميع
                             await _hub.Clients.All.SendAsync("DbChange", payload, cancellationToken: stoppingToken);
+                            
+                            // ═══ حذف السجل فوراً بعد البث بنجاح لمنع التكرار ═══
+                            await conn.ExecuteAsync("DELETE FROM NotificationEvents WHERE Id = @Id", new { Id = r.Id });
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[RealTime] Error broadcasting event {r.Id}: " + ex.Message);
-                        }
-
-                        // تحديث آخر حدث تم قبوله
-                        if ((long)r.Id > _lastEventId) 
-                        {
-                            _lastEventId = (long)r.Id;
+                            Console.WriteLine($"[RealTime] Error broadcasting/deleting event {r.Id}: " + ex.Message);
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                // قد يظهر خطأ إذا كان الجدول غير موجود (أول تشغيل قبل التهيئة)، يتم التجاهل والانتظار 
                 Console.WriteLine("[RealTime] Dispatcher error: " + ex.Message);
             }
-            await Task.Delay(2000, stoppingToken); // الفحص كل ثانيتين للحفاظ على أداء الشبكة
+            
+            await Task.Delay(2000, stoppingToken);
         }
     }
 }

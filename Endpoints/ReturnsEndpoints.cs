@@ -531,10 +531,19 @@ public static class ReturnsEndpoints
 
                     // --- Optimized Batch Insertion ---
                     const int batchSize = 2000;
-                    var jsonOptions = new JsonSerializerOptions
-                    {
-                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
-                    };
+                    
+                    // Check if UploadDate exists ONCE before the loop to maximize performance
+                    bool hasUploadDateInDb = true;
+                    try { await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1"); }
+                    catch { hasUploadDateInDb = false; }
+
+                    string currentDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    
+                    // Use json_set in SQL to inject the upload date efficiently directly in the database engine
+                    // This avoids the massive CPU overhead of Deserializing/Serializing every JSON record in C#
+                    string insertSql = hasUploadDateInDb
+                        ? "INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate)"
+                        : "INSERT INTO Returns (ImportId, RawData, ReturnCode) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode)";
 
                     for (int i = 0; i < importData.data.Count; i += batchSize)
                     {
@@ -543,51 +552,22 @@ public static class ReturnsEndpoints
                             string raw = je.GetRawText();
                             string fCode = DatabaseService.ExtractFileCodeDirect(raw);
                             
-                            // Check if UploadDate exists in DB schema to avoid SQLite Error 1 during import
-                            bool useUploadDate = true;
-                            try { conn.ExecuteScalar("SELECT UploadDate FROM Returns LIMIT 1"); }
-                            catch { useUploadDate = false; }
-                            
-                            // Get the current date and time formatted properly
-                            string currentDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
-                            // Inject the UploadDate into the RawData JSON so it appears in the table data
-                            string modifiedRaw = raw;
-                            try {
-                                var dict = JsonSerializer.Deserialize<Dictionary<string, object>>(raw, jsonOptions) ?? new Dictionary<string, object>();
-                                dict["تاريخ الرفع"] = currentDate;
-                                modifiedRaw = JsonSerializer.Serialize(dict, jsonOptions);
-                            } catch {
-                                // Fallback to original if JSON parsing fails
-                                modifiedRaw = raw;
-                            }
-
                             return new
                             {
                                 ImportId = archiveId,
-                                RawData = modifiedRaw,
+                                RawData = raw,
                                 ReturnCode = DatabaseService.ExtractReturnCode(fCode),
-                                UploadDate = useUploadDate ? currentDate : null,
-                                UseUploadDate = useUploadDate
+                                UploadDate = currentDate
                             };
-                        });
+                        }).ToList();
 
-                        var firstItem = batch.FirstOrDefault();
-                        if (firstItem != null && firstItem.UseUploadDate) {
-                            await conn.ExecuteAsync(@"
-                                INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate) VALUES (@ImportId, @RawData, @ReturnCode, @UploadDate)",
-                                batch, trans);
-                        } else {
-                            await conn.ExecuteAsync(@"
-                                INSERT INTO Returns (ImportId, RawData, ReturnCode) VALUES (@ImportId, @RawData, @ReturnCode)",
-                                batch, trans);
-                        }
+                        await conn.ExecuteAsync(insertSql, batch, trans);
                     }
 
                     trans.Commit();
                     string user = context.Request.Query["user"].ToString();
                     if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                    await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                    await db.AddNotificationEventAsync("Returns", "استيراد", archiveId, user);
                     return Results.Ok(new { success = true, count = importData.data.Count });
                 }
                 catch (Exception)
@@ -613,7 +593,7 @@ public static class ReturnsEndpoints
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                await db.AddNotificationEventAsync("Returns", "حذف", 0, user);
                 return Results.Ok(new { success = true });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -634,7 +614,7 @@ public static class ReturnsEndpoints
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                await db.AddNotificationEventAsync("Returns", "حذف", id, user);
                 return Results.Ok(new { success = true });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -670,7 +650,7 @@ public static class ReturnsEndpoints
                 if (affected > 0) {
                     string user = context.Request.Query["user"].ToString();
                     if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                    await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                    await db.AddNotificationEventAsync("Returns", "تعديل", id, user);
                     return Results.Ok(new { success = true });
                 }
                 else return Results.NotFound(new { success = false, message = "Record not found" });
@@ -715,7 +695,7 @@ public static class ReturnsEndpoints
                     trans.Commit();
                     string user = context.Request.Query["user"].ToString();
                     if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                    await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                    await db.AddNotificationEventAsync("Returns", "تسوية", request.Ids.FirstOrDefault(), user);
                     return Results.Ok(new { success = true, count = request.Ids.Count });
                 } catch (Exception) {
                     trans.Rollback();
@@ -796,6 +776,9 @@ public static class ReturnsEndpoints
         });
 
         app.MapPost("/returns/attachments/{returnId}", async (int returnId, IFormFile file, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+            string user = context.Request.Query["user"].ToString();
+            if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+
             if (file == null || file.Length == 0) return Results.BadRequest("No file uploaded");
 
             var config = DatabaseService.LoadServerConfig();
@@ -849,9 +832,7 @@ public static class ReturnsEndpoints
                          new { ReturnId = rId, Filename = dbFilename, CreatedAt = DateTime.Now });
                 }
 
-                string user = context.Request.Query["user"].ToString();
-                if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                await db.AddNotificationEventAsync("Returns", "رفع مرفق", returnId, user);
 
                 return Results.Ok(new { success = true });
             } catch (Exception ex) {
@@ -869,20 +850,28 @@ public static class ReturnsEndpoints
             // Try ReturnsImages
             var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM ReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
+                // Restore physical file deletion
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
+                
+                // Restore DB deletion
                 await conn.ExecuteAsync("DELETE FROM ReturnsImages WHERE Id = @Id", new { Id = id });
-                await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+                
+                await db.AddNotificationEventAsync("Returns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
             }
 
             // Try SalaryReturnsImages
             record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
+                // Restore physical file deletion
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
+                
+                // Restore DB deletion
                 await conn.ExecuteAsync("DELETE FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
-                await hub.Clients.All.SendAsync("UpdateData", "SalaryReturns", user);
+
+                await db.AddNotificationEventAsync("SalaryReturns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
             }
 
@@ -944,7 +933,7 @@ public static class ReturnsEndpoints
             
             string user = context.Request.Query["user"].ToString();
             if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-            await hub.Clients.All.SendAsync("UpdateData", "Returns", user);
+            await hub.Clients.All.SendAsync("UpdateData", "Returns", user, "مزامنة");
 
             return Results.Ok(new { success = true, message = "تم بدء المزامنة في الخلفية" });
         });

@@ -28,7 +28,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <DefaultItemExcludes>$(DefaultItemExcludes);AttachmentsExporter\**;Exporter.cs;hk_published\**;test_project\**;bin\**;obj\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);FixDbTool\**;AttachmentsExporter\**;Exporter.cs;hk_published\**;test_project\**;bin\**;obj\**</DefaultItemExcludes>
   </PropertyGroup>
 
 </Project>

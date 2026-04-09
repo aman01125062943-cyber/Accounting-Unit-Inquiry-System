@@ -160,7 +160,7 @@ public static class SmartSettlementEndpoints
                 trans.Commit();
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "SmartSettlement", user);
+                await db.AddNotificationEventAsync("SmartSettlement", "سداد ذكي", 0, user);
                 return Results.Ok(new { success = true, report = new { updatedCount, notUpdatedCount, unmatchedCount = 0 } });
             } catch (Exception ex) {
                 Console.WriteLine("=== SMART SETTLEMENT EXECUTE ERROR ===");

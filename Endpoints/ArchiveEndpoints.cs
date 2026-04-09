@@ -23,7 +23,7 @@ public static class ArchiveEndpoints
                 DatabaseService.SaveServerConfig(config);
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "Archive", user);
+                await hub.Clients.All.SendAsync("UpdateData", "Archive", user, "استعادة");
                 return Results.Ok(new { success = true, message = "تم تفعيل الأرشيف بنجاح" });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -37,7 +37,7 @@ public static class ArchiveEndpoints
                 DatabaseService.SaveServerConfig(config);
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "Archive", user);
+                await hub.Clients.All.SendAsync("UpdateData", "Archive", user, "استعادة");
                 return Results.Ok(new { success = true, message = "تم إلغاء التفعيل والعودة للوضع الطبيعي" });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -50,7 +50,7 @@ public static class ArchiveEndpoints
                 await conn.ExecuteAsync("PRAGMA foreign_keys = ON; DELETE FROM Archives WHERE Id = @Id", new { Id = id });
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "Archive", user);
+                await hub.Clients.All.SendAsync("UpdateData", "Archive", user, "حذف");
                 return Results.Ok(new { success = true });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -73,7 +73,7 @@ public static class ArchiveEndpoints
                 DatabaseService.SaveServerConfig(config);
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "SalaryArchive", user);
+                await hub.Clients.All.SendAsync("UpdateData", "SalaryArchive", user, "استعادة");
                 return Results.Ok(new { success = true, message = "تم تفعيل أرشيف المرتبات بنجاح" });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -87,7 +87,7 @@ public static class ArchiveEndpoints
                 DatabaseService.SaveServerConfig(config);
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "SalaryArchive", user);
+                await hub.Clients.All.SendAsync("UpdateData", "SalaryArchive", user, "استعادة");
                 return Results.Ok(new { success = true, message = "تم إلغاء التفعيل والعودة للوضع الطبيعي" });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -100,7 +100,7 @@ public static class ArchiveEndpoints
                 await conn.ExecuteAsync("PRAGMA foreign_keys = ON; DELETE FROM SalaryArchives WHERE Id = @Id", new { Id = id });
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await hub.Clients.All.SendAsync("UpdateData", "SalaryArchive", user);
+                await hub.Clients.All.SendAsync("UpdateData", "SalaryArchive", user, "حذف");
                 return Results.Ok(new { success = true });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });

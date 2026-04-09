@@ -94,16 +94,22 @@ class Database {
         }
 
         // Append user to URL if available
-        if (this.currentUser && this.currentUser.fullname) {
+        const activeUser = window.app?.currentUser || this.currentUser || JSON.parse(localStorage.getItem('returns_session') || '{}');
+        if (activeUser && (activeUser.fullname || activeUser.FullName)) {
             const separator = url.includes('?') ? '&' : '?';
-            url += `${separator}user=${encodeURIComponent(this.currentUser.fullname)}`;
+            const userName = activeUser.fullname || activeUser.FullName || activeUser.username || 'مستخدم';
+            url += `${separator}user=${encodeURIComponent(userName)}`;
         }
 
         try {
+            const headers = {};
+            // Don't set Content-Type for FormData, browser will set it with boundary
+            if (!(options.body instanceof FormData)) {
+                headers['Content-Type'] = 'application/json';
+            }
+
             const response = await fetch(url, {
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: headers,
                 ...options
             });
 
@@ -129,6 +135,12 @@ class Database {
             }
 
             const data = await response.json();
+
+            // --- LOCAL ACTION TRACKING ---
+            // If this was a modifying request, record the time so we can ignore our own DbChange notifications
+            if (options.method && ['POST', 'PUT', 'DELETE'].includes(options.method.toUpperCase())) {
+                window.dbLastActionTime = Date.now();
+            }
 
             // Visual success feedback
             if (triggerBtn) {
@@ -216,7 +228,7 @@ class Database {
     }
 
     async saveReturns(data, importInfo) {
-        const response = await this.fetchApi('/returns/import', {
+        return await this.fetchApi('/returns/import', {
             method: 'POST',
             body: JSON.stringify({
                 filename: importInfo.filename,
@@ -225,7 +237,6 @@ class Database {
                 data: data
             })
         });
-        return response.success;
     }
 
     async deleteAllReturns() {
@@ -309,7 +320,7 @@ class Database {
     }
 
     async saveSalaryReturns(data, importInfo) {
-        const response = await this.fetchApi('/salary-returns/import', {
+        return await this.fetchApi('/salary-returns/import', {
             method: 'POST',
             body: JSON.stringify({
                 filename: importInfo.filename,
@@ -318,7 +329,6 @@ class Database {
                 data: data
             })
         });
-        return response.success;
     }
 
     async deleteAllSalaryReturns() {
@@ -417,7 +427,17 @@ class Database {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch(`${this.baseUrl}/returns/attachments/${returnId}`, {
+        // Robust user name extraction matching fetchApi logic
+        const activeUser = window.app?.currentUser || this.currentUser || JSON.parse(localStorage.getItem('returns_session') || '{}');
+        const userName = window.app?.currentUser?.fullname || 
+                         window.app?.currentUser?.FullName || 
+                         window.auth?.currentUser?.fullname || 
+                         activeUser?.fullname || 
+                         'مستخدم';
+
+        const user = encodeURIComponent(userName);
+        
+        const response = await fetch(`${this.baseUrl}/returns/attachments/${returnId}?user=${user}`, {
             method: 'POST',
             body: formData
         });

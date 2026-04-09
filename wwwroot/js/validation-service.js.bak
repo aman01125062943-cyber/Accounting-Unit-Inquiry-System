@@ -1,5 +1,5 @@
 /**
- * نظام التحقق من صحة بيانات المرتدات (Lauf)
+ * ظ†ط¸ط§ظ… ط§ظ„طھط­ظ‚ظ‚ ظ…ظ† طµط­ط© ط¨ظٹط§ظ†ط§طھ ط§ظ„ظ…ط±طھط¯ط§طھ (Lauf)
  * Validation Service v3.3 (Split Multi-Account Reporting)
  */
 
@@ -14,20 +14,20 @@ class ValidationService {
         this.emptyCodeRecords = [];
         this.allRecordsWithStatus = [];
 
-        // مجموعات لتتبع القيم المتعارضة
+        // ظ…ط¬ظ…ظˆط¹ط§طھ ظ„طھطھط¨ط¹ ط§ظ„ظ‚ظٹظ… ط§ظ„ظ…طھط¹ط§ط±ط¶ط©
         this.conflictingNids = new Set();
         this.conflictingAccsOriginal = new Set();
         this.conflictingAccsEdited = new Set();
 
-        // تم الفصل:
+        // طھظ… ط§ظ„ظپطµظ„:
         this.conflictingNamesMultiAccOriginal = new Set();
         this.conflictingNamesMultiAccEdited = new Set();
 
         this.seenFullRecords = new Set();
-        this.recordCounts = new Map(); // لتتبع عدد تكرار كل سجل (الاسم + الحساب)
+        this.recordCounts = new Map(); // ظ„طھطھط¨ط¹ ط¹ط¯ط¯ طھظƒط±ط§ط± ظƒظ„ ط³ط¬ظ„ (ط§ظ„ط§ط³ظ… + ط§ظ„ط­ط³ط§ط¨)
 
         // -----------------------------------------------------------
-        // قوائم التقارير الخاصة
+        // ظ‚ظˆط§ط¦ظ… ط§ظ„طھظ‚ط§ط±ظٹط± ط§ظ„ط®ط§طµط©
         // -----------------------------------------------------------
         this.zeroAccountsOriginal = [];
         this.zeroAccountsEdited = [];
@@ -76,9 +76,9 @@ class ValidationService {
         let text = String(str).trim();
         if (text.length === 0) return '';
         text = text.replace(/[\u064B-\u065F\u0640]/g, '');
-        text = text.replace(/[أإآ]/g, 'ا');
-        text = text.replace(/[ى]/g, 'ي');
-        text = text.replace(/[ة]/g, 'ه');
+        text = text.replace(/[ط£ط¥ط¢]/g, 'ط§');
+        text = text.replace(/[ظ‰]/g, 'ظٹ');
+        text = text.replace(/[ط©]/g, 'ظ‡');
         text = text.replace(/\s+/g, ' ');
         return text;
     }
@@ -90,7 +90,7 @@ class ValidationService {
             );
             if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null) {
                 const val = row[foundKey];
-                // إذا كانت القيمة مسافات فقء نعتبرها فارغة
+                // إذا كانت القيمة مسافات فقط، نعتبرها فارغة
                 if (typeof val === 'string' && val.trim().length === 0) continue;
                 return { value: val, key: foundKey };
             }
@@ -388,7 +388,7 @@ class ValidationService {
             } else {
                 this.stats.valid++;
                 this.validRecords.push(row);
-                // إذا كان فيه تنبيهات فقء نضيفها للأخطاء لكن السجل يبقى "صحيح"
+                // إذا كان فيه تنبيهات فقط، نضيفها للأخطاء لكن السجل يبقى "صحيح"
                 if (rowWarnings.length > 0) {
                     this.errors.push({ row: index + 2, data: row, errors: rowWarnings });
                 }
@@ -443,7 +443,7 @@ class ValidationService {
     }
 
     // =============================================
-    // دوال التصدير
+    // ط¯ظˆط§ظ„ ط§ظ„طھطµط¯ظٹط±
     // =============================================
 
     exportSpecificError(type, filename) {

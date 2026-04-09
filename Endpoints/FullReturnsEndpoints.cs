@@ -129,6 +129,9 @@ public static class FullReturnsEndpoints
                     }
 
                     trans.Commit();
+                    string user = context.Request.Query["user"].ToString();
+                    if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+                    await db.AddNotificationEventAsync("FullReturns", "تسوية", request.Ids.FirstOrDefault(), user);
                     return Results.Ok(new { success = true, count = request.Ids.Count });
                 } catch (Exception) {
                     trans.Rollback();
@@ -165,6 +168,9 @@ public static class FullReturnsEndpoints
                     }
 
                     trans.Commit();
+                    string user = context.Request.Query["user"].ToString();
+                    if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+                    await db.AddNotificationEventAsync("FullReturns", "استيراد", 0, user);
                     return Results.Ok(new { success = true, count = importData.data.Count });
                 }
                 catch (Exception) {
@@ -176,10 +182,13 @@ public static class FullReturnsEndpoints
             }
         });
 
-        app.MapDelete("/full-returns", async (DatabaseService db) => {
+        app.MapDelete("/full-returns", async (HttpContext context, DatabaseService db) => {
             try {
                 using var conn = await db.GetOpenConnectionAsync();
                 await conn.ExecuteAsync("DELETE FROM FullReturns");
+                string user = context.Request.Query["user"] .ToString();
+                if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+                await db.AddNotificationEventAsync("FullReturns", "حذف", 0, user);
                 return Results.Ok(new { success = true });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
@@ -260,7 +269,7 @@ public static class FullReturnsEndpoints
             return Results.File(finalPath, contentType, Path.GetFileName(finalPath));
         });
         
-        app.MapPost("/full-returns/attachments/{id}", async (int id, IFormFile file, DatabaseService db) => {
+        app.MapPost("/full-returns/attachments/{id}", async (int id, IFormFile file, HttpContext context, DatabaseService db) => {
             if (file == null || file.Length == 0) return Results.BadRequest("No file uploaded");
             
             var config = DatabaseService.LoadServerConfig();
@@ -290,10 +299,14 @@ public static class FullReturnsEndpoints
                 "INSERT INTO FullReturnsImages (ReturnId, Filename, CreatedAt) VALUES (@ReturnId, @Filename, @CreatedAt)",
                 new { ReturnId = id, Filename = dbFilename, CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") });
 
+            string user = context.Request.Query["user"].ToString();
+            if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+            await db.AddNotificationEventAsync("FullReturns", "رفع مرفق", (long)id, user);
+
             return Results.Ok(new { success = true });
         }).DisableAntiforgery();
 
-        app.MapDelete("/full-returns/attachment/{id}", async (int id, DatabaseService db) => {
+        app.MapDelete("/full-returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
@@ -302,6 +315,10 @@ public static class FullReturnsEndpoints
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
                 await conn.ExecuteAsync("DELETE FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
             }
+            string user = context.Request.Query["user"].ToString();
+            if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+            await db.AddNotificationEventAsync("FullReturns", "حذف مرفق", (long)id, user);
+
             return Results.Ok(new { success = true });
         });
     }

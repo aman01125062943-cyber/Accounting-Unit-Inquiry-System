@@ -36,6 +36,9 @@
 </head>
 
 <body>
+    <!-- Global Progress Bar -->
+    <div id="global-progress-bar" style="position:fixed; top:0; left:0; width:0%; height:3px; background:linear-gradient(90deg, #00f0ff, #38bdf8); z-index:1000001; transition: width 0.3s ease, opacity 0.3s ease; opacity:0; pointer-events:none; box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);"></div>
+
     <!-- Splash Screen / Loader Animation -->
     <div id="splash-screen" class="splash-screen">
         <div class="splash-stars"></div>
@@ -214,7 +217,7 @@
                 <div class="user-info">
                     <div class="user-avatar" id="user-avatar">A</div>
                     <div class="user-details">
-                        <div class="user-name" id="user-display-name">المستخدم</div>
+                        <div class="user-name" id="user-display-name">المستخدم <span id="signalr-status-indicator" class="status-dot status-offline" title="غير متصل"></span></div>
                         <div class="user-role" id="user-role">مستخدم</div>
                     </div>
                     <button class="logout-btn" id="logout-btn" title="تسجيل الخروج"
@@ -274,7 +277,7 @@
                 </section>
 
                 <!-- ========== Returns Page ========== -->
-                <section id="page-returns" class="page-content">
+                <section id="page-returns" class="page-content hidden">
 
                     <!-- Stats Highlights (3-Card Summary) -->
                     <div class="dashboard-stats-row-pro search-stats-summary">
@@ -326,7 +329,7 @@
 
                     <!-- Action Buttons Row (RTL) -->
                     <div class="dashboard-actions-row-pro rtl-flex">
-                        <button class="btn-pro-action btn-import-pro" onclick="app.showImportModal()"><i class="fas fa-file-import"></i> استيراد</button>
+                        <button class="btn-pro-action btn-import-pro" id="btn-import-returns" onclick="app.showImportModal()"><i class="fas fa-file-import"></i> استيراد</button>
                         <button class="btn-pro-action btn-export-pro" onclick="app.downloadTemplate()" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);"><i class="fas fa-file-excel"></i> تنزيل النموذج</button>
                         <button class="btn-pro-action btn-sync-pro" onclick="app.showAutoSyncModal()"><i class="fas fa-sync"></i> مزامنة</button>
                         <button class="btn-pro-action btn-report-pro" onclick="app.printReport()"><i class="fas fa-file-invoice-dollar"></i> كشف حساب</button>
@@ -334,7 +337,7 @@
                         <button class="btn-pro-action btn-check-pro" onclick="app.runValidationOnCurrentData()"><i class="fas fa-check-circle"></i> فحص</button>
                         <button class="btn-pro-action btn-delete-pro" onclick="app.confirmDeleteAll()"><i class="fas fa-trash-alt"></i> حذف الكل</button>
                         <button class="btn-pro-action btn-delete-pro" onclick="app.deleteSelectedReturns()" id="btn-delete-selected" style="display:none; background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.2) 100%); border-color: rgba(239, 68, 68, 0.5);"><i class="fas fa-trash" style="color: #f87171;"></i> حذف المحدد <span id="selected-count-badge" style="background:#ef4444; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span></button>
-                        <button class="btn-pro-action btn-export-pro" onclick="app.exportToExcel()"><i class="fas fa-file-export"></i> تصدير</button>
+                        <button class="btn-pro-action btn-export-pro" id="export-excel-btn" onclick="app.exportToExcel()"><i class="fas fa-file-export"></i> تصدير</button>
                     </div>
 
                     <!-- Controls Row (Search Beside Filters - Professional Layout) -->
@@ -860,11 +863,6 @@
                             </button>
                         </div>
                     </div>
-                </section>
-
-                <!-- ========== Archive Page ========== -->
-                <section id="page-archive" class="page-content hidden">
-                    <!-- القسم هنا كان مفتوحاً بدون إغلاق مما أدى لدخول الأقسام التالية بداخلة -->
                 </section>
 
                 <!-- ========== Validation Results Page (New Full Screen) ========== -->
@@ -2058,7 +2056,7 @@
     <script src="js/auth.js"></script>
     <script src="js/database.js"></script>
     <script src="js/validation-service.js"></script>
-    <script src="js/app.js?v=6.6"></script>
+    <script src="js/app.js?v=6.7"></script>
 </body>
 
 </html>

@@ -128,13 +128,13 @@ public static class ConfigEndpoints
         app.MapPost("/config/scanner-settings", (ScannerSettingsRequest req) => {
             try {
                 var config = DatabaseService.LoadServerConfig();
-                config.Naps2Path = req.naps2Path;
-                config.ScannerDriver = req.driver;
-                config.ScannerDevice = req.device;
-                config.ScannerSource = req.source;
-                config.ScannerFormat = req.format;
-                config.ScannerSilent = req.silent;
-                config.ScannerForce = req.force;
+                config.Naps2Path = req.Naps2Path;
+                config.ScannerDriver = req.Driver;
+                config.ScannerDevice = req.Device;
+                config.ScannerSource = req.Source;
+                config.ScannerFormat = req.Format;
+                config.ScannerSilent = req.Silent;
+                config.ScannerForce = req.Force;
                 DatabaseService.SaveServerConfig(config);
                 
                 return Results.Ok(new { success = true, message = "تمت تحديث إعدادات الماسح بنجاح" });
@@ -151,11 +151,11 @@ public static class ConfigEndpoints
 
         app.MapPost("/config/attachment-link-mode", async (HttpContext context) => {
             var req = await context.Request.ReadFromJsonAsync<AttachmentLinkModeRequest>();
-            if (string.IsNullOrWhiteSpace(req?.mode)) return Results.BadRequest();
+            if (string.IsNullOrWhiteSpace(req?.Mode)) return Results.BadRequest();
 
             try {
                 var config = DatabaseService.LoadServerConfig();
-                config.AttachmentLinkMode = req.mode;
+                config.AttachmentLinkMode = req.Mode;
                 DatabaseService.SaveServerConfig(config);
                 
                 return Results.Ok(new { success = true, message = "تم تغيير وضع ربط المرفقات بنجاح" });
@@ -246,14 +246,14 @@ public static class ConfigEndpoints
 
 
     public record ScannerSettingsRequest(
-        string naps2Path,
-        string driver,
-        string device,
-        string source,
-        string format,
-        bool silent,
-        bool force
+        string Naps2Path,
+        string Driver,
+        string Device,
+        string Source,
+        string Format,
+        bool Silent,
+        bool Force
     );
 
-    public record AttachmentLinkModeRequest(string mode);
+    public record AttachmentLinkModeRequest(string Mode);
 }
