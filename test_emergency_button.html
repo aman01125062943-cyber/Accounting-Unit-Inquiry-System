@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اختبار زر الإعدادات</title>
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background: #0d1623;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .test-container {
+            text-align: center;
+            padding: 40px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(0,240,255,0.2);
+        }
+        .emergency-gear-icon {
+            font-size: 48px;
+            cursor: pointer;
+            padding: 20px;
+            border-radius: 50%;
+            background: rgba(0,240,255,0.1);
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+        .emergency-gear-icon:hover {
+            background: rgba(0,240,255,0.2);
+            transform: scale(1.1);
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+        .status.success {
+            background: rgba(16,185,129,0.2);
+            color: #10b981;
+            display: block;
+        }
+        .status.error {
+            background: rgba(239,68,68,0.2);
+            color: #ef4444;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>اختبار زر إعدادات الطوارئ</h1>
+        <p>انقر نقراً مزدوجاً على الترس أدناه</p>
+        <div id="emergency-setup-btn" class="emergency-gear-icon" title="إعدادات الاتصال">
+            ⚙️
+        </div>
+        <div id="status" class="status"></div>
+        <p style="margin-top: 20px; color: #888; font-size: 14px;">
+            كلمة المرور الصحيحة: <strong style="color: #00f0ff;">2027</strong>
+        </p>
+    </div>
+
+    <script>
+        const emergencyBtn = document.getElementById('emergency-setup-btn');
+        const statusDiv = document.getElementById('status');
+        
+        if (emergencyBtn) {
+            emergencyBtn.addEventListener('dblclick', async (e) => {
+                e.preventDefault();
+                const password = prompt('أدخل كلمة المرور للوصول إلى واجهة المطور:');
+                
+                if (password === '2027') {
+                    statusDiv.textContent = '✅ تم التحقق بنجاح! كلمة المرور صحيحة';
+                    statusDiv.className = 'status success';
+                    console.log('✅ SUCCESS: Password correct - Access granted');
+                } else if (password) {
+                    statusDiv.textContent = '❌ كلمة المرور غير صحيحة';
+                    statusDiv.className = 'status error';
+                    console.log('❌ ERROR: Incorrect password');
+                } else {
+                    statusDiv.textContent = '';
+                    statusDiv.className = 'status';
+                    console.log('⚠️ CANCELLED: User cancelled the prompt');
+                }
+            });
+            
+            console.log('✅ Event listener attached successfully to emergency button');
+        } else {
+            console.error('❌ ERROR: Emergency button not found!');
+        }
+    </script>
+</body>
+</html>

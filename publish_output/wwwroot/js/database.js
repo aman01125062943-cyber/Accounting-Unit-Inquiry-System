@@ -83,14 +83,6 @@ class Database {
      * @returns {Promise<any>}
      */
     async fetchApi(endpoint, options = {}) {
-        const method = options.method || 'GET';
-        
-        // Add cache-buster to GET requests to ensure fresh data (especially for attachment counts)
-        if (method === 'GET') {
-            const separator = endpoint.includes('?') ? '&' : '?';
-            endpoint += `${separator}t=${Date.now()}`;
-        }
-
         let url = `${this.baseUrl}${endpoint}`;
         
         // --- VISUAL FEEDBACK LOGIC ---
@@ -102,22 +94,17 @@ class Database {
         }
 
         // Append user to URL if available
-        const activeUser = window.app?.currentUser || this.currentUser || JSON.parse(localStorage.getItem('returns_session') || '{}');
-        if (activeUser && (activeUser.fullname || activeUser.FullName)) {
+        const activeUser = window.app?.currentUser || this.currentUser || JSON.parse(localStorage.getItem('currentUser') || '{}');
+        if (activeUser && activeUser.fullname) {
             const separator = url.includes('?') ? '&' : '?';
-            const userName = activeUser.fullname || activeUser.FullName || activeUser.username || 'مستخدم';
-            url += `${separator}user=${encodeURIComponent(userName)}`;
+            url += `${separator}user=${encodeURIComponent((window.app?.currentUser?.fullname || window.app?.currentUser?.FullName || window.app?.currentUser?.username || window.auth?.currentUser?.fullname || JSON.parse(localStorage.getItem('returns_session') || '{}')?.fullname || 'مستخدم'))}`;
         }
 
         try {
-            const headers = {};
-            // Don't set Content-Type for FormData, browser will set it with boundary
-            if (!(options.body instanceof FormData)) {
-                headers['Content-Type'] = 'application/json';
-            }
-
             const response = await fetch(url, {
-                headers: headers,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 ...options
             });
 
@@ -435,17 +422,7 @@ class Database {
         const formData = new FormData();
         formData.append('file', file);
 
-        // Robust user name extraction matching fetchApi logic
-        const activeUser = window.app?.currentUser || this.currentUser || JSON.parse(localStorage.getItem('returns_session') || '{}');
-        const userName = window.app?.currentUser?.fullname || 
-                         window.app?.currentUser?.FullName || 
-                         window.auth?.currentUser?.fullname || 
-                         activeUser?.fullname || 
-                         'مستخدم';
-
-        const user = encodeURIComponent(userName);
-        
-        const response = await fetch(`${this.baseUrl}/returns/attachments/${returnId}?user=${user}`, {
+        const response = await fetch(`${this.baseUrl}/returns/attachments/${returnId}`, {
             method: 'POST',
             body: formData
         });

@@ -195,34 +195,6 @@ class App {
     }
 
     /**
-     * تحديث واجهة مؤشر حالة الاتصال اللحظي
-     */
-    updateSignalRUI(status) {
-        const dot = document.getElementById('signalr-status-indicator');
-        if (!dot) return;
-
-        dot.className = 'status-dot'; // Reset
-        let title = '';
-
-        switch (status) {
-            case 'online':
-                dot.classList.add('status-online');
-                title = 'متصل بالخدمة اللحظية (Live)';
-                break;
-            case 'reconnecting':
-                dot.classList.add('status-reconnecting');
-                title = 'جاري محاولة استعادة الاتصال...';
-                break;
-            case 'offline':
-                dot.classList.add('status-offline');
-                title = 'غير متصل (التحديثات معطلة)';
-                break;
-        }
-
-        dot.title = title;
-    }
-
-    /**
      * تطبيع النصوص العربية للبحث (توحيد الهمزات والتاء المربوطة)
      */
     normalizeArabic(text) {
@@ -256,61 +228,113 @@ class App {
         try { await db.init(); } catch (e) { }
         try { await this.loadFilters(); } catch (e) { }
         try { await db.initDefaultUsers(); } catch (e) { }
+        
+        const splash = document.getElementById('splash-screen');
+        const updateSplash = (percent, text) => {
+            if (!splash) return;
+            const bar = splash.querySelector('.loader-progress');
+            const perc = splash.querySelector('.loader-percentage');
+            const status = splash.querySelector('.loader-status-text');
+            if (bar) bar.style.width = percent + '%';
+            if (perc) perc.textContent = Math.floor(percent) + '%';
+            if (status && text) status.textContent = text;
+        };
+
         try {
             const user = await auth.checkSession();
             if (user) {
                 this.currentUser = user;
                 this.showApp();
-                this.navigateTo(this.currentPage);
-                this.updateStats();
+                this.updateUserInfo();
                 this.initSidebar();
                 this.currentArchiveTab = 'lauf';
-                const tabLauf = document.getElementById('tab-btn-lauf');
-                if (tabLauf) tabLauf.addEventListener('click', () => this.switchArchiveTab('lauf'));
-                const tabFull = document.getElementById('tab-btn-full');
-                if (tabFull) tabFull.addEventListener('click', () => this.switchArchiveTab('full'));
+                
+                // بدء المزامنة الحقيقية مع تحديث شاشة الترحيب
+                updateSplash(10, 'جاري تهيئة قاعدة البيانات...');
                 await db.repairSchema();
+                
+                updateSplash(20, 'جاري تحميل المرتدات...');
+                await this.populateReturnsCache(updateSplash, 20, 50); // من 20% لـ 50%
+                
+                updateSplash(60, 'جاري تحميل المرتبات...');
+                await this.populateSalaryReturnsCache(updateSplash, 60, 90); // من 60% لـ 90%
+                
+                updateSplash(100, 'تم التحميل بنجاح');
+                
+                setTimeout(() => {
+                    if (splash) {
+                        splash.style.opacity = '0';
+                        setTimeout(() => splash.remove(), 800);
+                    }
+                }, 500);
+
                 this.loadReturns();
                 this.loadAttachmentLinkMode();
                 this.loadExtractionMonths();
-                
-                // Simplified async call
                 await this.loadFromOfflineStorage();
-                this.populateReturnsCache();
-                this.populateSalaryReturnsCache();
             } else {
+                if (splash) splash.remove();
                 this.showLogin();
             }
         } catch (e) {
+            console.error('Initialization error:', e);
+            if (splash) splash.remove();
             this.showLogin();
         }
 
         // Initialize Real-time Updates Connectivity
         this.initSignalR();
+    }
 
-        try {
-            const splash = document.getElementById('splash-screen');
-            if (splash) {
-                let progress = 0;
-                const startTime = Date.now();
-                const progressInterval = setInterval(() => {
-                    const elapsed = Date.now() - startTime;
-                    progress = Math.min(100, (elapsed / 10000) * 100);
-                    const progressBar = splash.querySelector('.loader-progress');
-                    const progressText = splash.querySelector('.loader-percentage');
-                    if (progressBar) progressBar.style.width = progress + '%';
-                    if (progressText) progressText.textContent = Math.floor(progress) + '%';
-                    if (progress >= 100) {
-                        clearInterval(progressInterval);
-                        setTimeout(() => {
-                            splash.style.opacity = '0';
-                            setTimeout(() => splash.remove(), 800);
-                        }, 500);
-                    }
-                }, 100);
-            }
-        } catch (e) {
-            console.error('Splash screen error:', e);
+    // دالة مساعدة لإظهار شاشة الترحيب يدوياً (للمزامنة بعد الدخول)
+    showSplashScreen(title = "جاري مزامنة البيانات...") {
+        let splash = document.getElementById('splash-screen');
+        if (!splash) {
+            // إعادة إنشاء الشاشة إذا كانت محذوفة
+            const html = `
+                <div id="splash-screen" class="splash-screen" style="opacity: 1; display: flex;">
+                    <div class="splash-stars"></div>
+                    <div class="splash-content">
+                        <div class="logo-outer-glow">
+                            <div class="logo-orbit-ring"></div>
+                            <div class="logo-main-container">
+                                <img src="img/faa-logo.jpg" alt="FAA Logo" class="splash-logo">
+                            </div>
+                        </div>
+                        <div class="splash-text-section">
+                            <h1 class="splash-main-title">قسم البنوك</h1>
+                            <p class="splash-sub-title">${title}</p>
+                        </div>
+                        <div class="splash-loader-section">
+                            <div class="loader-horizontal-line"><div class="loader-progress"></div></div>
+                            <div class="loader-percentage">0%</div>
+                            <div class="loader-status-text">جاري بدء العملية...</div>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.insertAdjacentHTML('afterbegin', html);
+            splash = document.getElementById('splash-screen');
+        } else {
+            splash.style.display = 'flex';
+            splash.style.opacity = '1';
+        }
+    }
+
+    updateSplashProgress(percent, text) {
+        const splash = document.getElementById('splash-screen');
+        if (!splash) return;
+        const bar = splash.querySelector('.loader-progress');
+        const perc = splash.querySelector('.loader-percentage');
+        const status = splash.querySelector('.loader-status-text');
+        if (bar) bar.style.width = percent + '%';
+        if (perc) perc.textContent = Math.floor(percent) + '%';
+        if (status && text) status.textContent = text;
+        
+        if (percent >= 100) {
+            setTimeout(() => {
+                splash.style.opacity = '0';
+                setTimeout(() => splash.style.display = 'none', 800);
+            }, 500);
         }
     }
 
@@ -482,24 +506,6 @@ class App {
     // ========================================
 
     setupEventListeners() {
-        // زر إعدادات الطوارئ (الترس) - النقر المزدوج
-        const emergencyBtn = document.getElementById('emergency-setup-btn');
-        if (emergencyBtn) {
-            emergencyBtn.addEventListener('dblclick', async () => {
-                const password = await window.prompt('أدخل كلمة مرور المطور للوصول إلى إعدادات الاتصال:', '');
-                if (password === '2027') {
-                    this.showApp();
-                    // تأكد من ظهور زر الإعدادات حتى لو لم يتم تسجيل الدخول
-                    document.getElementById('nav-settings')?.classList.remove('hidden');
-                    this.navigateTo('settings');
-                    this.switchSettingsTab('db');
-                    this.showToast('تم الدخول إلى وضع المطور (إعدادات الاتصال)', 'success');
-                } else if (password !== null && password !== '') {
-                    this.showToast('كلمة المرور غير صحيحة', 'error');
-                }
-            });
-        }
-
         // تسجيل الدخول
         document.getElementById('login-form').addEventListener('submit', (e) => {
             e.preventDefault();
@@ -689,8 +695,21 @@ class App {
 
         if (result.success) {
             errorDiv.classList.remove('show');
+            
+            // إظهار شاشة المزامنة فوراً بعد الدخول
+            this.showSplashScreen("جاري تحضير البيانات...");
+            this.updateSplashProgress(10, 'جاري تسجيل الدخول الموثق...');
+            
             this.showApp();
-            await this.loadReturns();
+            
+            this.updateSplashProgress(30, 'جاري مزامنة المرتدات...');
+            await this.populateReturnsCache((p, t) => this.updateSplashProgress(30 + (p * 0.3), t)); // 30-60%
+            
+            this.updateSplashProgress(60, 'جاري مزامنة المرتبات...');
+            await this.populateSalaryReturnsCache((p, t) => this.updateSplashProgress(60 + (p * 0.3), t)); // 60-90%
+            
+            this.updateSplashProgress(100, 'تم التجهيز بنجاح');
+            
             this.showToast(`مرحباً ${result.user.fullname}`, 'success');
             this.playNotificationSound();
         } else {
@@ -1010,9 +1029,6 @@ class App {
                 }
             }
 
-            console.log('[DATA-SYNC] Records returned from server:', response.data ? response.data.length : 0);
-            console.log('[STATS-SYNC] Server Stats:', response.stats);
-
             const dataToRender = append ? response.data : null;
             this.renderTable(dataToRender, append);
             this.updateStats(response.stats);
@@ -1047,7 +1063,7 @@ class App {
         this.detectDateColumn();
     }
 
-    async populateReturnsCache() {
+    async populateReturnsCache(progressCallback, startRange = 0, endRange = 100) {
         if (this.isCaching) return;
         this.isCaching = true;
 
@@ -1056,22 +1072,27 @@ class App {
         const perc = document.getElementById('sync-percentage');
         const status = document.getElementById('sync-status-text');
 
-        if (container) container.classList.remove('hidden');
-        if (status) status.textContent = 'جاري الاتصال بقاعدة البيانات...';
-        if (bar) bar.style.width = '10%';
-        if (perc) perc.textContent = '10%';
+        const updateUI = (p, t) => {
+            if (container) container.classList.remove('hidden');
+            if (status) status.textContent = t;
+            if (bar) bar.style.width = p + '%';
+            if (perc) perc.textContent = Math.floor(p) + '%';
+            if (progressCallback) {
+                // تحويل التقدم الموضعي إلى النطاق المطلوب
+                const globalP = startRange + (p / 100 * (endRange - startRange));
+                progressCallback(globalP, t);
+            }
+        };
+
+        updateUI(10, 'جاري الاتصال بقاعدة البيانات...');
 
         console.log('[CACHE] Starting background data synchronization...');
         try {
-            if (bar) bar.style.width = '30%';
-            if (perc) perc.textContent = '30%';
-            if (status) status.textContent = 'جاري تنزيل نسخة البيانات...';
+            updateUI(30, 'جاري تنزيل نسخة البيانات...');
 
             const allData = await db.getAllReturns();
 
-            if (bar) bar.style.width = '80%';
-            if (perc) perc.textContent = '80%';
-            if (status) status.textContent = 'جاري معالجة السجلات...';
+            updateUI(80, 'جاري معالجة السجلات...');
 
             // تحسين: فهرسة البيانات مسبقاً لسرعة البحث وتلقائية الإحصائيات
             this.returnsCache = allData.map(row => {
@@ -1101,13 +1122,9 @@ class App {
                 return row;
             });
 
-            if (bar) bar.style.width = '100%';
-            if (perc) perc.textContent = '100%';
-            if (status) status.textContent = 'تمت المزامنة بنجاح';
-
+            updateUI(100, 'تمت المزامنة بنجاح');
             console.log(`[CACHE] Successfully cached ${allData.length} records for instant search.`);
 
-            // Hide after success
             setTimeout(() => {
                 if (container) container.classList.add('hidden');
             }, 2000);
@@ -1115,7 +1132,7 @@ class App {
             return allData;
         } catch (e) {
             console.error('[CACHE] Cache population failed:', e);
-            if (status) status.textContent = 'فشلت المزامنة!';
+            updateUI(0, 'فشلت المزامنة!');
             if (bar) bar.style.background = '#ef4444';
             throw e;
         } finally {
@@ -1123,7 +1140,7 @@ class App {
         }
     }
 
-    async populateSalaryReturnsCache() {
+    async populateSalaryReturnsCache(progressCallback, startRange = 0, endRange = 100) {
         if (this.isSalaryCaching) return;
         this.isSalaryCaching = true;
 
@@ -1132,15 +1149,22 @@ class App {
         const perc = document.getElementById('sync-percentage');
         const status = document.getElementById('sync-status-text');
 
-        if (container) container.classList.remove('hidden');
-        if (status) status.textContent = 'جاري مزامنة بيانات المرتبات...';
-        if (bar) bar.style.width = '10%';
-        if (perc) perc.textContent = '10%';
+        const updateUI = (p, t) => {
+            if (container) container.classList.remove('hidden');
+            if (status) status.textContent = t;
+            if (bar) bar.style.width = p + '%';
+            if (perc) perc.textContent = Math.floor(p) + '%';
+            if (progressCallback) {
+                const globalP = startRange + (p / 100 * (endRange - startRange));
+                progressCallback(globalP, t);
+            }
+        };
+
+        updateUI(10, 'جاري مزامنة بيانات المرتبات...');
 
         console.log('[CACHE-SALARY] Starting background salary data synchronization...');
         try {
-            if (bar) bar.style.width = '30%';
-            if (perc) perc.textContent = '30%';
+            updateUI(30, 'جاري جلب بيانات المرتبات...');
 
             const allData = await db.getAllSalaryReturns();
 
@@ -2035,7 +2059,6 @@ class App {
     // ========================================
 
     showImportModal() {
-        this.isSalaryImport = false; // تأكيد إعادة التعيين لمرتدات الحوافز
         document.getElementById('import-modal')?.classList.remove('hidden');
     }
 
@@ -2436,198 +2459,87 @@ class App {
     async _saveDataToServer(data) {
         if (!this.pendingFile) {
             console.error('[SAVE] pendingFile is null!');
-            this.showToast('عذراً، تعذر الوصول لبيانات الملف الأصلية', 'error');
             return;
         }
 
         const file = this.pendingFile;
 
-        // إخراج headers من البيانات نفسها
+        // استخراج headers من البيانات نفسها
         const allKeys = new Set();
         data.forEach(row => Object.keys(row).forEach(k => allKeys.add(k)));
         const headers = Array.from(allKeys).filter(k => k !== 'id' && k !== 'importId');
 
-        console.log('[SAVE] Starting save process...', {
+        console.log('[SAVE] Starting save...', {
             recordCount: data.length,
-            fileName: file.name,
-            type: this.isSalaryImport ? 'Salary' : 'Incentive'
+            headers: headers,
+            fileName: file.name
         });
 
-        // 1. مسح الكاش لضمان جلب البيانات الجديدة
-        this.returnsCache = null;
-        this.salaryReturnsCache = null;
-        this.isCaching = false;
-
-        // إخفاء التحميل العام لإظهار شريط التقدم المخصص
-        this.hideLoading();
+        this.showLoading();
 
         // إظهار شريط التقدم وإخفاء الأزرار
         const progressContainer = document.getElementById('save-progress-container');
         const progressBar = document.getElementById('save-progress-bar');
         const progressPercent = document.getElementById('save-progress-percent');
         const modalFooter = document.getElementById('validation-modal-footer');
-        const validationPage = document.getElementById('page-validation-results');
-        const pageFooter = validationPage?.querySelector('.val-bottom-actions');
-        
-        const isValidationPageVisible = !!(validationPage && !validationPage.classList.contains('hidden'));
-        const activeFooter = isValidationPageVisible ? pageFooter : modalFooter;
-        
-        console.log('[SAVE] UI State:', { isValidationPageVisible, hasProgressContainer: !!progressContainer, hasActiveFooter: !!activeFooter });
 
-        // حفظ المكان الأصلي لشريط التقدم لإعادته لاحقاً
-        const originalProgressParent = progressContainer?.parentElement || null;
-        const originalProgressNext = progressContainer?.nextSibling || null;
+        if (progressContainer) progressContainer.classList.remove('hidden');
+        if (modalFooter) modalFooter.style.display = 'none';
 
-        // إذا كانت صفحة النتائج كاملة معروضة، ننقل شريط التقدم إليها
-        if (isValidationPageVisible && progressContainer && pageFooter) {
-            pageFooter.before(progressContainer);
-            progressContainer.classList.remove('hidden');
-            progressContainer.style.display = 'block';
-            progressContainer.style.visibility = 'visible';
-            progressContainer.style.opacity = '1';
-            progressContainer.style.zIndex = '9999';
-        } else if (progressContainer) {
-            progressContainer.classList.remove('hidden');
-            progressContainer.style.display = 'block'; // استخدام block كقيمة افتراضية آمنة
-            progressContainer.style.visibility = 'visible';
-            progressContainer.style.opacity = '1';
-            progressContainer.style.zIndex = '9999';
-        }
-
-        // إخفاء أزرار الحفظ لمنع الضغط المتكرر
-        if (activeFooter) {
-            activeFooter.style.display = 'none';
-        }
-        
-        // إخفاء الأزرار في الواجهة الجديدة أيضاً إذا كانت موجودة
-        if (pageFooter && isValidationPageVisible) {
-             pageFooter.style.display = 'none';
-        }
-
-        // إعطاء فرصة للمتصفح لرسم شريط التقدم قبل تجميد الخيط بعملية التحويل إلى JSON
-        await new Promise(r => setTimeout(r, 50));
-
-        const startTime = Date.now();
         try {
             const importInfo = {
                 filename: file.name,
-                size: this.formatFileSize(file.size),
+                size: this.formatFileSize(file.size), // Use helper
                 headers: headers
             };
 
-            // تهيئة شريط التقدم
-            let currentProgress = 0;
-            if (progressBar) progressBar.style.width = '5%';
-            if (progressPercent) progressPercent.textContent = '5%';
-
+            // محاكاة شريط التقدم للتحميل
+            let progress = 0;
             const interval = setInterval(() => {
-                currentProgress += Math.random() * 5;
-                if (currentProgress > 92) {
+                progress += Math.random() * 15;
+                if (progress > 90) {
                     clearInterval(interval);
-                    currentProgress = 92;
+                    progress = 92;
                 }
-                if (progressBar) progressBar.style.width = currentProgress + '%';
-                if (progressPercent) progressPercent.textContent = Math.floor(currentProgress) + '%';
-            }, 100);
+                if (progressBar) progressBar.style.width = progress + '%';
+                if (progressPercent) progressPercent.textContent = Math.floor(progress) + '%';
+            }, 200);
 
-            console.log('[SAVE] Executing API Call...');
-            const response = this.isSalaryImport 
-                ? await this.db.saveSalaryReturns(data, importInfo)
-                : await this.db.saveReturns(data, importInfo);
+            console.log('[SAVE] Calling save function...');
+            const success = this.isSalaryImport 
+                ? await db.saveSalaryReturns(data, importInfo)
+                : await db.saveReturns(data, importInfo);
 
             clearInterval(interval);
-            
-            if (response && response.success !== false) {
-                console.log('[SAVE] API Success report received');
-                
-                // الانتقال فوراً لـ 100%
+            if (success) {
+                // محاكاة اكتمال الشريط
                 if (progressBar) progressBar.style.width = '100%';
                 if (progressPercent) progressPercent.textContent = '100%';
 
-                // انتظار كافٍ لضمان معالجة البيانات وانعكاسها في قاعدة بيانات السيرفر
-                console.log('[SAVE] Waiting for DB stabilization...');
-                await new Promise(r => setTimeout(r, 1200));
-
-                // مسح الكاش مرة أخرى للتأكيد قبل التحميل
-                this.returnsCache = null;
-                this.salaryReturnsCache = null;
-                
-                this.hideValidationModal();
-                this.hideValidationResultsPage();
-                
-                // إخفاء شريط التقدم هنا بعد الإغلاق
-                if (progressContainer) {
-                    progressContainer.classList.add('hidden');
-                    progressContainer.style.display = 'none';
-                    if (originalProgressParent && progressContainer.parentElement !== originalProgressParent) {
-                        if (originalProgressNext) {
-                            originalProgressParent.insertBefore(progressContainer, originalProgressNext);
-                        } else {
-                            originalProgressParent.appendChild(progressContainer);
-                        }
+                setTimeout(async () => {
+                    this.hideValidationModal();
+                    this.hideValidationResultsPage();
+                    
+                    if (this.isSalaryImport) {
+                        this.navigateTo('salary-returns');
+                        await this.loadSalaryReturns(1);
+                        this.showToast('تم حفظ ' + data.length + ' سجل مرتبات بنجاح ✅', 'success');
+                    } else {
+                        this.navigateTo('returns');
+                        await this.loadReturns(1);
+                        this.showToast('تم حفظ ' + data.length + ' سجل بنجاح ✅', 'success');
                     }
-                }
-
-                if (this.isSalaryImport) {
-                    this.navigateTo('salary-returns');
-                    
-                    // تصفير فلاتر البحث للمرتبات
-                    const salarySearch = document.getElementById('salary-table-search');
-                    if (salarySearch) salarySearch.value = "";
-                    
-                    await this.loadSalaryReturns(1, 50, "");
-                    this.showToast('تم حفظ ' + data.length + ' سجل مرتبات بنجاح ✅', 'success');
-                } else {
-                    this.navigateTo('returns');
-                    
-                    // تصفير أي فلاتر بحث أو شهر لضمان ظهور البيانات الجديدة برمجياً وفي الـ DOM
-                    this.searchQuery = "";
-                    this.monthFilterValue = "all";
-                    
-                    const mainSearch = document.getElementById('table-search');
-                    if (mainSearch) mainSearch.value = "";
-                    
-                    const mFilter = document.getElementById('month-filter');
-                    if (mFilter) mFilter.value = "all";
-                    
-                    const sFilter = document.getElementById('settlement-filter');
-                    if (sFilter) sFilter.value = "all";
-
-                    console.log('[SAVE] Reloading returns table...');
-                    // مسح البيانات الحالية فوراً لإعطاء انطباع بالتحديث
-                    this.data = [];
-                    this.renderTable([], false);
-                    
-                    await this.loadReturns(1, 50, "", "all", "all", false);
-                    this.showToast('تم حفظ ' + data.length + ' سجل بنجاح ✅', 'success');
-                    
-                    // تحديث الكاش في الخلفية
-                    setTimeout(() => this.populateReturnsCache(), 1000);
-                }
+                }, 500);
 
             } else {
-                throw new Error(response && response.message ? response.message : 'فشل السيرفر في تأكيد عملية الحفظ');
+                throw new Error('فشل اتصال الخادم');
             }
         } catch (error) {
-            console.error('[SAVE] Critical Error:', error);
+            console.error('[SAVE] Error:', error);
             this.showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
-            if (activeFooter) activeFooter.style.display = ''; // إعادة الأزرار في حالة الفشل
-            if (pageFooter && isValidationPageVisible) pageFooter.style.display = ''; 
+            if (progressContainer) progressContainer.classList.add('hidden');
+            if (modalFooter) modalFooter.style.display = 'flex';
         } finally {
-            // إخفاء شريط التقدم وإخفاء التحميل
-            if (progressContainer) {
-                progressContainer.classList.add('hidden');
-                progressContainer.style.display = 'none';
-                
-                // استعادة المكان الأصلي إذا لم يتم إعادته
-                if (originalProgressParent && progressContainer.parentElement !== originalProgressParent) {
-                    if (originalProgressNext) {
-                        originalProgressParent.insertBefore(progressContainer, originalProgressNext);
-                    } else {
-                        originalProgressParent.appendChild(progressContainer);
-                    }
-                }
-            }
             this.hideLoading();
         }
     }
@@ -5109,10 +5021,11 @@ class App {
                 formData.append('file', file);
 
                 try {
-                    const result = await db.fetchApi(`${baseUrl}/attachments/${this.currentReturnId}`, {
+                    const res = await fetch(`${baseUrl}/attachments/${this.currentReturnId}?user=${encodeURIComponent((window.app?.currentUser?.fullname || window.app?.currentUser?.FullName || window.app?.currentUser?.username || window.auth?.currentUser?.fullname || JSON.parse(localStorage.getItem('returns_session') || '{}')?.fullname || 'مستخدم'))}`, {
                         method: 'POST',
                         body: formData
                     });
+                    const result = await res.json();
                     if (result.success) {
                         successCount++;
                         // Immediate feedback: refresh list after each success
@@ -5180,7 +5093,8 @@ class App {
         else if (this.currentAttachmentType === 'salary') baseUrl = '/salary-returns';
 
         try {
-            const result = await db.fetchApi(`${baseUrl}/attachment/${id}`, { method: 'DELETE' });
+            const res = await fetch(`${baseUrl}/attachment/${id}?user=${encodeURIComponent((window.app?.currentUser?.fullname || window.app?.currentUser?.FullName || window.app?.currentUser?.username || window.auth?.currentUser?.fullname || JSON.parse(localStorage.getItem('returns_session') || '{}')?.fullname || 'مستخدم'))}`, { method: 'DELETE' });
+            const result = await res.json();
             if (result.success) {
                 this.showToast('تم حذف الملف', 'success');
                 if (this.currentReturnId) {
@@ -6715,7 +6629,7 @@ class App {
         } catch (error) {
             console.error('Unified Sync Error:', error);
             if (status) status.textContent = 'فشلت المزامنة!';
-            this.showUnifiedToast('فشل تحديث البياناʡ يرجى المحاولة لاحقاً', 'error', 'خطأ في المزامنة');
+            this.showUnifiedToast('فشل تحديث البيانات، يرجى المحاولة لاحقاً', 'error', 'خطأ في المزامنة');
         }
     }
 
@@ -8956,7 +8870,7 @@ App.prototype.saveEditSalaryReturn = async function() {
 
     this.showLoading();
     try {
-        const res = await fetch(`/salary-returns/${id}`, {
+        const res = await fetch(`/salary-returns/${id}?user=${encodeURIComponent((window.app?.currentUser?.fullname || window.app?.currentUser?.FullName || window.app?.currentUser?.username || window.auth?.currentUser?.fullname || JSON.parse(localStorage.getItem('returns_session') || '{}')?.fullname || 'مستخدم'))}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedData)
@@ -9142,24 +9056,23 @@ App.prototype.exportSalaryToExcel = async function () {
     }
 };
 
-App.prototype.refreshCurrentPage = async function () {
-    console.log('[REFRESH] Refreshing current page with cache invalidation (Async):', this.currentPage);
+App.prototype.refreshCurrentPage = function () {
+    console.log('[REFRESH] Smart partial refresh for:', this.currentPage);
     
-    // Invalidate local caches to force fresh fetch from DB
     if (this.currentPage === 'returns') {
-        this.returnsCache = null;
-        const page = (this.pagination && this.pagination.currentPage) ? this.pagination.currentPage : 1;
         const itemsPerPage = (this.pagination && this.pagination.itemsPerPage) ? this.pagination.itemsPerPage : 50;
-        await this.loadReturns(page, itemsPerPage, this.currentSearch, this.currentFilter);
+        this.loadReturns(this.pagination?.currentPage || 1, itemsPerPage, this.searchQuery || '', this.filterValue || 'all', this.attachmentFilterValue || 'all');
     } else if (this.currentPage === 'salary-returns') {
-        this.salaryReturnsCache = null;
-        const page = (this.salaryPagination && this.salaryPagination.currentPage) ? this.salaryPagination.currentPage : 1;
         const itemsPerPage = (this.salaryPagination && this.salaryPagination.itemsPerPage) ? this.salaryPagination.itemsPerPage : 200;
-        await this.loadSalaryReturns(page, itemsPerPage, this.salarySearchQuery);
+        this.loadSalaryReturns(this.salaryPagination?.currentPage || 1, itemsPerPage, this.salarySearchQuery || '', this.salaryFilterValue || 'all', this.salaryAttachmentFilterValue || 'all');
     } else if (this.currentPage === 'full-returns') {
-        await this.loadFullReturns(1, 100, this.searchQuery, true);
+        this.loadFullReturns(1, 50, this.searchQuery || '', true);
     } else if (this.currentPage === 'dashboard') {
-        if (this.loadDashboardStats) await this.loadDashboardStats();
+        if (typeof this.loadDashboardStats === 'function') this.loadDashboardStats();
+    } else if (this.currentPage === 'archive') {
+        if (typeof this.loadArchive === 'function') this.loadArchive();
+    } else if (this.currentPage === 'smart-payment') {
+        if (typeof this.runSmartPaymentMatch === 'function') this.runSmartPaymentMatch();
     }
 };
 
@@ -9238,7 +9151,7 @@ App.prototype.saveHubUrl = function () {
 App.prototype.initSignalR = function () {
     try {
         if (!window.signalR) {
-            console.warn('[RealTime] SignalR library not loaded. Auto-updates disabled.');
+            console.warn('[RealTime] SignalR library not loaded.');
             return;
         }
 
@@ -9250,92 +9163,117 @@ App.prototype.initSignalR = function () {
                 .withAutomaticReconnect()
                 .build();
 
+            let dbChangeTimeout;
+            let dbChangeQueue = [];
+
+            const processQueue = async () => {
+                const queueCopy = [...dbChangeQueue];
+                dbChangeQueue = [];
+                if (queueCopy.length === 0) return;
+
+                let actionUser = '';
+                const summary = {};
+                
+                queueCopy.forEach(item => {
+                    if (item.user && !actionUser) actionUser = item.user;
+                    
+                    let opName = item.operation;
+                    // ترجمة العمليات الأساسية من النظام
+                    const opMap = {
+                        "INSERT": "إضافة",
+                        "UPDATE": "تعديل",
+                        "DELETE": "حذف",
+                        "UPDATE_SYS": "تحديث",
+                        "تسوية": "سداد/تسوية",
+                        "استيراد": "استيراد بيانات",
+                        "رفع مرفق": "إضافة مرفق",
+                        "حذف مرفق": "حذف مرفق",
+                        "مزامنة": "مزامنة مجمعة",
+                        "سداد ذكي": "سداد ذكي"
+                    };
+                    
+                    const finalOpName = opMap[opName] || opName;
+                    if (!summary[finalOpName]) {
+                        summary[finalOpName] = 0;
+                    }
+                    summary[finalOpName]++;
+                });
+
+                const isSmartSettlement = queueCopy.some(item => item.operation === 'سداد ذكي' || item.table === 'SmartSettlement');
+                
+                let notifyMessage = '';
+                const opsArray = Object.keys(summary).map(op => `${op} (${summary[op]})`);
+                
+                if (isSmartSettlement) {
+                    const count = queueCopy.length;
+                    notifyMessage = `تم انتهاء السداد الذكي لعدد (${count}) سجل. هل تريد التحديث؟`;
+                } else {
+                    notifyMessage = `تم تسجيل العمليات: ${opsArray.join(' | ')}. هل تريد التحديث؟`;
+                }
+
+                this.playNotificationSound();
+                const target = window.app || this;
+                if (typeof target.showSignalRNotification === 'function') {
+                    target.showSignalRNotification(notifyMessage, actionUser || 'النظام');
+                } else {
+                    this.showSignalRNotification(notifyMessage, actionUser || 'النظام');
+                }
+            };
+
             this.hubConnection.on("DbChange", (e) => {
-                const opMap = { 
-                    "INSERT": "إضافة", "UPDATE": "تعديل", "DELETE": "حذف", 
-                    "حذف": "حذف", "تعديل": "تعديل", "استيراد": "استيراد", 
-                    "تسوية": "تسوية", "رفع مرفق": "رفع مرفق", "حذف مرفق": "حذف مرفق" 
-                };
-                const tableMap = {
-                    "Returns": "مرتدات الحوافز",
-                    "SalaryReturns": "مرتدات المرتبات",
-                    "Archives": "الأرشيف",
-                    "SalaryArchives": "أرشيف المرتبات",
-                    "FullReturns": "البحث الشامل"
-                };
+                // Ignore if it's our own action
+                const myName = this.currentUser?.fullname || this.currentUser?.FullName || "";
+                if (myName && e.user === myName) return;
 
-                const user = e?.user || "مستخدم آخر";
-                const op = opMap[e?.operation] || e?.operation || "تحديث";
-                const table = tableMap[e?.table] || e?.table || e?.table || "البيانات";
-
-                // Robust Name Comparison
-                const currentName = (this.currentUser?.fullname || this.currentUser?.FullName || "").trim();
-                const eventUser = (user || "").trim();
-
-                if (currentName && eventUser && currentName === eventUser) {
-                    if (this.showUnifiedToast) {
-                        this.showUnifiedToast(`تم تنفيذ عملية (${op}) بنجاح`, 'success', 'تأكيد العملية');
-                    }
-                    return;
-                }
-                
-                // الآخرون تظهر لهم البطاقة التفاعلية
-                this.playNotificationSound();
-                this.showSignalRNotification(table, user, op);
+                if (window.dbLastActionTime && (Date.now() - window.dbLastActionTime < 15000)) return;
+                dbChangeQueue.push(e);
+                clearTimeout(dbChangeTimeout);
+                dbChangeTimeout = setTimeout(processQueue, 3000);
             });
 
-            this.hubConnection.on("UpdateData", (source, user, op) => {
-                console.info(`[RealTime] Data update signal received from: ${source} by ${user}`);
+            this.hubConnection.on("UpdateData", (source, user, operation) => {
+                // If the operation is from current user, ignore it to avoid annoyance
+                const myName = this.currentUser?.fullname || this.currentUser?.FullName || "";
+                if (myName && user === myName) return;
                 
-                const sourceMap = {
-                    'Returns': 'مرتادات الحوافز',
-                    'SalaryReturns': 'مرتادات المرتبات',
-                    'SmartSettlement': 'السداد الذكي',
-                    'Archive': 'الأرشيف',
-                    'SalaryArchive': 'أرشيف المرتبات'
-                };
-                const sourceName = sourceMap[source] || source;
-                const operation = op || "تحديث البيانات";
-
-                // Robust Name Comparison
-                const currentName = (this.currentUser?.fullname || this.currentUser?.FullName || "").trim();
-                const eventUser = (user || "").trim();
-
-                if (currentName && eventUser && currentName === eventUser) {
-                    if (this.showUnifiedToast) {
-                        this.showUnifiedToast(`اكتملت عملية (${operation}) بنجاح`, 'success', sourceName);
-                    }
-                    return;
-                }
-
-                this.playNotificationSound();
-                this.showSignalRNotification(sourceName, user, operation);
+                dbChangeQueue.push({ 
+                    table: source, 
+                    operation: operation || 'UPDATE_SYS', 
+                    user: user 
+                });
+                
+                clearTimeout(dbChangeTimeout);
+                dbChangeTimeout = setTimeout(processQueue, 3000);
             });
 
-            this.hubConnection.onreconnecting(() => this.updateSignalRUI('reconnecting'));
-            this.hubConnection.onreconnected(() => this.updateSignalRUI('online'));
-            this.hubConnection.onclose(() => this.updateSignalRUI('offline'));
+            this.hubConnection.onreconnecting((error) => {
+                console.warn('[RealTime] SignalR reconnecting due to error:', error);
+                this.showToast('فقد الاتصال بالسيرفر، جاري محاولة إعادة الاتصال...', 'warning');
+            });
+
+            this.hubConnection.onreconnected(async (connectionId) => {
+                console.log('[RealTime] SignalR reconnected. Refreshing cache...');
+                this.showSplashScreen("جاري تحديث البيانات بعد استعادة الاتصال...");
+                this.updateSplashProgress(10, 'جاري استعادة الاتصال...');
+                
+                try {
+                    await this.populateReturnsCache((p, t) => this.updateSplashProgress(10 + (p * 0.4), t)); // 10-50%
+                    await this.populateSalaryReturnsCache((p, t) => this.updateSplashProgress(50 + (p * 0.4), t)); // 50-90%
+                    this.updateSplashProgress(100, 'تم تحديث البيانات بنجاح');
+                    this.refreshCurrentPage();
+                } catch (e) {
+                    this.updateSplashProgress(100, 'فشل تحديث البيانات التلقائي');
+                }
+            });
 
             this.hubConnection.start()
-                .then(() => {
-                    const urlInfo = this.hubConnection.connection.baseUrl || url;
-                    console.log(`[RealTime] Connected to SignalR Hub at: ${urlInfo}`);
-                    this.updateSignalRUI('online');
-                })
-                .catch(err => {
-                    console.error("[RealTime] Error connecting to SignalR:", err);
-                    this.updateSignalRUI('offline');
-                    if (window.app && window.app.showUnifiedToast) {
-                        window.app.showUnifiedToast('فشل الاتصال بنظام الإشعارات اللحظية. يرجى التحقق من جدار الحماية.', 'warning', 'نظام الإشعارات');
-                    }
-                });
+                .then(() => console.log('[RealTime] Connected to SignalR Hub'))
+                .catch(err => console.error("[RealTime] Error connecting:", err));
         };
 
         if (customUrl === "/notificationHub") {
             this.computeAutoHubUrl()
-                .then(autoUrl => {
-                    buildConnection(autoUrl || customUrl);
-                })
+                .then(autoUrl => buildConnection(autoUrl || customUrl))
                 .catch(() => buildConnection(customUrl));
         } else {
             buildConnection(customUrl);
@@ -9347,133 +9285,100 @@ App.prototype.initSignalR = function () {
 };
 
 /**
- * Show a pleasant, non-intrusive floating notification card
+ * Show a non-blocking notification banner at the top of the screen
  */
-App.prototype.showSignalRNotification = function (sourceName, user, operation = "تحديث") {
-    const cardId = 'signalr-notification-card';
-    let card = document.getElementById(cardId);
+App.prototype.showSignalRNotification = function (message, user) {
+    const bannerId = 'signalr-notification-banner';
+    let banner = document.getElementById(bannerId);
     
-    if (card) card.remove();
+    if (banner) banner.remove();
     
-    card = document.createElement('div');
-    card.id = cardId;
-    card.dir = 'rtl';
-    card.style.cssText = `
+    banner = document.createElement('div');
+    banner.id = bannerId;
+    banner.dir = 'rtl';
+    banner.style.cssText = `
         position: fixed;
-        top: 25px;
-        left: 25px;
-        width: 400px;
-        background: linear-gradient(135deg, rgba(13, 22, 35, 0.95) 0%, rgba(20, 35, 55, 0.9) 100%);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
+        top: 0;
+        left: 0;
+        right: 0;
+        background: rgba(13, 22, 35, 0.98);
         color: white;
-        padding: 22px;
-        z-index: 20000;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-left: 6px solid #00f0ff;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 0 20px rgba(0, 240, 255, 0.05);
-        font-family: 'Cairo', sans-serif;
-        animation: slideInNotificationLeft 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+        padding: 15px 30px;
+        z-index: 999999;
         display: flex;
-        flex-direction: column;
-        gap: 18px;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        animation: slideDownSignalR 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        font-family: 'Cairo', sans-serif;
+        border-bottom: 3px solid #00f0ff;
     `;
     
-    // Add Animations
-    if (!document.getElementById('anim-signalr-professional')) {
+    if (!document.getElementById('slide-down-anim-signalr')) {
         const style = document.createElement('style');
-        style.id = 'anim-signalr-professional';
+        style.id = 'slide-down-anim-signalr';
         style.innerHTML = `
-            @keyframes slideInNotificationLeft {
-                from { transform: translateX(-120%) scale(0.9); opacity: 0; }
-                to { transform: translateX(0) scale(1); opacity: 1; }
-            }
-            @keyframes fadeOutNotificationLeft {
-                to { transform: translateX(-120%) scale(0.9); opacity: 0; }
-            }
-            @keyframes pulseBorder {
-                0% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.4); }
-                70% { box-shadow: 0 0 0 10px rgba(0, 240, 255, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); }
+            @keyframes slideDownSignalR {
+                from { transform: translateY(-100%); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
             }
         `;
         document.head.appendChild(style);
     }
     
-    card.innerHTML = `
-        <div style="display: flex; align-items: flex-start; gap: 15px;">
-            <div style="min-width: 50px; height: 50px; background: rgba(0, 240, 255, 0.15); border-radius: 15px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,240,255,0.1);">
-                <i class="fas fa-satellite-dish" style="color: #00f0ff; font-size: 1.4em;"></i>
+    banner.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <div style="width: 40px; height: 40px; background: rgba(0, 240, 255, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                <i class="fas fa-bell fa-shake" style="color: #00f0ff; animation-iteration-count: 2;"></i>
             </div>
-            <div style="flex: 1;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                    <span style="font-size: 0.8em; color: #00f0ff; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">تحديث لحظي</span>
-                    <span style="font-size: 0.75em; color: #555;">الآن</span>
-                </div>
-                <div style="line-height: 1.6; font-size: 1em; color: #e0e0e0;">
-                    <strong style="color: #ffc107;">${user}</strong> قام بـ <span style="background: rgba(0,240,255,0.1); padding: 2px 8px; border-radius: 6px; color: #00f0ff;">${operation}</span> 
-                    في <span style="font-weight: bold; color: #fff;">${sourceName}</span>.
-                </div>
+            <div style="font-size: 1.05em;">
+                <strong style="color: #ffc107;">[${user}]:</strong> ${message}
             </div>
         </div>
-        
-        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px; font-size: 0.9em; color: #aaa; text-align: center; border: 1px dashed rgba(255,255,255,0.05);">
-            هل ترغب في مزامنة البيانات الحالية؟
-        </div>
-
         <div style="display: flex; gap: 12px;">
-            <button id="noti-accept" class="btn" style="flex: 2; background: #00f0ff; color: #0d1623; font-weight: 800; padding: 12px; border-radius: 12px; border: none; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 0.95em; animation: pulseBorder 2s infinite;">
-                <i class="fas fa-sync-alt"></i> نعم، تحديث الآن
+            <button id="banner-accept" class="btn" style="background: #00f0ff; color: #0d1623; font-weight: 800; padding: 6px 25px; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s;">
+                <i class="fas fa-check-circle"></i> نعم، التحديث
             </button>
-            <button id="noti-close" class="btn" style="flex: 1; background: rgba(255,255,255,0.05); color: #888; border: 1px solid rgba(255,255,255,0.08); padding: 12px; border-radius: 12px; cursor: pointer; transition: all 0.3s; font-size: 0.9em;">
-                تجاهل
+            <button id="banner-close" class="btn" style="background: transparent; color: #888; border: 1px solid #444; padding: 6px 20px; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+                لاحقاً
             </button>
         </div>
     `;
     
-    document.body.appendChild(card);
+    document.body.appendChild(banner);
     
-    const acceptBtn = document.getElementById('noti-accept');
-    const closeBtn = document.getElementById('noti-close');
+    const acceptBtn = document.getElementById('banner-accept');
+    const closeBtn = document.getElementById('banner-close');
 
-    const removeCard = (delay = 500) => {
-        card.style.animation = 'fadeOutNotificationLeft 0.8s cubic-bezier(0.19, 1, 0.22, 1) forwards';
-        setTimeout(() => card.remove(), delay);
-    };
-
-    acceptBtn.onclick = async () => {
-        // Feedback State
-        acceptBtn.disabled = true;
-        acceptBtn.style.background = '#10b981';
-        acceptBtn.style.color = 'white';
-        acceptBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري المزامنة...';
-        
-        try {
-            await this.refreshCurrentPage();
-            
-            // Success Mark
-            acceptBtn.innerHTML = '<i class="fas fa-check-circle"></i> تم التحديث بنجاح';
-            setTimeout(() => removeCard(800), 1200);
-        } catch (e) {
-            acceptBtn.style.background = '#ef4444';
-            acceptBtn.innerHTML = '<i class="fas fa-times-circle"></i> فشل التحديث';
-            setTimeout(() => removeCard(800), 2000);
-        }
+    acceptBtn.onclick = () => {
+        this.refreshCurrentPage();
+        banner.style.transition = 'all 0.4s ease-in';
+        banner.style.transform = 'translateY(-100%)';
+        banner.style.opacity = '0';
+        setTimeout(() => banner.remove(), 400);
     };
     
-    closeBtn.onclick = () => removeCard();
+    closeBtn.onclick = () => {
+        banner.style.transition = 'all 0.4s ease-in';
+        banner.style.transform = 'translateY(-100%)';
+        banner.style.opacity = '0';
+        setTimeout(() => banner.remove(), 400);
+    };
     
-    // Hover effects
-    acceptBtn.onmouseover = () => { if (!acceptBtn.disabled) { acceptBtn.style.transform = 'translateY(-3px)'; acceptBtn.style.boxShadow = '0 8px 20px rgba(0,240,255,0.3)'; } };
-    acceptBtn.onmouseout = () => { if (!acceptBtn.disabled) { acceptBtn.style.transform = 'translateY(0)'; acceptBtn.style.boxShadow = 'none'; } };
-    closeBtn.onmouseover = () => { closeBtn.style.background = 'rgba(255,255,255,0.1)'; closeBtn.style.color = 'white'; closeBtn.style.borderColor = 'rgba(255,255,255,0.2)'; };
-    closeBtn.onmouseout = () => { closeBtn.style.background = 'rgba(255,255,255,0.05)'; closeBtn.style.color = '#888'; closeBtn.style.borderColor = 'rgba(255,255,255,0.08)'; };
+    acceptBtn.onmouseover = () => { acceptBtn.style.background = '#00d0dd'; acceptBtn.style.boxShadow = '0 0 15px rgba(0,240,255,0.4)'; };
+    acceptBtn.onmouseout = () => { acceptBtn.style.background = '#00f0ff'; acceptBtn.style.boxShadow = 'none'; };
+    closeBtn.onmouseover = () => { closeBtn.style.color = 'white'; closeBtn.style.borderColor = 'white'; };
+    closeBtn.onmouseout = () => { closeBtn.style.color = '#888'; closeBtn.style.borderColor = '#444'; };
 
-    // Auto remove after 20 seconds
     setTimeout(() => {
-        if (card && card.parentElement && !acceptBtn.disabled) removeCard();
-    }, 25000);
+        if (banner.parentElement) {
+            banner.style.transition = 'all 0.4s ease-in';
+            banner.style.transform = 'translateY(-100%)';
+            banner.style.opacity = '0';
+            setTimeout(() => banner.remove(), 400);
+        }
+    }, 15000);
 };
 
 /**
@@ -9518,3 +9423,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = new App();
     window.app.init(); // تفعيل تشغيل التطبيق
 });
+
+// Removed location.reload overwrite to support smart partial refresh
+
