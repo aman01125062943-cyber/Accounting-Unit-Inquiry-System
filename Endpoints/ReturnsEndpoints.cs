@@ -399,6 +399,7 @@ public static class ReturnsEndpoints
                     obj["رقم تسوية التعلية"] = rowDict.ContainsKey("رقم تسوية التعلية") ? rowDict["رقم تسوية التعلية"] : "";
                     obj["رقم تسوية السداد"] = rowDict.ContainsKey("رقم تسوية السداد") ? rowDict["رقم تسوية السداد"] : "";
                     
+                    obj.Remove("رقم التسوية");
                     obj["AttachmentCount"] = attachmentCounts.ContainsKey((long)r.Id) ? attachmentCounts[(long)r.Id] : 0;
                 }
                 return obj;
@@ -636,9 +637,10 @@ public static class ReturnsEndpoints
                 
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody);
                 if (obj != null) {
-                    var mod = obj.ContainsKey("تاريخ اعتماد التعديل") ? obj["تاريخ اعتماد التعديل"] : null;
-                    var hasDate = mod != null && !string.IsNullOrWhiteSpace(mod.ToString());
-                    obj["حالة التسوية"] = hasDate ? "تمت التسوية" : "لم يتم التسوية";
+                    // Settlement status based on رقم تسوية السداد (not تاريخ اعتماد التعديل)
+                    var settlementNo = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
+                    var hasSettlement = settlementNo != null && !string.IsNullOrWhiteSpace(settlementNo.ToString());
+                    obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
                     rawBody = JsonSerializer.Serialize(obj, new JsonSerializerOptions {
                         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
                     });
@@ -686,7 +688,7 @@ public static class ReturnsEndpoints
                                 // Add or update settlement fields
                                 obj["تاريخ اعتماد التعديل"] = now;
                                 obj["تاريخ التسوية"] = now;
-                                obj["حالة التسوية"] = "تمت التسوية";
+                                obj["حالة التسوية"] = "تم التسوية";
                                 
                                 var updatedRaw = JsonSerializer.Serialize(obj, new JsonSerializerOptions { 
                                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) 

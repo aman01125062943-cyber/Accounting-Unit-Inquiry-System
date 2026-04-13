@@ -2529,90 +2529,53 @@ select:focus {
     max-width: 250px;
 }
 
-/* Sticky Column for Name */
-.data-table .sticky-col {
+/* --- Sticky Columns - Custom Setup for '#', 'الاسم', 'قيمة العملية' --- */
+
+/* 1. Sequence Column (#) */
+.data-table .sticky-seq {
     position: sticky !important;
     right: 0 !important;
     z-index: 10;
-    background: #1e293b !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.2);
-    width: 45px !important;
-    min-width: 45px !important;
-    max-width: 45px !important;
+    width: 60px !important;
+    min-width: 60px !important;
+    max-width: 60px !important;
     text-align: center !important;
-}
-
-.data-table tbody tr:nth-child(even) .sticky-col {
-    background: #1a2230 !important; 
-}
-
-.data-table tbody tr:hover .sticky-col {
-    background: rgba(0, 240, 255, 0.15) !important;
-}
-
-.data-table .sticky-col-2 {
-    position: sticky !important;
-    right: 45px !important; /* Matches width of first column exactly */
-    z-index: 10;
     background: #1e293b !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    box-shadow: -2px 0 5px rgba(0,0,0,0.3);
 }
+.data-table tbody tr:nth-child(even) .sticky-seq { background: #1a2230 !important; }
+.data-table tbody tr:hover .sticky-seq { background: #163650 !important; } /* Opaque hover */
+.data-table th.sticky-seq { z-index: 101 !important; background: #334155 !important; }
 
-.data-table tbody tr:nth-child(even) .sticky-col-2 {
-    background: #1a2230 !important; 
-}
-
-.data-table tbody tr:hover .sticky-col-2 {
-    background: rgba(0, 240, 255, 0.15) !important;
-}
-
-.data-table th.sticky-col-2 {
-    z-index: 101;
-    background: #334155 !important;
-}
-
-.data-table .sticky-col-3 {
+/* 2. Name Column (الاسم) */
+.data-table .sticky-name {
     position: sticky !important;
-    right: 95px !important;
+    right: 60px !important; /* right: offset equals width of seq */
     z-index: 10;
+    width: 220px !important;
+    min-width: 220px !important;
+    max-width: 220px !important;
     background: #1e293b !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    box-shadow: -2px 0 5px rgba(0,0,0,0.3);
 }
+.data-table tbody tr:nth-child(even) .sticky-name { background: #1a2230 !important; }
+.data-table tbody tr:hover .sticky-name { background: #163650 !important; }
+.data-table th.sticky-name { z-index: 101 !important; background: #334155 !important; }
 
-.data-table tbody tr:nth-child(even) .sticky-col-3 {
-    background: #1a2230 !important; 
-}
-
-.data-table tbody tr:hover .sticky-col-3 {
-    background: rgba(0, 240, 255, 0.15) !important;
-}
-
-.data-table th.sticky-col-3 {
-    z-index: 101;
-    background: #334155 !important;
-}
-
-/* New Sticky Column 4 for Process Value */
-.data-table .sticky-col-4 {
+/* 3. Amount Column (قيمة العملية) */
+.data-table .sticky-amount {
     position: sticky !important;
-    right: 295px !important; /* Offset: 95 + 200 = 295 */
+    right: 280px !important; /* offset: 60 + 220 = 280 */
     z-index: 10;
+    width: 140px !important;
+    min-width: 140px !important;
+    max-width: 140px !important;
     background: #1e293b !important;
-    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    box-shadow: -2px 0 5px rgba(0,0,0,0.3);
 }
-
-.data-table tbody tr:nth-child(even) .sticky-col-4 {
-    background: #1a2230 !important; 
-}
-
-.data-table tbody tr:hover .sticky-col-4 {
-    background: rgba(0, 240, 255, 0.15) !important;
-}
-
-.data-table th.sticky-col-4 {
-    z-index: 101;
-    background: #334155 !important;
-}
+.data-table tbody tr:nth-child(even) .sticky-amount { background: #1a2230 !important; }
+.data-table tbody tr:hover .sticky-amount { background: #163650 !important; }
+.data-table th.sticky-amount { z-index: 101 !important; background: #334155 !important; }
 
 .data-table td .amount-positive {
     color: #10b981;

@@ -1056,6 +1056,7 @@ class App {
             k !== 'id' && k !== 'Id' && k !== 'AttachmentCount' &&
             k !== 'importId' && k !== '_conflictDetailsMultiAccOriginal' &&
             k !== 'كود المرتد' && k !== 'كود_المرتد' &&
+            k !== 'رقم التسوية' && // إخفاء العمود المطلوب حذفه
             !k.startsWith('_') // تجاهل الحقول البرمجية المخفية
         );
 
@@ -1736,71 +1737,43 @@ class App {
                 return;
             }
             emptyState.classList.add('hidden');
+            
+            // الترتيب الصارم والنهائي للأعمدة ليتطابق مع الصورة تماماً
+            const finalOrder = [
+                '#',
+                'كود الملف',
+                'الاسم',
+                'رقم الحساب',
+                'البنك',
+                'قيمة العملية',
+                'الحالة',
+                'السبب',
+                'رقم الحساب بعد التعديل',
+                'البنك بعد التعديل',
+                'كود الفرع بعد التعديل',
+                'تاريخ الرفع',
+                'رقم تسوية التعلية',
+                'تاريخ المرتد / تاريخ التعلية',
+                'تاريخ التعديل',
+                'تاريخ اعتماد التعديل',
+                'رقم تسوية السداد',
+                'تاريخ اعتماد التعديل / تاريخ السداد',
+                'حالة التسوية'
+            ];
 
-            // إعادة ترتيب الأعمدة: وضع الاسم في المقدمة دائمًا
-            let displayHeaders = [...this.headers];
-            const nameKeys = ['الاسم', 'الاســــم', 'Name', 'FullName'];
-            const nameIdx = displayHeaders.findIndex(h => nameKeys.includes(h));
+            this._displayHeaders = finalOrder; 
 
-            if (nameIdx !== -1) {
-                const nameHeader = displayHeaders.splice(nameIdx, 1)[0];
-                displayHeaders.unshift(nameHeader);
-            }
-
-            // إضافة "الرقم القومي" بعد الاسم مباشرة إذا لم يكن موجوداً
-            if (!displayHeaders.some(h => h.includes('الرقم القومي') || h.includes('الرقم_القومي'))) {
-                const currentNameIdx = displayHeaders.findIndex(h => nameKeys.includes(h));
-                if (currentNameIdx !== -1) {
-                    displayHeaders.splice(currentNameIdx + 1, 0, 'الرقم القومي');
-                } else {
-                    displayHeaders.unshift('الرقم القومي');
-                }
-            }
-
-            // إضافة عمود "الشهر" بعد الرقم القومي
-            if (!displayHeaders.includes('الشهر')) {
-                const nidIdx = displayHeaders.findIndex(h => h.includes('الرقم القومي') || h.includes('الرقم_القومي'));
-                if (nidIdx !== -1) {
-                    displayHeaders.splice(nidIdx + 1, 0, 'الشهر');
-                } else {
-                    displayHeaders.push('الشهر');
-                }
-            }
-
-            // إضافة عمود "تاريخ الرفع" قبل الإجراءات مباشرة
-            if (!displayHeaders.includes('تاريخ الرفع')) {
-                // Remove if exists elsewhere to reposition
-                const existIdx = displayHeaders.indexOf('تاريخ الرفع');
-                if (existIdx !== -1) displayHeaders.splice(existIdx, 1);
-                displayHeaders.push('تاريخ الرفع');
-            }
-
-            displayHeaders.unshift('#');
-            displayHeaders.unshift('<input type="checkbox" id="selectAllCheckbox" onchange="window.app.toggleSelectAllReturns(this.checked)" style="transform: scale(1.2); cursor: pointer;" title="تحديد الكل">');
-
-            // نقل "حالة التسوية" إلى النهاية (قبل الإجراءات)
-            const statusIdx = displayHeaders.findIndex(h => h === 'حالة التسوية');
-            if (statusIdx !== -1) {
-                const statusHeader = displayHeaders.splice(statusIdx, 1)[0];
-                displayHeaders.push(statusHeader);
-            }
-
-            this._displayHeaders = displayHeaders; // حفظ للاستخدام في الصفوف
-
-            tableHeaders.innerHTML = displayHeaders.map((h, idx) => {
+            tableHeaders.innerHTML = finalOrder.map((h, idx) => {
                 const hNorm = h.replace(/ـ/g, '').replace(/[أإآ]/g, 'ا').toLowerCase();
                 const isNameCol = hNorm.includes('الاسم') || hNorm.includes('name') || hNorm.includes('fullname');
 
                 let isSticky = '';
-                if (h.includes('<input')) isSticky = 'sticky-col';
-                else if (h === '#') isSticky = 'sticky-col-2';
-                else if (isNameCol) isSticky = 'sticky-col-3';
-                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-col-4';
+                if (h === 'الاسم') isSticky = 'sticky-col-3';
+                else if (h === 'قيمة العملية') isSticky = 'sticky-col-4';
 
                 let dynamicClass = '';
                 if (h.includes('تاريخ') || h.includes('Date')) dynamicClass = 'col-date';
                 if (h.includes('قيمة') || h.includes('المبلغ')) dynamicClass = 'col-amount';
-                if (h === '#') dynamicClass = 'col-id';
                 if (isNameCol) dynamicClass = 'col-name';
 
                 return `<th class="${isSticky} ${dynamicClass}">${h}</th>`;
@@ -1839,6 +1812,9 @@ class App {
                     val = `<input type="checkbox" class="return-row-checkbox" value="${rowId}" onchange="window.app.updateSelectAllReturns()" style="transform: scale(1.2); cursor: pointer;">`;
                 } else if (h === '#') {
                     val = previousRowCount + rowIndex + 1;
+                } else if (h === 'كود الملف') {
+                    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'FileCode', 'كود_الملف', 'كود المرتد'];
+                    val = this.findValue(row, fileCodeKeys) || '';
                 } else if ((h === 'الاسم' || h === 'الاسم ') && !val) {
                     // Safety check for Name column variations
                     val = row['الاسم'] || row['الاسم '] || row['Name'] || '';
@@ -2112,7 +2088,7 @@ class App {
 
     downloadTemplate() {
         try {
-            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
+            const headers = ['#', 'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ الرفع', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد', 'حالة التسوية'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2127,7 +2103,7 @@ class App {
 
     downloadSalaryTemplate() {
         try {
-            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
+            const headers = ['#', 'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ الرفع', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد', 'حالة التسوية'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2684,7 +2660,7 @@ class App {
                     returnApprovalDate: findCol(row, 'تاريخ اعتماد المرتدات', 'ReturnApprovalDate'),
                     modDate: findCol(row, 'تاريخ التعديل', 'ModDate'),
                     modApprovalDate: findCol(row, 'تاريخ اعتماد التعديل', 'ModApprovalDate'),
-                    settlementNo: findCol(row, 'رقم تسوية السداد', 'رقم التسوية', 'SettlementNo'),
+                    settlementNo: findCol(row, 'رقم تسوية السداد', 'SettlementNo'),
                     settlementDate: findCol(row, 'تاريخ تسوية السداد', 'تاريخ التسوية', 'SettlementDate')
                 };
 
@@ -2940,7 +2916,7 @@ class App {
                                    style="background: rgba(255,255,255,0.02); ${isModified('modDate')} color: #888; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
-                            <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementNo')}رقم التسوية</label>
+                            <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementNo')}رقم تسوية السداد</label>
                             <input id="smart_input_${index}_settlementNo" type="text" value="${item.sourceExcelRow.settlementNo || ''}" 
                                    onchange="app.updateSmartExcelValue(${index}, 'settlementNo', this.value)"
                                    style="background: rgba(16, 185, 129, 0.03); ${isModified('settlementNo')} color: #10b981; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; border: 1px solid rgba(16, 185, 129, 0.2);">
@@ -2982,7 +2958,7 @@ class App {
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك الجديد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ المرتد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التعديل</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم التسوية</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم تسوية السداد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التسوية</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الحالة</th>
                                         </tr>
@@ -3033,7 +3009,7 @@ class App {
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك الجديد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ المرتد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التعديل</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم التسوية</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم تسوية السداد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التسوية</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الحالة</th>
                                         </tr>

@@ -126,7 +126,8 @@ window.openAttachments = function (id, type) {
     const modal = document.getElementById('attachments-modal');
     if (modal) {
         modal.classList.remove('hidden');
-        modal.style.setProperty('display', 'flex', 'important');
+        modal.style.removeProperty('display'); // Clear any block inline styles just in case
+        modal.style.display = 'flex'; // Explicitly set it inline but without !important so .hidden can override it
     } else {
         alert('Modal element missing!');
     }
@@ -955,10 +956,9 @@ class App {
                 let dataToUse = response.data;
 
                 dataToUse = dataToUse.map(row => {
-                    const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || row['تاريخ التعديل'] || '';
-                    const hasDate = mod && String(mod).trim() !== '';
-                    const desired = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
-                    row['حالة التسوية'] = desired;
+                    const settlementNo = row['رقم تسوية السداد'] || '';
+                    const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                    row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                     return row;
                 });
 
@@ -968,7 +968,10 @@ class App {
                     const mode = this.settlementFilterValue.trim();
                     dataToUse = dataToUse.filter(row => {
                         const actualVal = (row['حالة التسوية'] || '').trim();
-                        return actualVal === mode;
+                        if (actualVal === mode) return true;
+                        if (mode === 'تمت التسوية' && actualVal === 'تم التسوية') return true;
+                        if (mode === 'تم التسوية' && actualVal === 'تمت التسوية') return true;
+                        return false;
                     });
                 }
 
@@ -1041,6 +1044,7 @@ class App {
         this.headers = Array.from(allKeys).filter(k =>
             k !== 'id' && k !== 'Id' && k !== 'AttachmentCount' &&
             k !== 'importId' && k !== '_conflictDetailsMultiAccOriginal' &&
+            k !== 'رقم التسوية' && // استبعاد العمود المطلوب حذفه
             !k.startsWith('_') // تجاهل الحقول البرمجية المخفية
         );
 
@@ -1083,10 +1087,10 @@ class App {
                 // مسبقاً: الحالة والتسوية
                 row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || row['حالة الارتداد'] || '');
                 {
-                    const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || row['تاريخ التعديل'] || '';
-                    const hasDate = mod && String(mod).trim() !== '';
-                    row['حالة التسوية'] = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
-                    row._isSettled = ((row['حالة التسوية'] || '').trim() === 'تمت التسوية');
+                    const settlementNo = row['رقم تسوية السداد'] || '';
+                    const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                    row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
+                    row._isSettled = hasSettlement;
                 }
 
                 // مسبقاً: الفهرس النصي الموحد (مفتاح السرعة الفائقة)
@@ -1154,10 +1158,10 @@ class App {
                 row._amount = this.parseAmount(amountVal);
                 row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || '');
                 
-                const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || '';
-                const hasDate = mod && String(mod).trim() !== '';
-                row['حالة التسوية'] = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
-                row._isSettled = hasDate;
+                const settlementNo = row['رقم تسوية السداد'] || '';
+                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
+                row._isSettled = hasSettlement;
 
                 const originalValues = Object.entries(row)
                     .filter(([k, v]) => !k.startsWith('_') && v !== null && v !== undefined)
@@ -1186,6 +1190,30 @@ class App {
             throw e;
         } finally {
             this.isSalaryCaching = false;
+        }
+    }
+
+    triggerNameSearch(name) {
+        if (!name) return;
+        
+        let targetSearch = null;
+        if (this.currentPage === 'page-smart-payment') {
+            targetSearch = document.getElementById('salary-search');
+        } else if (this.currentPage === 'page-full-returns') {
+            const unifiedSearch = document.getElementById('unified-search-input');
+            if (unifiedSearch && !unifiedSearch.closest('.hidden')) {
+                targetSearch = unifiedSearch;
+            }
+        }
+        
+        if (!targetSearch) {
+            targetSearch = document.getElementById('table-search');
+        }
+        
+        if (targetSearch) {
+            targetSearch.value = name;
+            targetSearch.dispatchEvent(new Event('input', { bubbles: true }));
+            window.scrollTo({top: 0, behavior: 'smooth'});
         }
     }
 
@@ -1243,10 +1271,13 @@ class App {
             // 4. Settlement Logic (Literal Match)
             if (settlementMode) {
                 const actualVal = (row['حالة التسوية'] || '').trim();
-                if (actualVal !== settlementMode) return false;
+                const matched = (actualVal === settlementMode) || 
+                                (settlementMode === 'تمت التسوية' && actualVal === 'تم التسوية') || 
+                                (settlementMode === 'تم التسوية' && actualVal === 'تمت التسوية');
+                if (!matched) return false;
             }
 
-            // 5. Return Status Logic (New)
+            // 5. Return Status Logic
             if (returnStatusMode) {
                 const status = (row['الحالة'] || row['Status'] || '').toLowerCase();
                 if (!status.includes(returnStatusMode.toLowerCase())) return false;
@@ -1333,7 +1364,7 @@ class App {
             const status = obj._normStatus || '';
 
             // Literal Match for Stats
-            const isSettled = ((obj['حالة التسوية'] || '').trim() === 'تمت التسوية');
+            const isSettled = ((obj['حالة التسوية'] || '').trim() === 'تم التسوية');
 
             // Logic for Rejected vs Returned vs Others
             if (status.includes('مرفوض') || status.includes('reject')) {
@@ -1713,42 +1744,24 @@ class App {
                 return;
             }
             emptyState.classList.add('hidden');
-
-            // إعادة ترتيب الأعمدة: وضع الاسم في المقدمة دائمًا
-            let displayHeaders = [...this.headers];
-            const nameKeys = ['الاسم', 'الاســــم', 'Name', 'FullName'];
-            const nameIdx = displayHeaders.findIndex(h => nameKeys.includes(h));
-
-            if (nameIdx !== -1) {
-                const nameHeader = displayHeaders.splice(nameIdx, 1)[0];
-                displayHeaders.unshift(nameHeader);
-            }
-
-            // إضافة "الرقم القومي" بعد الاسم مباشرة إذا لم يكن موجوداً
-            if (!displayHeaders.some(h => h.includes('الرقم القومي') || h.includes('الرقم_القومي'))) {
-                const currentNameIdx = displayHeaders.findIndex(h => nameKeys.includes(h));
-                if (currentNameIdx !== -1) {
-                    displayHeaders.splice(currentNameIdx + 1, 0, 'الرقم القومي');
-                } else {
-                    displayHeaders.unshift('الرقم القومي');
-                }
-            }
-
-            // إضافة عمود "الشهر" بعد الرقم القومي
-            if (!displayHeaders.includes('الشهر')) {
-                const nidIdx = displayHeaders.findIndex(h => h.includes('الرقم القومي') || h.includes('الرقم_القومي'));
-                if (nidIdx !== -1) {
-                    displayHeaders.splice(nidIdx + 1, 0, 'الشهر');
-                } else {
-                    displayHeaders.push('الشهر');
-                }
-            }
-
-            // الترتيب الصارم والنهائي للأعمدة في نهاية الجدول ليتطابق مع الإكسيل تماماً
-            const finalColsOrder = [
+            
+            // الترتيب الصارم والنهائي للأعمدة ليتطابق مع الصورة تماماً
+            const finalOrder = [
+                '#',
+                'كود الملف',
+                'الاسم',
+                'رقم الحساب',
+                'البنك',
+                'قيمة العملية',
+                'الحالة',
+                'السبب',
+                'رقم الحساب بعد التعديل',
+                'البنك بعد التعديل',
+                'كود الفرع بعد التعديل',
                 'تاريخ الرفع',
                 'رقم تسوية التعلية',
                 'تاريخ المرتد / تاريخ التعلية',
+                'تاريخ اعتماد المرتدات',
                 'تاريخ التعديل',
                 'تاريخ اعتماد التعديل',
                 'رقم تسوية السداد',
@@ -1756,47 +1769,26 @@ class App {
                 'حالة التسوية'
             ];
 
-            // 1. تنظيف الأسماء المزدوجة القديمة لو وجدت لمنع التكرار
-            displayHeaders = displayHeaders.map(h => {
-                if (h === 'تاريخ المرتد') return 'تاريخ المرتد / تاريخ التعلية';
-                return h;
-            });
+            this._displayHeaders = finalOrder; 
 
-            // 2. تنظيف المصفوفة من أي أعمدة تواريخ وتسويات قديمة أو مكررة (Clean Slate)
-            const removableKeywords = [
-                'تاريخ المرتد', 'تاريخ الاعتماد', 'تاريخ اعتماد', 
-                'تاريخ التعديل', 'تاريخ الرفع', 'رقم تسوية', 'حالة التسوية'
-            ];
-            
-            displayHeaders = displayHeaders.filter(h => {
-                // احتفظ بالعمود إذا لم يكن ضمن كلمات الفلتر (إزالة قاطعة للتواريخ القديمة والمكررة)
-                return !removableKeywords.some(keyword => h.includes(keyword));
-            });
-
-            // 3. إدراج المجموعة بالترتيب المطلوب والمطابق لملف العميل في نهاية الجدول (وهو ما سيجعلهم مرتبين من اليسار لليمين)
-            // بما أن العرض في المتصفح RLT، فإن الدفع هنا للآخر سيجعل 'تاريخ الرفع' يظهر يمين الدفعة
-            // أما 'حالة التسوية' ستظهر يسار الدفعة (قبل الإجراءات)
-            displayHeaders.push(...finalColsOrder);
-
-            this._displayHeaders = displayHeaders; // حفظ للاستخدام في الصفوف
-
-            tableHeaders.innerHTML = displayHeaders.map((h, idx) => {
+            tableHeaders.innerHTML = finalOrder.map((h, idx) => {
                 const hNorm = h.replace(/ـ/g, '').replace(/[أإآ]/g, 'ا').toLowerCase();
                 const isNameCol = hNorm.includes('الاسم') || hNorm.includes('name') || hNorm.includes('fullname');
 
                 let isSticky = '';
-                if (h.includes('<input')) isSticky = 'sticky-col';
-                else if (h === '#') isSticky = 'sticky-col-2';
-                else if (isNameCol) isSticky = 'sticky-col-3';
-                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-col-4';
+                let extraStyles = h === '#' ? 'text-align: center !important;' : '';
+                
+                // التثبيت الدقيق للأعمدة كي لا تكون شفافة وتكون مصفوفة صحيحة
+                if (h === '#') isSticky = 'sticky-seq';
+                else if (isNameCol) isSticky = 'sticky-name';
+                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-amount';
 
                 let dynamicClass = '';
                 if (h.includes('تاريخ') || h.includes('Date')) dynamicClass = 'col-date';
                 if (h.includes('قيمة') || h.includes('المبلغ')) dynamicClass = 'col-amount';
-                if (h === '#') dynamicClass = 'col-id';
                 if (isNameCol) dynamicClass = 'col-name';
 
-                return `<th class="${isSticky} ${dynamicClass}">${h}</th>`;
+                return `<th class="${isSticky} ${dynamicClass}" style="${extraStyles}">${h}</th>`;
             }).join('') + '<th class="col-actions" style="text-align:center;">الإجراءات</th>';
             tableBody.innerHTML = '';
 
@@ -1842,6 +1834,9 @@ class App {
                     val = `<input type="checkbox" class="return-row-checkbox" value="${rowId}" onchange="window.app.updateSelectAllReturns()" style="transform: scale(1.2); cursor: pointer;">`;
                 } else if (h === '#') {
                     val = previousRowCount + rowIndex + 1;
+                } else if (h === 'كود الملف') {
+                    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', ' FileCode', 'كود_الملف'];
+                    val = this.findValue(row, fileCodeKeys) || '';
                 } else if ((h === 'الاسم' || h === 'الاسم ') && !val) {
                     // Safety check for Name column variations
                     val = row['الاسم'] || row['الاسم '] || row['Name'] || '';
@@ -1888,8 +1883,8 @@ class App {
                     const actualVal = (row[h] || '').trim();
                     rawVal = String(actualVal);
 
-                    if (actualVal === 'تمت التسوية') {
-                        val = '<span class="badge-status success">تمت التسوية ✅</span>';
+                    if (actualVal === 'تم التسوية' || actualVal === 'تمت التسوية') {
+                        val = '<span class="badge-status success">تم التسوية ✅</span>';
                     } else if (actualVal === 'لم يتم التسوية') {
                         val = '<span class="badge-status pending">لم يتم التسوية ⏳</span>';
                     } else {
@@ -1918,10 +1913,18 @@ class App {
                 const isNameCol = hNorm.includes('الاسم') || hNorm.includes('name') || hNorm.includes('fullname');
 
                 let isSticky = '';
-                if (h.includes('<input')) isSticky = 'sticky-col';
-                else if (h === '#') isSticky = 'sticky-col-2';
-                else if (isNameCol) isSticky = 'sticky-col-3';
-                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-col-4';
+                let extraStyles = h === '#' ? 'text-align: center !important;' : '';
+                let dblclickEvent = '';
+                
+                if (h === '#') isSticky = 'sticky-seq';
+                else if (isNameCol) {
+                    isSticky = 'sticky-name';
+                    if (rawVal && rawVal.trim() !== '') {
+                        const escapedVal = String(rawVal).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        dblclickEvent = ` ondblclick="window.app.triggerNameSearch('${escapedVal}')" title="انقر مرتين للبحث السريع عن هذا الاسم" style="cursor: pointer;"`;
+                    }
+                }
+                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-amount';
 
                 // Smart Dynamic Sizing Class
                 let dynamicClass = '';
@@ -1932,7 +1935,7 @@ class App {
                 if (h === '#') dynamicClass += ' col-id';
                 if (isNameCol) dynamicClass += ' col-name';
 
-                return `<td class="${isSticky} ${dynamicClass}">${val}</td>`;
+                return `<td class="${isSticky} ${dynamicClass}" style="${extraStyles}"${dblclickEvent}>${val}</td>`;
             }).join('');
 
             const hasAttachments = row.AttachmentCount > 0;
@@ -2116,7 +2119,7 @@ class App {
 
     downloadTemplate() {
         try {
-            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتد', 'رقم تسوية التعلية', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
+            const headers = ['كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2131,7 +2134,7 @@ class App {
 
     downloadSalaryTemplate() {
         try {
-            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتد', 'رقم تسوية التعلية', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
+            const headers = ['كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2805,7 +2808,7 @@ class App {
                     returnApprovalDate: findCol(row, 'تاريخ اعتماد المرتدات', 'ReturnApprovalDate'),
                     modDate: findCol(row, 'تاريخ التعديل', 'ModDate'),
                     modApprovalDate: findCol(row, 'تاريخ اعتماد التعديل', 'ModApprovalDate'),
-                    settlementNo: findCol(row, 'رقم تسوية السداد', 'رقم التسوية', 'SettlementNo'),
+                    settlementNo: findCol(row, 'رقم تسوية السداد', 'SettlementNo'),
                     settlementDate: findCol(row, 'تاريخ تسوية السداد', 'تاريخ التسوية', 'SettlementDate')
                 };
 
@@ -3061,7 +3064,7 @@ class App {
                                    style="background: rgba(255,255,255,0.02); ${isModified('modDate')} color: #888; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
-                            <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementNo')}رقم التسوية</label>
+                            <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementNo')}رقم تسوية السداد</label>
                             <input id="smart_input_${index}_settlementNo" type="text" value="${item.sourceExcelRow.settlementNo || ''}" 
                                    onchange="app.updateSmartExcelValue(${index}, 'settlementNo', this.value)"
                                    style="background: rgba(16, 185, 129, 0.03); ${isModified('settlementNo')} color: #10b981; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; border: 1px solid rgba(16, 185, 129, 0.2);">
@@ -3103,7 +3106,7 @@ class App {
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك الجديد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ المرتد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التعديل</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم التسوية</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم تسوية السداد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التسوية</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الحالة</th>
                                         </tr>
@@ -3154,7 +3157,7 @@ class App {
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك الجديد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ المرتد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التعديل</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم التسوية</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم تسوية السداد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التسوية</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الحالة</th>
                                         </tr>
@@ -3666,7 +3669,7 @@ class App {
             group.style.cssText = 'display: flex; flex-direction: column; gap: 0.5rem;';
 
             // Full width for specific fields
-            if (key === 'كود المرتد' && window.innerWidth >= 768) {
+            if (false) { // Condition removed since كود المرتد is removed
                 group.style.gridColumn = 'span 2 / span 2';
             }
 
@@ -3787,7 +3790,7 @@ class App {
             // Re-apply col-span logic if needed
             const inputs = grid.querySelectorAll('input');
             inputs.forEach(inp => {
-                if (inp.name === 'كود المرتد') {
+                if (false) { // Removed كود المرتد check
                     inp.parentElement.style.gridColumn = window.innerWidth >= 768 ? 'span 2 / span 2' : 'span 1 / span 1';
                 }
             });
@@ -5054,7 +5057,11 @@ class App {
     }
 
     hideAttachmentsModal() {
-        document.getElementById('attachments-modal')?.classList.add('hidden');
+        const modal = document.getElementById('attachments-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.removeProperty('display'); // Necessary to let .hidden work or prevent ghost display
+        }
         this.currentReturnId = null;
     }
 
@@ -7597,9 +7604,9 @@ App.prototype.loadFromOfflineStorage = async function () {
         const cachedIncentive = await db.getLocalCache('returns_data_v2');
         if (cachedIncentive && Array.isArray(cachedIncentive) && cachedIncentive.length > 0) {
             this.returnsCache = cachedIncentive.map(row => {
-                const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || row['تاريخ التعديل'] || '';
-                const hasDate = mod && String(mod).trim() !== '';
-                row['حالة التسوية'] = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
+                const settlementNo = row['رقم تسوية السداد'] || '';
+                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                 
                 // Ensure search index exists
                 if (!row._searchStr) {
@@ -7670,10 +7677,10 @@ App.prototype.populateReturnsCache = async function () {
             row._amount = this.parseAmount(amountVal);
             row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || row['حالة الارتداد'] || '');
 
-            const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || row['تاريخ التعديل'] || '';
-            const hasDate = mod && String(mod).trim() !== '';
-            row['حالة التسوية'] = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
-            row._isSettled = ((row['حالة التسوية'] || '').trim() === 'تمت التسوية');
+            const settlementNo = row['رقم تسوية السداد'] || '';
+            const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+            row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
+            row._isSettled = hasSettlement;
 
             // Comprehensive Search index for 1M records
             const originalValues = Object.entries(row)
@@ -7883,9 +7890,9 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
 
             // Normalize Settlement Status
             dataToUse = dataToUse.map(row => {
-                const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || row['تاريخ التعديل'] || '';
-                const hasDate = mod && String(mod).trim() !== '';
-                row['حالة التسوية'] = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
+                const settlementNo = row['رقم تسوية السداد'] || '';
+                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                 return row;
             });
 
@@ -7926,7 +7933,7 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
                     const amountVal = row['قيمة العملية'] || row[' قيمة العملية'] || row['ProcessValue'] || row['المبلغ'] || row['Amount'];
                     const num = this.parseAmount(amountVal);
                     totalAmount += num;
-                    if (row['حالة التسوية'] === 'تمت التسوية') {
+                    if (row['حالة التسوية'] === 'تم التسوية' || row['حالة التسوية'] === 'تمت التسوية') {
                         settled++;
                         settledAmount += num;
                     } else {
@@ -7996,7 +8003,7 @@ App.prototype.extractSalaryHeaders = function (data) {
     }
     return Array.from(allKeys).filter(k =>
         k !== 'id' && k !== 'Id' && k !== 'AttachmentCount' &&
-        k !== 'importId' && !k.startsWith('_') && k !== 'كود المرتد'
+        k !== 'importId' && !k.startsWith('_')
     );
 };
 
@@ -8129,8 +8136,8 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                 } else if (h === 'حالة التسوية') {
                     const actualVal = (row[h] || '').trim();
                     rawVal = String(actualVal);
-                    if (actualVal === 'تمت التسوية') {
-                        val = '<span class="badge-status success">تمت التسوية ✅</span>';
+                    if (actualVal === 'تم التسوية' || actualVal === 'تمت التسوية') {
+                        val = '<span class="badge-status success">تم التسوية ✅</span>';
                     } else if (actualVal === 'لم يتم التسوية') {
                         val = '<span class="badge-status pending">لم يتم التسوية ⏳</span>';
                     } else {
@@ -8527,10 +8534,10 @@ App.prototype.populateSalaryReturnsCache = async function () {
 
             row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || row['حالة الارتداد'] || '');
             {
-                const mod = row['تاريخ اعتماد التعديل'] || row['تاريخ التسوية'] || row['ModificationDate'] || row['تاريخ التعديل'] || '';
-                const hasDate = mod && String(mod).trim() !== '';
-                row['حالة التسوية'] = hasDate ? 'تمت التسوية' : 'لم يتم التسوية';
-                row._isSettled = ((row['حالة التسوية'] || '').trim() === 'تمت التسوية');
+                const settlementNo = row['رقم تسوية السداد'] || '';
+                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
+                row._isSettled = hasSettlement;
             }
 
             const originalValues = Object.entries(row)
@@ -8691,7 +8698,7 @@ App.prototype.calculateLocalSalaryStats = function (filtered) {
         totalAmount += rowAmount;
 
         const status = obj._normStatus || '';
-        const isSettled = ((obj['حالة التسوية'] || '').trim() === 'تمت التسوية');
+        const isSettled = ((obj['حالة التسوية'] || '').trim() === 'تم التسوية');
 
         if (status.includes('مرفوض') || status.includes('reject')) {
             rejectedCount++;
@@ -8919,7 +8926,7 @@ App.prototype.showEditSalaryModal = function(row) {
     form.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;';
 
     Object.keys(row).forEach(key => {
-        if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_') || key === 'كود المرتد') return;
+        if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
 
         const group = document.createElement('div');
         group.style.cssText = 'display: flex; flex-direction: column; gap: 0.5rem;';

@@ -276,8 +276,8 @@ public static class SmartSettlementEndpoints
             record.ReturnApprovalDate = GetJsonVal("تاريخ اعتماد المرتدات", "تاريخ اعتماد المرتد", "تاريخ الاعتماد");
             record.ModDate = GetJsonVal("تاريخ التعديل");
             record.ModApprovalDate = GetJsonVal("تاريخ اعتماد التعديل");
-            record.SettlementNo = GetJsonVal("رقم التسوية", "رقم تسوية السداد", "SettlementNo");
-            record.SettlementDate = GetJsonVal("تاريخ التسوية", "تاريخ تسوية السداد", "SettlementDate");
+            record.SettlementNo = GetJsonVal("رقم تسوية السداد", "SettlementNo");
+            record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "SettlementDate");
             
             record.Month = monthFilter;
             record.Status = !string.IsNullOrEmpty(record.ModApprovalDate) ? "تم التسوية" : "لم يتم التسوية";

@@ -298,9 +298,10 @@ public class DatabaseService
             try { await conn.ExecuteScalarAsync("SELECT [رقم تسوية التعلية] FROM Returns LIMIT 1"); } catch {
                 await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية التعلية] TEXT;");
             }
-            try { await conn.ExecuteScalarAsync("SELECT [رقم تسوية السداد] FROM Returns LIMIT 1"); } catch {
-                await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية السداد] TEXT;");
-            }
+            try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية السداد] TEXT;"); } catch { }
+            
+            // --- Remove Old Settlement Column ---
+            try { await conn.ExecuteAsync("ALTER TABLE Returns DROP COLUMN [رقم التسوية];"); } catch { }
         } catch {}
     }
 
