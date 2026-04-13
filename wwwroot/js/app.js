@@ -3661,17 +3661,29 @@ class App {
             row-gap: 1.5rem;
         `;
 
-        // Render Fields
-        Object.keys(currentRow).forEach(key => {
-            if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
+        // Define a set of keys to show in order
+        const standardFields = [
+            'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 
+            'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل',
+            'تاريخ الرفع', 'رقم تسوية التعلية', 'تاريخ المرتد', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات',
+            'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'حالة التسوية'
+        ];
+
+        // Combine standard fields with any extra keys in the record
+        const allKeys = new Set([...standardFields, ...Object.keys(currentRow)]);
+        
+        allKeys.forEach(key => {
+            // Ignore technical and internal keys
+            if (key === '#' || key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
+            
+            // Handle composite labels from the table to avoid confusion (don't show empty combined labels as inputs)
+            if (key.includes('/') || key.includes(' / ')) {
+                // Skip combined labels like "تاريخ المرتد / تاريخ التعلية" if we already show the individual fields
+                return;
+            }
 
             const group = document.createElement('div');
             group.style.cssText = 'display: flex; flex-direction: column; gap: 0.5rem;';
-
-            // Full width for specific fields
-            if (false) { // Condition removed since كود المرتد is removed
-                group.style.gridColumn = 'span 2 / span 2';
-            }
 
             const label = document.createElement('label');
             label.textContent = key;
@@ -3684,7 +3696,8 @@ class App {
             const input = document.createElement('input');
             input.type = 'text';
             input.name = key;
-            input.value = currentRow[key] || '';
+            input.value = currentRow[key] ?? '';
+            input.placeholder = `بيانات ${key}...`;
             input.style.cssText = `
                 width: 100%;
                 background: #0f172a;
@@ -8432,16 +8445,8 @@ App.prototype.handleSalaryAttachmentFilterChange = async function () {
 };
 
 App.prototype.handleSalaryUploadDateSelectChange = async function (val) {
-    console.log('[SALARY FILTER] Upload Date Select changed:', val);
-    if (val && val !== 'all') {
-        this.salaryUploadDateFrom = val;
-        this.salaryUploadDateTo = val;
-    } else {
-        this.salaryUploadDateFrom = null;
-        this.salaryUploadDateTo = null;
-    }
     this.salaryCurrentPage = 1;
-    await this.loadSalaryReturns(1, 50, this.salarySearchQuery);
+    await this.loadSalaryReturns();
 };
 
 App.prototype.handleSalaryReturnStatusFilterChange = async function (val) {
@@ -8925,8 +8930,18 @@ App.prototype.showEditSalaryModal = function(row) {
     const form = document.createElement('div');
     form.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;';
 
-    Object.keys(row).forEach(key => {
+    // تضمين كافة الحقول المستوردة بالإضافة للمسميات الرسمية
+    const standardFields = [
+        'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 
+        'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل',
+        'تاريخ الرفع', 'رقم تسوية التعلية', 'رقم تسوية السداد', 'تاريخ تسوية التعلية', 'حالة التسوية'
+    ];
+
+    const allKeys = new Set([...standardFields, ...Object.keys(row)]);
+
+    allKeys.forEach(key => {
         if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
+        if (key.includes('/') || key.includes(' / ')) return; // تجاهل المسميات المدمجة في الجدول (مثل تاريخ المرتد / تاريخ التعلية)
 
         const group = document.createElement('div');
         group.style.cssText = 'display: flex; flex-direction: column; gap: 0.5rem;';
@@ -8936,19 +8951,19 @@ App.prototype.showEditSalaryModal = function(row) {
         label.style.color = '#94a3b8';
         label.style.fontSize = '0.9rem';
 
-        // جلب القيمة من المفتاح الأصلي إذا كان الحقل معاد تسميته
+        // جلب القيمة من المفتاح الأصلي إذا كان الحقل معاد تسميته أو له مسمى تقني مخلف
         let originalKey = key;
-        if (key === 'رقم تسوية التعلية') originalKey = 'محدد كتسوية';
-        else if (key === 'رقم تسوية السداد') originalKey = 'رقم استمارة اعادة التحويل / التسوية';
-        else if (key === 'تاريخ تسوية التعلية') originalKey = 'تاريخ المرتدات';
+        if (key === 'رقم تسوية التعلية') originalKey = (row['محدد كتسوية'] !== undefined) ? 'محدد كتسوية' : 'رقم تسوية التعلية';
+        else if (key === 'رقم تسوية السداد') originalKey = (row['رقم استمارة اعادة التحويل / التسوية'] !== undefined) ? 'رقم استمارة اعادة التحويل / التسوية' : 'رقم تسوية السداد';
+        else if (key === 'تاريخ تسوية التعلية') originalKey = (row['تاريخ المرتدات'] !== undefined) ? 'تاريخ المرتدات' : 'تاريخ تسوية التعلية';
 
         const input = document.createElement('input');
         input.type = 'text';
         input.value = row[originalKey] ?? row[key] ?? '';
-        input.dataset.key = key;
+        input.dataset.key = originalKey;
         input.style.cssText = `
             background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
-            color: #f1f5f9; padding: 0.75rem; font-size: 1rem; outline: none;
+            color: #f1f5f9; padding: 0.75rem; font-size: 1rem; outline: none; transition: border-color 0.2s;
         `;
         
         group.appendChild(label);
