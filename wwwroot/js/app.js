@@ -217,6 +217,9 @@ class App {
 
         // SignalR Connectivity
         this.hubConnection = null;
+
+        // Smart Payment State
+        this.smartPaymentStatFilter = 'all';
     }
 
     /**
@@ -3056,19 +3059,33 @@ class App {
                 });
             }
             
-            this.renderSmartPaymentResults(json.data);
+            // Redundant early render removed - we render after stats are computed below
             
             if (results) results.style.display = 'block';
             
-            const totalMatches = json.data.reduce((acc, curr) => acc + (curr.matches.length + curr.salaryMatches.length), 0);
-            document.getElementById('smart-matched-count').textContent = totalMatches;
+            // --- UPDATE STATS CARDS ---
+            const totalExcel = this.smartMatchResults.length;
+            const incentiveCount = this.smartMatchResults.filter(r => r.matches && r.matches.length > 0).length;
+            const salaryCount = this.smartMatchResults.filter(r => r.salaryMatches && r.salaryMatches.length > 0).length;
+            const notFoundCount = this.smartMatchResults.filter(r => (!r.matches || r.matches.length === 0) && (!r.salaryMatches || r.salaryMatches.length === 0)).length;
+
+            if (document.getElementById('smart-excel-count')) document.getElementById('smart-excel-count').textContent = totalExcel;
+            if (document.getElementById('smart-incentive-count')) document.getElementById('smart-incentive-count').textContent = incentiveCount;
+            if (document.getElementById('smart-salary-count')) document.getElementById('smart-salary-count').textContent = salaryCount;
+            if (document.getElementById('smart-notfound-count')) document.getElementById('smart-notfound-count').textContent = notFoundCount;
+
+            const totalMatches = json.data.reduce((acc, curr) => acc + ((curr.matches?.length || 0) + (curr.salaryMatches?.length || 0)), 0);
             
-            if (totalMatches > 0) {
+            if (totalExcel > 0) {
                 document.getElementById('btn-smart-execute-incentive').disabled = false;
                 document.getElementById('btn-smart-execute-salary').disabled = false;
                 document.getElementById('btn-smart-execute-all').disabled = false;
+                
+                // Set default active card without causing infinite recursion
+                this.setSmartStatFilter('all', false); 
+                this.renderSmartPaymentResults();
             } else {
-                this.showToast('لم يتم العثور على أي مطابقة لبيانات الملف المرفوع', 'warning');
+                this.showToast('لم يتم العثور على أي بيانات في الملف المرفوع', 'warning');
             }
 
         } catch (e) {
@@ -3091,22 +3108,74 @@ class App {
         }
     }
 
+    setSmartStatFilter(filterType, triggerRender = true) {
+        this.smartPaymentStatFilter = filterType;
+        console.log('[SMART] Active Stat Filter:', filterType);
+
+        // Update UI Visuals
+        const cardIds = ['all', 'incentive', 'salary', 'notfound'];
+        cardIds.forEach(id => {
+            const card = document.getElementById(`smart-card-${id}`);
+            if (card) {
+                const indicator = card.querySelector('.active-indicator');
+                if (id === filterType) {
+                    card.style.transform = 'translateY(-3px)';
+                    card.style.boxShadow = '0 8px 15px rgba(0,0,0,0.3)';
+                    card.style.borderColor = 'rgba(255,255,255,0.4)';
+                    if (indicator) indicator.style.opacity = '1';
+                } else {
+                    card.style.transform = 'none';
+                    card.style.boxShadow = 'none';
+                    card.style.borderColor = 'rgba(255,255,255,0.1)';
+                    // Re-apply original border color based on type
+                    if (id === 'incentive') card.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    if (id === 'salary') card.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+                    if (id === 'notfound') card.style.borderColor = 'rgba(239, 68, 68, 0.2)';
+                    if (indicator) indicator.style.opacity = '0';
+                }
+            }
+        });
+
+        if (triggerRender) {
+            this.renderSmartPaymentResults();
+        }
+    }
+
     renderSmartPaymentResults(data) {
         const resultsContainer = document.getElementById('smart-payment-results');
         if (!resultsContainer) return;
 
-        // Get current filter value
+        // Fallback to internal results if no data provided
+        const sourceData = data || this.smartMatchResults;
+        if (!sourceData || sourceData.length === 0) {
+            resultsContainer.innerHTML = '<div class="unified-table-empty">لا توجد نتائج مطابقة</div>';
+            return;
+        }
+
+        // Apply Stat Filter
+        let filtered = sourceData;
+        const sf = this.smartPaymentStatFilter || 'all';
+        
+        if (sf === 'incentive') {
+            filtered = sourceData.filter(r => r.matches && r.matches.length > 0);
+        } else if (sf === 'salary') {
+            filtered = sourceData.filter(r => r.salaryMatches && r.salaryMatches.length > 0);
+        } else if (sf === 'notfound') {
+            filtered = sourceData.filter(r => (!r.matches || r.matches.length === 0) && (!r.salaryMatches || r.salaryMatches.length === 0));
+        }
+
+        // Get current type filter value (Incentive vs Salary vs All)
         const dataTypeFilter = document.getElementById('smart-type-filter')?.value || 'الكل';
 
         // Clear existing results
         resultsContainer.innerHTML = '';
 
-        if (!data || data.length === 0) {
-            resultsContainer.innerHTML = '<div class="unified-table-empty">لا توجد نتائج مطابقة</div>';
+        if (filtered.length === 0) {
+            resultsContainer.innerHTML = '<div class="unified-table-empty">لا توجد نتائج تطابق هذا التصنيف</div>';
             return;
         }
 
-        data.forEach((item, index) => {
+        filtered.forEach((item, index) => {
             const hasIncentives = (dataTypeFilter === 'الكل' || dataTypeFilter === 'incentive') && item.matches && item.matches.length > 0;
             const hasSalaries = (dataTypeFilter === 'الكل' || dataTypeFilter === 'salary') && item.salaryMatches && item.salaryMatches.length > 0;
             const hasMatches = hasIncentives || hasSalaries;

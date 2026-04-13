@@ -690,20 +690,57 @@
                             </div>
                         </div>
 
-                        <div id="smart-payment-stats-row" class="unified-stats-grid-v2" style="display: none; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 30px;">
-                            <div class="u-v2-card card-total" style="background: rgba(13, 22, 35, 0.6); border: 1px solid rgba(255,255,255,0.05); padding: 20px; border-radius: 12px; display: flex; align-items: center; gap: 15px;">
-                                <div class="u-v2-icon" style="font-size: 24px; color: #fff; opacity: 0.7;"><i class="fas fa-list-ol"></i></div>
-                                <div class="u-v2-info">
-                                    <label style="font-size: 0.9em; color: #888; display: block;">إجمالي ملف الإكسيل</label>
-                                    <h2 id="smart-excel-count" style="margin: 0; font-size: 1.8em; color: #fff;">0</h2>
+                        <div id="smart-payment-stats-row" class="unified-stats-grid-v2" style="display: none; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 25px;">
+                            <!-- إجمالي السجلات -->
+                            <div id="smart-card-all" class="u-v2-card" onclick="app.setSmartStatFilter('all')" 
+                                 style="background: rgba(30, 41, 59, 0.7); border: 2px solid rgba(255,255,255,0.1); padding: 15px; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; position: relative; overflow: hidden;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.2em;"><i class="fas fa-file-excel"></i></div>
+                                    <div class="u-v2-info">
+                                        <label style="font-size: 0.75em; color: #94a3b8; display: block; font-weight: 600;">إجمالي الملف</label>
+                                        <h2 id="smart-excel-count" style="margin: 0; font-size: 1.5em; color: #fff; font-weight: 800;">0</h2>
+                                    </div>
                                 </div>
+                                <div class="active-indicator" style="position: absolute; bottom: 0; right: 0; left: 0; height: 3px; background: #fff; opacity: 0; transition: 0.3s;"></div>
                             </div>
-                            <div class="u-v2-card card-salary" style="background: rgba(13, 22, 35, 0.6); border: 1px solid rgba(16, 185, 129, 0.3); padding: 20px; border-radius: 12px; display: flex; align-items: center; gap: 15px;">
-                                <div class="u-v2-icon" style="font-size: 24px; color: #10b981;"><i class="fas fa-check-circle"></i></div>
-                                <div class="u-v2-info">
-                                    <label style="font-size: 0.9em; color: #888; display: block;">تمت المطابقة (إجمالي)</label>
-                                    <h2 id="smart-matched-count" style="margin: 0; font-size: 1.8em; color: #10b981;">0</h2>
+
+                            <!-- بطاقة الحوافز -->
+                            <div id="smart-card-incentive" class="u-v2-card" onclick="app.setSmartStatFilter('incentive')" 
+                                 style="background: rgba(6, 78, 59, 0.4); border: 2px solid rgba(16, 185, 129, 0.2); padding: 15px; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; position: relative;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(16, 185, 129, 0.1); display: flex; align-items: center; justify-content: center; color: #10b981; font-size: 1.2em;"><i class="fas fa-hand-holding-usd"></i></div>
+                                    <div class="u-v2-info">
+                                        <label style="font-size: 0.75em; color: #86efac; display: block; font-weight: 600;">تطابق حوافز</label>
+                                        <h2 id="smart-incentive-count" style="margin: 0; font-size: 1.5em; color: #10b981; font-weight: 800;">0</h2>
+                                    </div>
                                 </div>
+                                <div class="active-indicator" style="position: absolute; bottom: 0; right: 0; left: 0; height: 3px; background: #10b981; opacity: 0; transition: 0.3s;"></div>
+                            </div>
+
+                            <!-- بطاقة المرتبات -->
+                            <div id="smart-card-salary" class="u-v2-card" onclick="app.setSmartStatFilter('salary')" 
+                                 style="background: rgba(30, 58, 138, 0.4); border: 2px solid rgba(59, 130, 246, 0.2); padding: 15px; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; position: relative;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: #3b82f6; font-size: 1.2em;"><i class="fas fa-money-check-alt"></i></div>
+                                    <div class="u-v2-info">
+                                        <label style="font-size: 0.75em; color: #93c5fd; display: block; font-weight: 600;">تطابق مرتبات</label>
+                                        <h2 id="smart-salary-count" style="margin: 0; font-size: 1.5em; color: #3b82f6; font-weight: 800;">0</h2>
+                                    </div>
+                                </div>
+                                <div class="active-indicator" style="position: absolute; bottom: 0; right: 0; left: 0; height: 3px; background: #3b82f6; opacity: 0; transition: 0.3s;"></div>
+                            </div>
+
+                            <!-- لم يتم العثور -->
+                            <div id="smart-card-notfound" class="u-v2-card" onclick="app.setSmartStatFilter('notfound')" 
+                                 style="background: rgba(127, 29, 29, 0.4); border: 2px solid rgba(239, 68, 68, 0.2); padding: 15px; border-radius: 12px; cursor: pointer; transition: all 0.3s ease; position: relative;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <div style="width: 40px; height: 40px; border-radius: 10px; background: rgba(239, 68, 68, 0.1); display: flex; align-items: center; justify-content: center; color: #ef4444; font-size: 1.2em;"><i class="fas fa-user-times"></i></div>
+                                    <div class="u-v2-info">
+                                        <label style="font-size: 0.75em; color: #fca5a5; display: block; font-weight: 600;">لم يتم العثور</label>
+                                        <h2 id="smart-notfound-count" style="margin: 0; font-size: 1.5em; color: #ef4444; font-weight: 800;">0</h2>
+                                    </div>
+                                </div>
+                                <div class="active-indicator" style="position: absolute; bottom: 0; right: 0; left: 0; height: 3px; background: #ef4444; opacity: 0; transition: 0.3s;"></div>
                             </div>
                         </div>
 
