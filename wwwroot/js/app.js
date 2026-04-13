@@ -737,8 +737,8 @@ class App {
         this.loadReturns(1, this.pagination ? this.pagination.itemsPerPage : 50, this.searchQuery, this.filterValue, this.attachmentFilterValue);
     }
 
-    navigateTo(page) {
-        console.log('Navigating to:', page); // Debug log
+    navigateTo(page, preventLoad = false) {
+        console.log('Navigating to:', page, preventLoad); // Debug log
         this.initTheme();
         if (!page) return;
 
@@ -760,7 +760,7 @@ class App {
         const titles = {
             dashboard: { icon: '🏠', text: 'لوحة التحكم' },
             returns: { icon: '📊', text: 'مرتدات الحوافز' },
-            'salary-returns': { icon: '💰', text: 'مرتادات المرتبات' },
+            'salary-returns': { icon: '💰', text: 'مرتدات المرتبات' },
             'full-returns': { icon: '📚', text: 'البحث الشامل' },
             'smart-payment': { icon: '💸', text: 'السداد الذكي' },
             archive: { icon: '🗄️', text: 'الأرشيف' },
@@ -776,16 +776,18 @@ class App {
         }
 
         // تحميل بيانات الصفحة إذا لزم الأمر
-        if (page === 'archive') this.loadArchive();
+        if (!preventLoad) {
+            if (page === 'archive') this.loadArchive();
 
-        if (page === 'settings') {
-            this.loadUsers();
-            this.loadDeletePassword();
-            this.loadAttachmentLinkMode();
+            if (page === 'settings') {
+                this.loadUsers();
+                this.loadDeletePassword();
+                this.loadAttachmentLinkMode();
+            }
+            if (page === 'returns') this.loadReturns();
+            if (page === 'full-returns') this.loadFullReturns();
+            if (page === 'salary-returns') this.loadSalaryReturns();
         }
-        if (page === 'returns') this.loadReturns();
-        if (page === 'full-returns') this.loadFullReturns();
-        if (page === 'salary-returns') this.loadSalaryReturns();
 
 
         // إغلاق الشريط الجانبي في الشاشات الصغيرة بعد الاختيار (اختياري)
@@ -2575,26 +2577,47 @@ class App {
                 removeOverlay();
 
                 if (this.isSalaryImport) {
-                    this.navigateTo('salary-returns');
-                    const salarySearch = document.getElementById('salary-table-search');
-                    if (salarySearch) salarySearch.value = '';
+                    this.navigateTo('salary-returns', true);
+                    
+                    // Reset all salary filters rigorously
+                    this.salarySearchQuery = '';
+                    this.salaryAttachmentFilterValue = 'all';
+                    this.salarySettlementFilterValue = 'all';
+                    this.salaryReturnStatusFilterValue = 'all';
+                    this.salaryMonthFilterValue = 'all';
+                    this.salaryUploadDateFrom = null;
+                    this.salaryUploadDateTo = null;
+
+                    ['salary-table-search', 'salary-attachment-filter', 'salary-settlement-filter', 
+                     'salary-return-status-filter', 'salary-month-filter', 'salary-upload-date-filter'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = (id === 'salary-table-search' ? '' : 'all');
+                    });
+
                     await this.loadSalaryReturns(1, 50, '');
                     this.showToast(`✅ تم حفظ ${data.length} سجل مرتبات بنجاح`, 'success');
                 } else {
-                    this.navigateTo('returns');
+                    this.navigateTo('returns', true);
+                    
+                    // Reset all return filters rigorously
                     this.searchQuery = '';
                     this.monthFilterValue = 'all';
-                    const mainSearch = document.getElementById('table-search');
-                    if (mainSearch) mainSearch.value = '';
-                    const mFilter = document.getElementById('month-filter');
-                    if (mFilter) mFilter.value = 'all';
-                    const sFilter = document.getElementById('settlement-filter');
-                    if (sFilter) sFilter.value = 'all';
+                    this.attachmentFilterValue = 'all';
+                    this.returnStatusFilterValue = 'all';
+                    this.uploadDateFrom = null;
+                    this.uploadDateTo = null;
+                    this.settlementFilterValue = 'all';
+
+                    ['table-search', 'month-filter', 'settlement-filter', 
+                     'return-status-filter', 'attachment-filter', 'upload-date-filter'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = (id === 'table-search' ? '' : 'all');
+                    });
 
                     console.log('[SAVE] Reloading returns table...');
                     this.data = [];
                     this.renderTable([], false);
-                    await this.loadReturns(1, 50, '', 'all', 'all', false);
+                    await this.loadReturns(1, 50, '', '', 'all', false);
                     this.showToast(`✅ تم حفظ ${data.length} سجل بنجاح`, 'success');
                     setTimeout(() => this.populateReturnsCache(), 1500);
                 }
