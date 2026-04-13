@@ -2411,8 +2411,13 @@ class App {
             this.showToast('لا توجد سجلات صحيحة للحفظ', 'warning');
             return;
         }
-        if (!await confirm(`سيتم حفظ ${this.pendingValidData.length} سجل سليم وتجاهل السجلات الخاطئة. هل أنت متأكد؟`)) return;
-        await this._saveDataToServer(this.pendingValidData);
+        // [FIX] Capture data BEFORE confirm dialog (prevents pendingData clear mid-flow)
+        const dataToSave = this.pendingValidData;
+        const file = this.pendingFile;
+        if (!file) { this.showToast('تعذر الوصول لبيانات الملف', 'error'); return; }
+        const confirmed = await confirm(`سيتم حفظ ${dataToSave.length} سجل سليم وتجاهل السجلات الخاطئة. هل أنت متأكد؟`);
+        if (!confirmed) return;
+        await this._saveDataToServer(dataToSave, file);
     }
 
     async saveAllRecords() {
@@ -2420,8 +2425,13 @@ class App {
             this.showToast('لا توجد سجلات للحفظ', 'warning');
             return;
         }
-        if (!await confirm(`سيتم حفظ ${this.pendingAllData.length} سجل. هل أنت متأكد؟`)) return;
-        await this._saveDataToServer(this.pendingAllData);
+        // [FIX] Capture data BEFORE confirm dialog
+        const dataToSave = this.pendingAllData;
+        const file = this.pendingFile;
+        if (!file) { this.showToast('تعذر الوصول لبيانات الملف', 'error'); return; }
+        const confirmed = await confirm(`سيتم حفظ ${dataToSave.length} سجل. هل أنت متأكد؟`);
+        if (!confirmed) return;
+        await this._saveDataToServer(dataToSave, file);
     }
 
     async saveAllAsIs() {
@@ -2429,18 +2439,22 @@ class App {
             this.showToast('لا توجد سجلات للحفظ', 'warning');
             return;
         }
-        if (!await confirm(`?? سيتم حفظ كل ${this.pendingAllData.length} سجل كما هو بما فيها السجلات التي بها أخطاء. هل أنت متأكد؟`)) return;
-        await this._saveDataToServer(this.pendingAllData);
+        // [FIX] Capture data BEFORE confirm dialog
+        const dataToSave = this.pendingAllData;
+        const file = this.pendingFile;
+        if (!file) { this.showToast('تعذر الوصول لبيانات الملف', 'error'); return; }
+        const confirmed = await confirm(`سيتم حفظ كل ${dataToSave.length} سجل كما هو بما فيها السجلات التي بها أخطاء. هل أنت متأكد؟`);
+        if (!confirmed) return;
+        await this._saveDataToServer(dataToSave, file);
     }
 
-    async _saveDataToServer(data) {
-        if (!this.pendingFile) {
-            console.error('[SAVE] pendingFile is null!');
+    // [FIX] file is now passed explicitly to avoid pendingFile null issues
+    async _saveDataToServer(data, file) {
+        if (!file) {
+            console.error('[SAVE] file param is null!');
             this.showToast('عذراً، تعذر الوصول لبيانات الملف الأصلية', 'error');
             return;
         }
-
-        const file = this.pendingFile;
 
         // إخراج headers من البيانات نفسها
         const allKeys = new Set();
@@ -2458,54 +2472,56 @@ class App {
         this.salaryReturnsCache = null;
         this.isCaching = false;
 
-        // إخفاء التحميل العام لإظهار شريط التقدم المخصص
+        // [FIX] إخفاء صفحة الـ validation وأزرارها أولاً
         this.hideLoading();
 
-        // إظهار شريط التقدم وإخفاء الأزرار
-        const progressContainer = document.getElementById('save-progress-container');
-        const progressBar = document.getElementById('save-progress-bar');
-        const progressPercent = document.getElementById('save-progress-percent');
-        const modalFooter = document.getElementById('validation-modal-footer');
-        const validationPage = document.getElementById('page-validation-results');
-        const pageFooter = validationPage?.querySelector('.val-bottom-actions');
-        
-        const isValidationPageVisible = !!(validationPage && !validationPage.classList.contains('hidden'));
-        const activeFooter = isValidationPageVisible ? pageFooter : modalFooter;
-        
-        console.log('[SAVE] UI State:', { isValidationPageVisible, hasProgressContainer: !!progressContainer, hasActiveFooter: !!activeFooter });
+        // [FIX] إنشاء progress overlay ثابت بدلاً من DOM manipulation معقد
+        const overlay = document.createElement('div');
+        overlay.id = 'save-overlay-progress';
+        overlay.style.cssText = `
+            position: fixed; inset: 0; z-index: 200000;
+            background: rgba(6, 11, 19, 0.92);
+            backdrop-filter: blur(10px);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 20px; direction: rtl;
+        `;
+        overlay.innerHTML = `
+            <div style="text-align:center; color:#00f0ff; font-family:'Cairo',sans-serif;">
+                <div style="font-size:2.5rem; margin-bottom:10px;">💾</div>
+                <div style="font-size:1.2rem; font-weight:700; margin-bottom:5px;">جاري حفظ البيانات...</div>
+                <div id="_save_overlay_msg" style="font-size:0.9rem; color:#94a3b8;">تهيئة عملية الحفظ</div>
+            </div>
+            <div style="width:380px; max-width:90vw;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:0.85rem; color:#64748b;">
+                    <span>التقدم</span>
+                    <span id="_save_overlay_pct">0%</span>
+                </div>
+                <div style="height:8px; background:rgba(255,255,255,0.05); border-radius:10px; overflow:hidden;">
+                    <div id="_save_overlay_bar" style="height:100%; width:0%; background:linear-gradient(90deg,#00f0ff,#bd00ff); transition:width 0.3s ease; border-radius:10px;"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
 
-        // حفظ المكان الأصلي لشريط التقدم لإعادته لاحقاً
-        const originalProgressParent = progressContainer?.parentElement || null;
-        const originalProgressNext = progressContainer?.nextSibling || null;
+        const overlayMsg = overlay.querySelector('#_save_overlay_msg');
+        const overlayPct = overlay.querySelector('#_save_overlay_pct');
+        const overlayBar = overlay.querySelector('#_save_overlay_bar');
 
-        // إذا كانت صفحة النتائج كاملة معروضة، ننقل شريط التقدم إليها
-        if (isValidationPageVisible && progressContainer && pageFooter) {
-            pageFooter.before(progressContainer);
-            progressContainer.classList.remove('hidden');
-            progressContainer.style.display = 'block';
-            progressContainer.style.visibility = 'visible';
-            progressContainer.style.opacity = '1';
-            progressContainer.style.zIndex = '9999';
-        } else if (progressContainer) {
-            progressContainer.classList.remove('hidden');
-            progressContainer.style.display = 'block'; // استخدام block كقيمة افتراضية آمنة
-            progressContainer.style.visibility = 'visible';
-            progressContainer.style.opacity = '1';
-            progressContainer.style.zIndex = '9999';
-        }
+        const setProgress = (pct, msg) => {
+            if (overlayBar) overlayBar.style.width = pct + '%';
+            if (overlayPct) overlayPct.textContent = Math.floor(pct) + '%';
+            if (msg && overlayMsg) overlayMsg.textContent = msg;
+        };
 
-        // إخفاء أزرار الحفظ لمنع الضغط المتكرر
-        if (activeFooter) {
-            activeFooter.style.display = 'none';
-        }
-        
-        // إخفاء الأزرار في الواجهة الجديدة أيضاً إذا كانت موجودة
-        if (pageFooter && isValidationPageVisible) {
-             pageFooter.style.display = 'none';
-        }
+        const removeOverlay = () => {
+            const el = document.getElementById('save-overlay-progress');
+            if (el) el.remove();
+        };
 
-        // إعطاء فرصة للمتصفح لرسم شريط التقدم قبل تجميد الخيط بعملية التحويل إلى JSON
-        await new Promise(r => setTimeout(r, 50));
+        // السماح للمتصفح برسم الـ overlay
+        await new Promise(r => setTimeout(r, 80));
+        setProgress(5, 'جاري تجهيز البيانات...');
 
         const startTime = Date.now();
         try {
@@ -2515,119 +2531,88 @@ class App {
                 headers: headers
             };
 
-            // تهيئة شريط التقدم
-            let currentProgress = 0;
-            if (progressBar) progressBar.style.width = '5%';
-            if (progressPercent) progressPercent.textContent = '5%';
+            // شريط التقدم المتحرك
+            let currentProgress = 5;
+            setProgress(5, 'جاري إرسال البيانات إلى الخادم...');
 
             const interval = setInterval(() => {
-                currentProgress += Math.random() * 5;
-                if (currentProgress > 92) {
+                currentProgress += Math.random() * 4;
+                if (currentProgress > 88) {
                     clearInterval(interval);
-                    currentProgress = 92;
+                    currentProgress = 88;
                 }
-                if (progressBar) progressBar.style.width = currentProgress + '%';
-                if (progressPercent) progressPercent.textContent = Math.floor(currentProgress) + '%';
-            }, 100);
+                setProgress(currentProgress);
+            }, 200);
 
-            console.log('[SAVE] Executing API Call...');
-            const response = this.isSalaryImport 
+            console.log('[SAVE] Executing API Call...', { count: data.length, type: this.isSalaryImport ? 'Salary' : 'Incentive' });
+
+            const response = this.isSalaryImport
                 ? await this.db.saveSalaryReturns(data, importInfo)
                 : await this.db.saveReturns(data, importInfo);
 
             clearInterval(interval);
-            
+
             if (response && response.success !== false) {
-                console.log('[SAVE] API Success report received');
-                
-                // الانتقال فوراً لـ 100%
-                if (progressBar) progressBar.style.width = '100%';
-                if (progressPercent) progressPercent.textContent = '100%';
+                console.log('[SAVE] API Success:', response);
+                setProgress(95, 'تم الحفظ بنجاح، جاري تحديث البيانات...');
 
-                // انتظار كافٍ لضمان معالجة البيانات وانعكاسها في قاعدة بيانات السيرفر
-                console.log('[SAVE] Waiting for DB stabilization...');
-                await new Promise(r => setTimeout(r, 1200));
+                await new Promise(r => setTimeout(r, 800));
+                setProgress(100, 'اكتمل الحفظ!');
+                await new Promise(r => setTimeout(r, 400));
 
-                // مسح الكاش مرة أخرى للتأكيد قبل التحميل
+                // مسح الكاش وإغلاق واجهة الـ validation
                 this.returnsCache = null;
                 this.salaryReturnsCache = null;
-                
-                this.hideValidationModal();
-                this.hideValidationResultsPage();
-                
-                // إخفاء شريط التقدم هنا بعد الإغلاق
-                if (progressContainer) {
-                    progressContainer.classList.add('hidden');
-                    progressContainer.style.display = 'none';
-                    if (originalProgressParent && progressContainer.parentElement !== originalProgressParent) {
-                        if (originalProgressNext) {
-                            originalProgressParent.insertBefore(progressContainer, originalProgressNext);
-                        } else {
-                            originalProgressParent.appendChild(progressContainer);
-                        }
-                    }
-                }
+                this.pendingAllData = null;
+                this.pendingValidData = null;
+                this.pendingFile = null;
+                this._validationService = null;
+
+                // إغلاق صفحة النتائج والمودال
+                document.getElementById('validation-modal')?.classList.add('hidden');
+                document.getElementById('page-validation-results')?.classList.add('hidden');
+
+                removeOverlay();
 
                 if (this.isSalaryImport) {
                     this.navigateTo('salary-returns');
-                    
-                    // تصفير فلاتر البحث للمرتبات
                     const salarySearch = document.getElementById('salary-table-search');
-                    if (salarySearch) salarySearch.value = "";
-                    
-                    await this.loadSalaryReturns(1, 50, "");
-                    this.showToast('تم حفظ ' + data.length + ' سجل مرتبات بنجاح ✅', 'success');
+                    if (salarySearch) salarySearch.value = '';
+                    await this.loadSalaryReturns(1, 50, '');
+                    this.showToast(`✅ تم حفظ ${data.length} سجل مرتبات بنجاح`, 'success');
                 } else {
                     this.navigateTo('returns');
-                    
-                    // تصفير أي فلاتر بحث أو شهر لضمان ظهور البيانات الجديدة برمجياً وفي الـ DOM
-                    this.searchQuery = "";
-                    this.monthFilterValue = "all";
-                    
+                    this.searchQuery = '';
+                    this.monthFilterValue = 'all';
                     const mainSearch = document.getElementById('table-search');
-                    if (mainSearch) mainSearch.value = "";
-                    
+                    if (mainSearch) mainSearch.value = '';
                     const mFilter = document.getElementById('month-filter');
-                    if (mFilter) mFilter.value = "all";
-                    
+                    if (mFilter) mFilter.value = 'all';
                     const sFilter = document.getElementById('settlement-filter');
-                    if (sFilter) sFilter.value = "all";
+                    if (sFilter) sFilter.value = 'all';
 
                     console.log('[SAVE] Reloading returns table...');
-                    // مسح البيانات الحالية فوراً لإعطاء انطباع بالتحديث
                     this.data = [];
                     this.renderTable([], false);
-                    
-                    await this.loadReturns(1, 50, "", "all", "all", false);
-                    this.showToast('تم حفظ ' + data.length + ' سجل بنجاح ✅', 'success');
-                    
-                    // تحديث الكاش في الخلفية
-                    setTimeout(() => this.populateReturnsCache(), 1000);
+                    await this.loadReturns(1, 50, '', 'all', 'all', false);
+                    this.showToast(`✅ تم حفظ ${data.length} سجل بنجاح`, 'success');
+                    setTimeout(() => this.populateReturnsCache(), 1500);
                 }
 
             } else {
-                throw new Error(response && response.message ? response.message : 'فشل السيرفر في تأكيد عملية الحفظ');
+                throw new Error(response?.message || 'فشل السيرفر في تأكيد عملية الحفظ');
             }
         } catch (error) {
             console.error('[SAVE] Critical Error:', error);
-            this.showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
-            if (activeFooter) activeFooter.style.display = ''; // إعادة الأزرار في حالة الفشل
-            if (pageFooter && isValidationPageVisible) pageFooter.style.display = ''; 
+            removeOverlay();
+            // إعادة إظهار أزرار الحفظ عند الفشل
+            const vPage = document.getElementById('page-validation-results');
+            const vFooter = vPage?.querySelector('.val-bottom-actions');
+            if (vFooter) vFooter.style.display = '';
+            const mFooter = document.getElementById('validation-modal-footer');
+            if (mFooter) mFooter.style.display = '';
+            this.showToast(`❌ فشل الحفظ: ${error.message}`, 'error');
         } finally {
-            // إخفاء شريط التقدم وإخفاء التحميل
-            if (progressContainer) {
-                progressContainer.classList.add('hidden');
-                progressContainer.style.display = 'none';
-                
-                // استعادة المكان الأصلي إذا لم يتم إعادته
-                if (originalProgressParent && progressContainer.parentElement !== originalProgressParent) {
-                    if (originalProgressNext) {
-                        originalProgressParent.insertBefore(progressContainer, originalProgressNext);
-                    } else {
-                        originalProgressParent.appendChild(progressContainer);
-                    }
-                }
-            }
             this.hideLoading();
         }
     }
