@@ -4676,7 +4676,7 @@ select:focus {
 @media print {
     @page { 
         size: A4 landscape; 
-        margin: 1cm; 
+        margin: 0.5cm; 
     }
     
     html, body {
@@ -4755,10 +4755,11 @@ select:focus {
     border: 2px solid black !important; /* Thick outer border */
 }
 .report-data-table th, .report-data-table td { 
-    border: 1.5pt solid black !important; /* Explicit pt size for print */
-    padding: 8px 6px; 
+    border: 1.5pt solid black !important; 
+    padding: 6px 3px; 
     text-align: center; 
-    font-size: 13px; 
+    font-size: 10px; 
+    word-break: break-word;
 }
 .report-data-table th { 
     background: #ddd !important; 

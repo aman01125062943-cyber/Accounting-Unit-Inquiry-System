@@ -49,12 +49,9 @@ class DialogSystem {
             defaultValue = ''
         } = options;
 
-        // إزالة أي حوار سابق
         this._remove();
-
         const icons = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌', question: '❓' };
 
-        // بناء HTML ديناميكياً
         const card = document.createElement('div');
         card.className = 'floating-dialog';
         card.innerHTML = `
@@ -76,7 +73,28 @@ class DialogSystem {
         document.body.appendChild(card);
         this.el = card;
 
-        // الأحداث
+        // Key handlers
+        this.keyHandler = (e) => {
+            if (e.key === 'Enter') {
+                const input = card.querySelector('.fd-input');
+                if (input && document.activeElement === input) {
+                    // Handled by input listener or we can just trigger OK here
+                    e.preventDefault();
+                    card.querySelector('.fd-btn-ok').click();
+                } else if (!input || document.activeElement !== input) {
+                    e.preventDefault();
+                    card.querySelector('.fd-btn-ok').click();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                const cancelBtn = card.querySelector('.fd-btn-cancel');
+                if (cancelBtn) cancelBtn.click();
+                else card.querySelector('.fd-close').click();
+            }
+        };
+        window.addEventListener('keydown', this.keyHandler);
+
+        // Events
         card.querySelector('.fd-close').onclick = () => this._resolve(null);
         card.querySelector('.fd-btn-ok').onclick = () => {
             if (isPrompt) {
@@ -89,14 +107,20 @@ class DialogSystem {
         const cancelBtn = card.querySelector('.fd-btn-cancel');
         if (cancelBtn) cancelBtn.onclick = () => this._resolve(false);
 
-        // Focus
-        if (isPrompt) setTimeout(() => card.querySelector('.fd-input')?.focus(), 100);
+        // Focus and Enter key support (localized to input)
+        if (isPrompt) {
+            const inputEl = card.querySelector('.fd-input');
+            if (inputEl) {
+                setTimeout(() => inputEl.focus(), 100);
+            }
+        }
 
         return new Promise(resolve => { this.resolvePromise = resolve; });
     }
 
     _resolve(value) {
         if (!this.el) return;
+        window.removeEventListener('keydown', this.keyHandler);
         this.el.classList.add('fd-hiding');
         setTimeout(() => {
             this._remove();
@@ -671,6 +695,34 @@ class App {
                 }
             });
         }
+
+        // --- Global Modal Key Events (Enter/Escape) ---
+        document.addEventListener('keydown', (e) => {
+            // Find active/visible modals
+            const activeModal = Array.from(document.querySelectorAll('.modal, .modal-overlay, .login-wrapper'))
+                .find(m => !m.classList.contains('hidden') && m.style.display !== 'none' && window.getComputedStyle(m).display !== 'none');
+
+            if (!activeModal) return;
+
+            if (e.key === 'Enter') {
+                // If focused in a textarea, let it handle Enter normally
+                if (document.activeElement.tagName === 'TEXTAREA') return;
+
+                // Find primary button in this modal
+                const primaryBtn = activeModal.querySelector('.btn-primary, .btn-save, .fd-btn-ok, button[type="submit"], .btn-val-full-save');
+                if (primaryBtn && !primaryBtn.disabled) {
+                    e.preventDefault();
+                    primaryBtn.click();
+                }
+            } else if (e.key === 'Escape') {
+                // Find close/cancel button
+                const closeBtn = activeModal.querySelector('.modal-close, .btn-close, .fd-close, .fd-btn-cancel, .btn-secondary');
+                if (closeBtn && !closeBtn.disabled) {
+                    e.preventDefault();
+                    closeBtn.click();
+                }
+            }
+        });
     }
 
     // ========================================
@@ -2725,6 +2777,44 @@ class App {
     // ========================================
     // Smart Payment Logic (Bulk Update via Excel)
     // ========================================
+
+    downloadSmartPaymentTemplate() {
+        if (typeof XLSX === 'undefined') {
+            this.showToast('مكتبة Excel غير متوفرة', 'error');
+            return;
+        }
+
+        const headers = [
+            "الاسم", 
+            "الرقم القومي",
+            "كود الملف",
+            "البنك",
+            "رقم الحساب", 
+            "رقم الحساب بعد التعديل", 
+            "البنك بعد التعديل", 
+            "تاريخ التعديل", 
+            "تاريخ اعتماد التعديل", 
+            "رقم تسوية السداد", 
+            "تاريخ تسوية السداد",
+        ];
+
+        const wb = XLSX.utils.book_new();
+        const ws_data = [
+            headers,
+            ["محمد أحمد", "29001011234567", "05-2025", "البنك الأهلي", "0123456789", "0123456799", "بنك مصر", "15-05-2025", "20-05-2025", "SET-1234", "22-05-2025"]
+        ];
+
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+        
+        // Auto-size columns slightly
+        const wscols = headers.map(h => ({wch: Math.max(h.length + 5, 20)}));
+        ws['!cols'] = wscols;
+
+        XLSX.utils.book_append_sheet(wb, ws, "اسطمبة السداد الذكي");
+        XLSX.writeFile(wb, "Smart_Payment_Template.xlsx");
+        
+        this.showToast('تم تنزيل إسطمبة الإكسيل بنجاح', 'success');
+    }
 
     async handleSmartPaymentFile(input) {
         const file = input.files[0];
@@ -7408,19 +7498,25 @@ App.prototype.generateProfessionalReport = async function () {
             if (!normalizedRowName.includes(normalizedName)) return false;
 
             // Filter by Settlement Status
-            // For Salary Returns, we often have a 'حالة التسوية' field directly
             const settlementStatusKeys = ['حالة التسوية', 'Status', 'SettlementStatus'];
-            const settlementVal = String(this.findValue(r, settlementStatusKeys) || '').trim();
+            let settlementVal = String(this.findValue(r, settlementStatusKeys) || '').trim();
             
-            // For Incentive Returns, we often check the Modification Date
-            const modDateKeys = ['تاريخ اعتماد التعديل', 'تاريخ التسوية', 'ModificationDate', 'تاريخ التعديل'];
+            const elevationRefKeys = ['رقم تسوية التعلية', 'تسوية التعلية'];
+            const paymentRefKeys = ['رقم تسوية السداد', 'تسوية السداد'];
+            const filterElevationRef = this.findValue(r, elevationRefKeys) || '';
+            const filterPaymentRef = this.findValue(r, paymentRefKeys) || '';
+            
+            if (filterPaymentRef && filterPaymentRef.toString().trim() !== '') {
+                settlementVal = 'تمت التسوية';
+            } else if (filterElevationRef && filterElevationRef.toString().trim() !== '') {
+                settlementVal = 'تم التعلية';
+            }
+
+            const modDateKeys = ['تاريخ اعتماد التعديل', 'تاريخ التسوية', 'ModificationDate', 'تاريخ التعديل', 'تاريخ اعتماد المرتدات', 'SettlementDate'];
             const modDate = this.findValue(r, modDateKeys);
             const hasModDate = modDate && String(modDate).trim() !== '' && String(modDate) !== '-';
 
-            // Determination of isSettled:
-            // 1. If 'حالة التسوية' says 'تمت التسوية' or similar
-            // 2. Or if it has a modification date
-            let isSettled = hasModDate || settlementVal.includes('تمت') || settlementVal.includes('سداد') || settlementVal.includes('Settled');
+            let isSettled = filterPaymentRef || filterElevationRef || hasModDate || settlementVal.includes('تمت') || settlementVal.includes('سداد');
 
             if (status === 'settled') return isSettled;
             if (status === 'unsettled') return !isSettled;
@@ -7457,11 +7553,29 @@ App.prototype.generateProfessionalReport = async function () {
             const amountKeys = ['المبلغ', 'قيمة العملية', ' قيمة العملية', 'ProcessValue', 'Amount'];
             const amount = this.parseAmount(this.findValue(r, amountKeys));
 
-            const modDateKeys = ['تاريخ اعتماد التعديل', 'تاريخ التسوية', 'ModificationDate', 'تاريخ التعديل'];
-            const modDate = this.findValue(r, modDateKeys);
-            const isSettled = modDate && String(modDate).trim() !== '' && String(modDate) !== '-';
+            const settlementStatusKeys = ['حالة التسوية', 'Status', 'SettlementStatus'];
+            let rowSettlementVal = String(this.findValue(r, settlementStatusKeys) || '').trim();
 
+            const elevationRefKeys = ['رقم تسوية التعلية', 'تسوية التعلية'];
+            const paymentRefKeys = ['رقم تسوية السداد', 'تسوية السداد'];
+            const elevationRef = this.findValue(r, elevationRefKeys) || '';
+            const paymentRef = this.findValue(r, paymentRefKeys) || '';
+
+            if (paymentRef && paymentRef.toString().trim() !== '') {
+                rowSettlementVal = 'تمت التسوية';
+            } else if (elevationRef && elevationRef.toString().trim() !== '') {
+                rowSettlementVal = 'تم التعلية';
+            }
+
+            const modDateKeys = ['تاريخ اعتماد التعديل', 'تاريخ التسوية', 'ModificationDate', 'تاريخ التعديل', 'تاريخ اعتماد المرتدات', 'SettlementDate'];
+            const modDateVal = this.findValue(r, modDateKeys);
+            const isSettled = paymentRef || elevationRef || (modDateVal && String(modDateVal).trim() !== '' && String(modDateVal) !== '-') || rowSettlementVal.includes('تمت') || rowSettlementVal.includes('سداد');
+
+            let rowStatusText = 'تحت التسوية';
+            let rowStatusColor = '#dc2626';
             if (isSettled) {
+                rowStatusText = paymentRef ? 'تم السداد' : (elevationRef ? 'تم التعلية' : 'تمت التسوية');
+                rowStatusColor = '#059669';
                 totalSettled += amount;
                 countSettled++;
             } else {
@@ -7471,17 +7585,40 @@ App.prototype.generateProfessionalReport = async function () {
 
             const oldAccKeys = ['رقم الحساب القديم', 'OldAccount', 'رقم_الحساب_القديم', 'رقم الحساب'];
             const newAccKeys = ['رقم الحساب الجديد', 'NewAccount', 'رقم_الحساب_الجديد', 'رقم الحساب المعدل'];
-            const returnDateKeys = ['ت. المرتد', 'ReturnDate', 'تاريخ_المرتد', 'تاريخ المرتد'];
+            const returnDateKeys = ['ت. المرتد', 'ReturnDate', 'تاريخ_المرتد', 'تاريخ المرتد', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ المرتدات'];
+            const fileCodeKeys = ['كود الملف', 'FileCode', 'الشهر', 'كـــود الملف', 'كُـــود المـلف', 'كود_الملف'];
+            
+            const returnDateStr = this.formatDate(this.findValue(r, returnDateKeys));
+            const modDateStr = this.formatDate(modDateVal);
+
+            const fileCodeStr = String(this.findValue(r, fileCodeKeys) || '').trim();
+            let monthLabel = 'فارغ';
+            if (fileCodeStr && fileCodeStr !== '-') {
+                const parts = fileCodeStr.split('/');
+                if (parts.length >= 2) {
+                    monthLabel = `${parts[0].padStart(2, '0')}-${parts[1]}`;
+                } else {
+                    const match = String(fileCodeStr).match(/-(\d{1,2})-(\d{4})/);
+                    if (match) {
+                        monthLabel = `${match[1].padStart(2, '0')}-${match[2]}`;
+                    } else {
+                        monthLabel = fileCodeStr;
+                    }
+                }
+            }
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${idx + 1}</td>
+                <td style="white-space: nowrap;">${monthLabel}</td>
                 <td style="font-family: monospace; white-space: nowrap;">${this.findValue(r, oldAccKeys) || '-'}</td>
                 <td style="font-family: monospace; white-space: nowrap;">${this.findValue(r, newAccKeys) || '-'}</td>
-                <td>${this.findValue(r, returnDateKeys) || '-'}</td>
+                <td>${returnDateStr || '-'}</td>
                 <td style="font-weight: bold;">${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                <td>${modDate || '-'}</td>
-                <td style="color: ${isSettled ? '#059669' : '#dc2626'};">${isSettled ? 'تم التسوية' : 'تحت التسوية'}</td>
+                <td>${elevationRef || '-'}</td>
+                <td>${modDateStr || '-'}</td>
+                <td>${paymentRef || '-'}</td>
+                <td style="color: ${rowStatusColor};">${rowStatusText}</td>
             `;
             tbody.appendChild(tr);
         });
