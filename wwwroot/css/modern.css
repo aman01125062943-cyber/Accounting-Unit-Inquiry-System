@@ -904,7 +904,17 @@ th.sticky-col, th.sticky-col-2, th.sticky-col-3, th.sticky-col-4 {
 
 /* Column Specific Constraints */
 th.col-id, td.col-id { width: 50px; min-width: 50px; max-width: 50px; text-align: center; }
-th.col-name, td.col-name { min-width: 200px; max-width: 350px; }
+th.col-name, td.col-name {
+    min-width: 250px;
+    max-width: 500px; /* زيادة العرض لاستيعاب الأسماء الطويلة مع الالتفاف */
+    white-space: normal !important;
+    word-break: break-word;
+    line-height: 1.4; /* تقليل التباعد قليلاً للالتفاف المنتظم */
+    overflow: visible !important;
+    text-overflow: unset !important;
+    font-size: 0.95rem; /* تحسين حجم الخط للقراءة */
+    vertical-align: middle;
+}
 th.col-amount, td.col-amount { width: 120px; text-align: left; font-family: monospace; }
 th.col-date, td.col-date { width: 130px; white-space: nowrap; }
 th.col-actions, td.col-actions { 

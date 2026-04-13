@@ -294,6 +294,13 @@ public class DatabaseService
             try { await conn.ExecuteScalarAsync("SELECT CreatedBy FROM NotificationEvents LIMIT 1"); } catch {
                 await conn.ExecuteAsync("ALTER TABLE NotificationEvents ADD COLUMN CreatedBy TEXT;");
             }
+            // --- New Settlement Columns ---
+            try { await conn.ExecuteScalarAsync("SELECT [رقم تسوية التعلية] FROM Returns LIMIT 1"); } catch {
+                await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية التعلية] TEXT;");
+            }
+            try { await conn.ExecuteScalarAsync("SELECT [رقم تسوية السداد] FROM Returns LIMIT 1"); } catch {
+                await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية السداد] TEXT;");
+            }
         } catch {}
     }
 

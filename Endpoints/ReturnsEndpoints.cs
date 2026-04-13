@@ -360,8 +360,8 @@ public static class ReturnsEndpoints
              catch { hasUploadDateInDb = false; }
 
              string selectFields = hasUploadDateInDb 
-                 ? "Id, RawData, ReturnCode, UploadDate" 
-                 : "Id, RawData, ReturnCode, NULL as UploadDate";
+                 ? "Id, RawData, ReturnCode, UploadDate, [رقم تسوية التعلية], [رقم تسوية السداد]" 
+                 : "Id, RawData, ReturnCode, NULL as UploadDate, [رقم تسوية التعلية], [رقم تسوية السداد]";
 
              var sqlPaged = $@"
                 SELECT {selectFields}
@@ -374,7 +374,7 @@ public static class ReturnsEndpoints
              pagingParams.Add("Limit", s);
              pagingParams.Add("Offset", offset);
              
-             var pagedRows = await conn.QueryAsync<(int Id, string RawData, string ReturnCode, string UploadDate)>(sqlPaged, pagingParams);
+             var pagedRows = await conn.QueryAsync<dynamic>(sqlPaged, pagingParams);
              
              // Extract Ids to fetch attachment counts
              var ids = pagedRows.Select(r => (long)r.Id).ToList();
@@ -390,11 +390,16 @@ public static class ReturnsEndpoints
              var data = pagedRows.Select(r => {
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(r.RawData, jsonOptions);
                 if (obj != null) {
-                    obj["id"] = r.Id;
+                    obj["id"] = (long)r.Id;
                     if (r.UploadDate != null) {
-                        obj["تاريخ الرفع"] = r.UploadDate;
+                        obj["تاريخ الرفع"] = (string)r.UploadDate;
                     }
-                    obj["AttachmentCount"] = attachmentCounts.ContainsKey(r.Id) ? attachmentCounts[r.Id] : 0;
+                    // Map physical columns specifically using safe dictionary access
+                    var rowDict = (IDictionary<string, object>)r;
+                    obj["رقم تسوية التعلية"] = rowDict.ContainsKey("رقم تسوية التعلية") ? rowDict["رقم تسوية التعلية"] : "";
+                    obj["رقم تسوية السداد"] = rowDict.ContainsKey("رقم تسوية السداد") ? rowDict["رقم تسوية السداد"] : "";
+                    
+                    obj["AttachmentCount"] = attachmentCounts.ContainsKey((long)r.Id) ? attachmentCounts[(long)r.Id] : 0;
                 }
                 return obj;
              }).ToList();
@@ -540,8 +545,8 @@ public static class ReturnsEndpoints
                     // Use json_set in SQL to inject the upload date efficiently directly in the database engine
                     // This avoids the massive CPU overhead of Deserializing/Serializing every JSON record in C#
                     string insertSql = hasUploadDateInDb
-                        ? "INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate)"
-                        : "INSERT INTO Returns (ImportId, RawData, ReturnCode) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode)";
+                        ? "INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate, [رقم تسوية التعلية], [رقم تسوية السداد]) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate, @InquiryNum, @PaymentNum)"
+                        : "INSERT INTO Returns (ImportId, RawData, ReturnCode, [رقم تسوية التعلية], [رقم تسوية السداد]) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @InquiryNum, @PaymentNum)";
 
                     for (int i = 0; i < importData.data.Count; i += batchSize)
                     {
@@ -555,7 +560,9 @@ public static class ReturnsEndpoints
                                 ImportId = archiveId,
                                 RawData = raw,
                                 ReturnCode = DatabaseService.ExtractReturnCode(fCode),
-                                UploadDate = currentDate
+                                UploadDate = currentDate,
+                                InquiryNum = je.TryGetProperty("رقم تسوية التعلية", out var inq) ? inq.ToString() : "",
+                                PaymentNum = je.TryGetProperty("رقم تسوية السداد", out var pay) ? pay.ToString() : ""
                             };
                         }).ToList();
 

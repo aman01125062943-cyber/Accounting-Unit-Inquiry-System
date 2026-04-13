@@ -532,7 +532,7 @@ th.sticky-col {
 
 .unified-section-content th, 
 .unified-section-content td {
-    white-space: nowrap !important;
+    white-space: nowrap; /* إزالة !important للسماح للفئات الأخص بالتحكم */
     padding: 12px 25px !important;
     text-align: right;
 }
@@ -541,13 +541,18 @@ th.sticky-col {
 .unified-section-content .sticky-col {
     position: sticky !important;
     right: 0 !important;
-    z-index: 50 !important; /* رفعه فوق كل شيء */
-    min-width: 400px !important; /* عرض ضخم ومضمون */
+    z-index: 50 !important;
+    min-width: 400px !important;
     width: 400px !important;
     max-width: 400px !important;
     background-color: #0d121f !important;
     box-shadow: -6px 0 15px rgba(0,0,0,0.5);
     border-left: 1px solid rgba(255,255,255,0.1) !important;
+    /* دعم الالتفاف لظهور الاسم كاملاً */
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.4 !important;
+    height: auto !important;
 }
 
 /* عمود "قيمة العملية" المثبت للبحث الموحد */

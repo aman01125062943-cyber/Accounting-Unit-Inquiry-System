@@ -1744,23 +1744,39 @@ class App {
                 }
             }
 
-            // إضافة عمود "تاريخ الرفع" قبل الإجراءات مباشرة
-            if (!displayHeaders.includes('تاريخ الرفع')) {
-                // Remove if exists elsewhere to reposition
-                const existIdx = displayHeaders.indexOf('تاريخ الرفع');
-                if (existIdx !== -1) displayHeaders.splice(existIdx, 1);
-                displayHeaders.push('تاريخ الرفع');
-            }
+            // الترتيب الصارم والنهائي للأعمدة في نهاية الجدول ليتطابق مع الإكسيل تماماً
+            const finalColsOrder = [
+                'تاريخ الرفع',
+                'رقم تسوية التعلية',
+                'تاريخ المرتد / تاريخ التعلية',
+                'تاريخ التعديل',
+                'تاريخ اعتماد التعديل',
+                'رقم تسوية السداد',
+                'تاريخ اعتماد التعديل / تاريخ السداد',
+                'حالة التسوية'
+            ];
 
-            displayHeaders.unshift('#');
-            displayHeaders.unshift('<input type="checkbox" id="selectAllCheckbox" onchange="window.app.toggleSelectAllReturns(this.checked)" style="transform: scale(1.2); cursor: pointer;" title="تحديد الكل">');
+            // 1. تنظيف الأسماء المزدوجة القديمة لو وجدت لمنع التكرار
+            displayHeaders = displayHeaders.map(h => {
+                if (h === 'تاريخ المرتد') return 'تاريخ المرتد / تاريخ التعلية';
+                return h;
+            });
 
-            // نقل "حالة التسوية" إلى النهاية (قبل الإجراءات)
-            const statusIdx = displayHeaders.findIndex(h => h === 'حالة التسوية');
-            if (statusIdx !== -1) {
-                const statusHeader = displayHeaders.splice(statusIdx, 1)[0];
-                displayHeaders.push(statusHeader);
-            }
+            // 2. تنظيف المصفوفة من أي أعمدة تواريخ وتسويات قديمة أو مكررة (Clean Slate)
+            const removableKeywords = [
+                'تاريخ المرتد', 'تاريخ الاعتماد', 'تاريخ اعتماد', 
+                'تاريخ التعديل', 'تاريخ الرفع', 'رقم تسوية', 'حالة التسوية'
+            ];
+            
+            displayHeaders = displayHeaders.filter(h => {
+                // احتفظ بالعمود إذا لم يكن ضمن كلمات الفلتر (إزالة قاطعة للتواريخ القديمة والمكررة)
+                return !removableKeywords.some(keyword => h.includes(keyword));
+            });
+
+            // 3. إدراج المجموعة بالترتيب المطلوب والمطابق لملف العميل في نهاية الجدول (وهو ما سيجعلهم مرتبين من اليسار لليمين)
+            // بما أن العرض في المتصفح RLT، فإن الدفع هنا للآخر سيجعل 'تاريخ الرفع' يظهر يمين الدفعة
+            // أما 'حالة التسوية' ستظهر يسار الدفعة (قبل الإجراءات)
+            displayHeaders.push(...finalColsOrder);
 
             this._displayHeaders = displayHeaders; // حفظ للاستخدام في الصفوف
 
@@ -1805,6 +1821,16 @@ class App {
             const rowId = row.id || row.Id;
             const cells = (this._displayHeaders || this.headers).map((h, i) => {
                 let val = row[h] ?? '';
+
+                // منطق استعادة القيم المسميات المزدوجة (لأن البيانات مخزنة بالمفتاح القديم)
+                if (val === '') {
+                    if (h === 'تاريخ المرتد / تاريخ التعلية') {
+                        val = row['تاريخ المرتد'] || row['تاريخ المرتدات'] || '';
+                    }
+                    if (h === 'تاريخ اعتماد التعديل / تاريخ السداد') {
+                        val = row['تاريخ اعتماد التعديل'] || row['تاريخ اعتماد المرتدات'] || row['SettlementDate'] || '';
+                    }
+                }
 
                 // Backup check for virtual columns that might not be in row directly but in RawData
                 if (val === '' && h !== '#') {
@@ -2090,7 +2116,7 @@ class App {
 
     downloadTemplate() {
         try {
-            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
+            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتد', 'رقم تسوية التعلية', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2105,7 +2131,7 @@ class App {
 
     downloadSalaryTemplate() {
         try {
-            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
+            const headers = ['الاســــم', 'الرقم القومي', 'كـــود الملف', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'تاريخ المرتد', 'رقم تسوية التعلية', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد  التعديل', 'تاريخ الرفع'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
