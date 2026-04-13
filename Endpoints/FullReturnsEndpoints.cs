@@ -308,18 +308,41 @@ public static class FullReturnsEndpoints
 
         app.MapDelete("/full-returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
+            var config = DatabaseService.LoadServerConfig();
+            string user = context.Request.Query["user"].ToString();
+            if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+
+            // 1. FullReturnsImages
             var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
-                var config = DatabaseService.LoadServerConfig();
                 var path = Path.Combine(config.ArchivePath ?? "", "FullReturns", (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
                 await conn.ExecuteAsync("DELETE FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
+                await db.AddNotificationEventAsync("FullReturns", "حذف مرفق", (long)id, user);
+                return Results.Ok(new { success = true });
             }
-            string user = context.Request.Query["user"].ToString();
-            if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-            await db.AddNotificationEventAsync("FullReturns", "حذف مرفق", (long)id, user);
 
-            return Results.Ok(new { success = true });
+            // 2. ReturnsImages
+            record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM ReturnsImages WHERE Id = @Id", new { Id = id });
+            if (record != null) {
+                var path = Path.Combine(config.ArchivePath ?? "", (string)record.Filename);
+                try { if (File.Exists(path)) File.Delete(path); } catch {}
+                await conn.ExecuteAsync("DELETE FROM ReturnsImages WHERE Id = @Id", new { Id = id });
+                await db.AddNotificationEventAsync("Returns", "حذف مرفق", (long)id, user);
+                return Results.Ok(new { success = true });
+            }
+
+            // 3. SalaryReturnsImages
+            record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
+            if (record != null) {
+                var path = Path.Combine(config.ArchivePath ?? "", (string)record.Filename);
+                try { if (File.Exists(path)) File.Delete(path); } catch {}
+                await conn.ExecuteAsync("DELETE FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
+                await db.AddNotificationEventAsync("SalaryReturns", "حذف مرفق", (long)id, user);
+                return Results.Ok(new { success = true });
+            }
+
+            return Results.NotFound(new { success = false, message = "Attachment not found" });
         });
     }
 

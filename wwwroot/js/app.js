@@ -23,7 +23,7 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
     return false;
 };
 
-console.log('App JS Loaded Successfully version 6.6 - Unified Identity Attachments');
+console.log('App JS Loaded Successfully version 6.7 - Reliable Connectivity & SVG Icons');
 
 /**
  * نظام إدارة المرتدات - التطبيق الرئيسي
@@ -859,6 +859,16 @@ class App {
             }
         }
 
+        // Populate Month Filter dynamically from actual FileCode values
+        const monthSelect = document.getElementById('month-filter');
+        if (monthSelect && monthSelect.options.length <= 1) {
+            try {
+                this._populateMonthFilter('returns');
+            } catch (e) {
+                console.warn('Failed to populate month filter', e);
+            }
+        }
+
         // Ensure filter values are always synced with UI if null
         this.monthFilterValue = document.getElementById('month-filter')?.value || this.monthFilterValue || 'all';
         this.settlementFilterValue = document.getElementById('settlement-filter')?.value || this.settlementFilterValue || 'all';
@@ -986,11 +996,21 @@ class App {
 
                 // Filter by Month next
                 if (this.monthFilterValue && this.monthFilterValue !== 'all') {
-                    const selectedMonth = this.monthFilterValue; // e.g. "01-2026"
+                    const selectedMonth = this.monthFilterValue; // e.g. "01-2026" or "فارغ"
                     dataToUse = dataToUse.filter(row => {
                         const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
                         const fileCode = this.findValue(row, fileCodeKeys) || '';
-                        return String(fileCode).includes(selectedMonth);
+                        let monthVal = 'فارغ';
+                        if (fileCode && String(fileCode).includes('-')) {
+                            const parts = String(fileCode).split('-');
+                            if (parts.length >= 2) {
+                                const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1];
+                                if (/^\d{2}-\d{4}$/.test(possibleDate)) {
+                                    monthVal = possibleDate;
+                                }
+                            }
+                        }
+                        return monthVal === selectedMonth;
                     });
                 }
 
@@ -1021,6 +1041,8 @@ class App {
             const dataToRender = append ? response.data : null;
             this.renderTable(dataToRender, append);
             this.updateStats(response.stats);
+            // ملء فلتر الشهر من البيانات المحملة
+            this._populateMonthFilter('returns');
         } catch (error) {
             console.error('[LOAD] Error loading data:', error);
             this.showToast('حدث خطأ في تحميل البيانات: ' + error.message, 'error');
@@ -1263,9 +1285,21 @@ class App {
             if (selectedMonth) {
                 let fileCode = "";
                 for (const k of fileCodeKeys) {
-                    if (row[k]) { fileCode = row[k]; break; }
+                    if (row[k]) { fileCode = String(row[k]); break; }
                 }
-                if (!String(fileCode).includes(selectedMonth)) return false;
+                
+                let monthVal = 'فارغ';
+                if (fileCode && fileCode.includes('-')) {
+                    const parts = fileCode.split('-');
+                    if (parts.length >= 2) {
+                        const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1];
+                        if (/^\d{2}-\d{4}$/.test(possibleDate)) {
+                            monthVal = possibleDate;
+                        }
+                    }
+                }
+                
+                if (monthVal !== selectedMonth) return false;
             }
 
             // 4. Settlement Logic (Literal Match)
@@ -1332,6 +1366,7 @@ class App {
 
         this.renderTable(append ? pagedData : null, append);
         this.calculateLocalStats(filtered);
+        this._populateMonthFilter('returns');
 
         return filtered.length;
     }
@@ -1749,6 +1784,7 @@ class App {
             const finalOrder = [
                 '#',
                 'كود الملف',
+                'الشهر',
                 'الاسم',
                 'رقم الحساب',
                 'البنك',
@@ -1853,10 +1889,14 @@ class App {
                     // استخراج الشهر من "كود الملف" (تنسيق: Army-xxxx-Month-Year)
                     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
                     const fileCode = this.findValue(row, fileCodeKeys) || '';
+                    val = 'فارغ';
                     if (fileCode && String(fileCode).includes('-')) {
                         const parts = String(fileCode).split('-');
                         if (parts.length >= 2) {
-                            val = parts[parts.length - 2] + '-' + parts[parts.length - 1]; // الشهر-السنة
+                            const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1]; // الشهر-السنة
+                            if (/^\d{2}-\d{4}$/.test(possibleDate)) {
+                                val = possibleDate;
+                            }
                         }
                     }
                 } else if (h === 'تاريخ الرفع') {
@@ -2119,7 +2159,7 @@ class App {
 
     downloadTemplate() {
         try {
-            const headers = ['كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
+            const headers = ['كود الملف', 'الشهر', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2134,7 +2174,7 @@ class App {
 
     downloadSalaryTemplate() {
         try {
-            const headers = ['كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
+            const headers = ['كود الملف', 'الشهر', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -5233,10 +5273,15 @@ class App {
         else if (this.currentAttachmentType === 'salary') baseUrl = '/salary-returns';
 
         try {
+            console.log(`[DELETE] Attempting to delete attachment: ${id} via ${baseUrl}`);
             const result = await db.fetchApi(`${baseUrl}/attachment/${id}`, { method: 'DELETE' });
-            if (result.success) {
-                this.showToast('تم حذف الملف', 'success');
+            console.log('[DELETE] Result:', result);
+            
+            if (result && (result.success || result.status === 'success')) {
+                this.showToast('تم حذف الملف بنجاح', 'success');
                 if (this.currentReturnId) {
+                    // Wait 500ms to ensure DB transaction is completed and visible before reload
+                    await new Promise(r => setTimeout(r, 500));
                     await this.loadAttachments(this.currentReturnId);
 
                     // Refresh the correct table
@@ -7764,6 +7809,68 @@ App.prototype.handleAttachmentFilterChange = async function () {
     await this.loadReturns(1, this.rowsPerPage, this.searchQuery, this.filterValue, val);
 };
 
+/**
+ * استخراج قيم الشهور من البيانات المحلية (cache) وملء فلتر الشهر ديناميكياً
+ * @param {string} type - 'returns' or 'salary'
+ */
+App.prototype._populateMonthFilter = function (type) {
+    const selectId = type === 'salary' ? 'salary-month-filter' : 'month-filter';
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    // استخدام الكاش المحلي المتاح
+    const data = type === 'salary'
+        ? (this.salaryReturnsCache || this.salaryReturnsData || [])
+        : (this.returnsCache || this.data || []);
+
+    if (!data || data.length === 0) return;
+
+    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
+    const monthSet = new Set();
+    let hasEmpty = false;
+
+    const sampleSize = Math.min(data.length, 5000);
+    for (let i = 0; i < sampleSize; i++) {
+        const row = data[i];
+        if (!row) continue;
+        let fileCode = '';
+        for (const k of fileCodeKeys) {
+            if (row[k]) { fileCode = String(row[k]); break; }
+        }
+        if (fileCode && fileCode.includes('-')) {
+            const parts = fileCode.split('-');
+            if (parts.length >= 2) {
+                const candidate = parts[parts.length - 2] + '-' + parts[parts.length - 1];
+                if (/^\d{2}-\d{4}$/.test(candidate)) {
+                    monthSet.add(candidate);
+                    continue;
+                }
+            }
+        }
+        hasEmpty = true;
+    }
+
+    const sorted = Array.from(monthSet).sort();
+    // لا تعيد بناء القائمة إذا كانت البيانات موجودة فعلاً
+    if (select.options.length > 1 && select.options.length >= sorted.length + (hasEmpty ? 2 : 1)) return;
+
+    select.innerHTML = '<option value="all">الكل</option>';
+    if (hasEmpty) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = 'فارغ';
+        emptyOpt.textContent = 'فارغ';
+        select.appendChild(emptyOpt);
+    }
+    sorted.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        select.appendChild(opt);
+    });
+
+    console.log(`[MONTH FILTER] Populated ${sorted.length} months for ${type}`);
+};
+
 App.prototype.handleMonthFilterChange = async function (val) {
     console.log('[FILTER] Month filter changed:', val);
     this.monthFilterValue = val;
@@ -7836,6 +7943,16 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
             }
         } catch (e) {
             console.warn('Failed to load salary upload dates', e);
+        }
+    }
+
+    // Populate Salary Month Filter dynamically
+    const salaryMonthSelect = document.getElementById('salary-month-filter');
+    if (salaryMonthSelect && salaryMonthSelect.options.length <= 1) {
+        try {
+            this._populateMonthFilter('salary');
+        } catch (e) {
+            console.warn('Failed to populate salary month filter', e);
         }
     }
 
@@ -7933,7 +8050,17 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
                 dataToUse = dataToUse.filter(row => {
                     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
                     const fileCode = this.findValue(row, fileCodeKeys) || '';
-                    return String(fileCode).includes(selectedMonth);
+                    let monthVal = 'فارغ';
+                    if (fileCode && String(fileCode).includes('-')) {
+                        const parts = String(fileCode).split('-');
+                        if (parts.length >= 2) {
+                            const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1];
+                            if (/^\d{2}-\d{4}$/.test(possibleDate)) {
+                                monthVal = possibleDate;
+                            }
+                        }
+                    }
+                    return monthVal === selectedMonth;
                 });
             }
 
@@ -7998,6 +8125,8 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
         }
 
         this.updateSalaryStats(this.currentDisplayStats || response.stats);
+        // ملء فلتر الشهر من البيانات المحملة
+        this._populateMonthFilter('salary');
 
     } catch (e) {
         console.error('Error loading salary returns:', e);
@@ -8134,12 +8263,16 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                     }
                     rawVal = String(val);
                 } else if (h === 'الشهر') {
-                    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'FileCode'];
+                    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'FileCode', 'كُـــود المـلف', 'كود_الملف'];
                     const fileCode = this.findValue(row, fileCodeKeys) || '';
+                    val = 'فارغ';
                     if (fileCode && String(fileCode).includes('-')) {
                         const parts = String(fileCode).split('-');
                         if (parts.length >= 2) {
-                            val = parts[parts.length - 2] + '-' + parts[parts.length - 1];
+                            const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1]; // الشهر-السنة
+                            if (/^\d{2}-\d{4}$/.test(possibleDate)) {
+                                val = possibleDate;
+                            }
                         }
                     }
                     rawVal = String(val);
@@ -8675,6 +8808,7 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
 
     this.renderSalaryTable(append ? pagedData : null, append);
     this.calculateLocalSalaryStats(filtered);
+    this._populateMonthFilter('salary');
 
     return filtered.length;
 };
@@ -9378,11 +9512,17 @@ App.prototype.initSignalR = function () {
                     this.updateSignalRUI('online');
                 })
                 .catch(err => {
-                    console.error("[RealTime] Error connecting to SignalR:", err);
+                    console.warn("[RealTime] Initial connection failed. System will retry in 5s...", err);
                     this.updateSignalRUI('offline');
-                    if (window.app && window.app.showUnifiedToast) {
-                        window.app.showUnifiedToast('فشل الاتصال بنظام الإشعارات اللحظية. يرجى التحقق من جدار الحماية.', 'warning', 'نظام الإشعارات');
-                    }
+                    
+                    setTimeout(() => {
+                        this.hubConnection.start()
+                            .then(() => {
+                                console.log("[RealTime] Reconnected successfully.");
+                                this.updateSignalRUI('online');
+                            })
+                            .catch(err2 => console.error("[RealTime] Retry failed again. Manual refresh might be needed.", err2));
+                    }, 5000);
                 });
         };
 

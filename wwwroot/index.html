@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="css/modern.css?v=3.7">
     <link rel="stylesheet" href="css/enterprise.css">
     <link rel="stylesheet" href="css/fonts.css">
-    <link rel="stylesheet" href="lib/fontawesome/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/js/all.min.js" data-auto-replace-svg="overlay" defer></script>
     <style>
         /* Smart Payment Hierarchical View Styles */
         .smart-payment-group {
@@ -382,6 +382,7 @@
                                     <label>الشهر</label>
                                     <select id="month-filter" onchange="app.handleMonthFilterChange(this.value)">
                                         <option value="all">الكل</option>
+                                        <option value="فارغ">فارغ</option>
                                         <option value="12-2025">12-2025</option>
                                         <option value="01-2026">01-2026</option>
                                         <option value="02-2026">02-2026</option>
@@ -820,6 +821,7 @@
                                     <label>الشهر</label>
                                     <select id="salary-month-filter" onchange="app.handleSalaryMonthFilterChange(this.value)">
                                         <option value="all">الكل</option>
+                                        <option value="فارغ">فارغ</option>
                                         <option value="12-2025">12-2025</option>
                                         <option value="01-2026">01-2026</option>
                                         <option value="02-2026">02-2026</option>

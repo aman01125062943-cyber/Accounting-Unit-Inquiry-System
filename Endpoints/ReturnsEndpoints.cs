@@ -751,7 +751,7 @@ public static class ReturnsEndpoints
         });
 
         app.MapGet("/returns/attachment/{id}", async (int id, DatabaseService db) => {
-            using var conn = db.GetConnection();
+            using var conn = await db.GetOpenConnectionAsync();
             var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM ReturnsImages WHERE Id = @Id", new { Id = id });
             
             if (record == null) {
@@ -848,7 +848,7 @@ public static class ReturnsEndpoints
         }).DisableAntiforgery();
 
         app.MapDelete("/returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
-            using var conn = db.GetConnection();
+            using var conn = await db.GetOpenConnectionAsync();
             var config = DatabaseService.LoadServerConfig();
             
             string user = context.Request.Query["user"].ToString();
@@ -857,7 +857,6 @@ public static class ReturnsEndpoints
             // Try ReturnsImages
             var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM ReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
-                // Restore physical file deletion
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
                 
