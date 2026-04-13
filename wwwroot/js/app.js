@@ -2785,23 +2785,23 @@ class App {
         }
 
         const headers = [
-            "الاسم", 
+            "الاسم",
             "الرقم القومي",
-            "كود الملف",
             "البنك",
-            "رقم الحساب", 
-            "رقم الحساب بعد التعديل", 
-            "البنك بعد التعديل", 
-            "تاريخ التعديل", 
-            "تاريخ اعتماد التعديل", 
-            "رقم تسوية السداد", 
-            "تاريخ تسوية السداد",
+            "رقم الحساب",
+            "رقم الحساب بعد التعديل",
+            "البنك بعد التعديل",
+            "تاريخ اعتماد المرتدات",
+            "تاريخ التعديل",
+            "تاريخ اعتماد التعديل",
+            "رقم تسوية السداد",
+            "تاريخ اعتماد التعديل / تاريخ السداد"
         ];
 
         const wb = XLSX.utils.book_new();
         const ws_data = [
             headers,
-            ["محمد أحمد", "29001011234567", "05-2025", "البنك الأهلي", "0123456789", "0123456799", "بنك مصر", "15-05-2025", "20-05-2025", "SET-1234", "22-05-2025"]
+            ["جمال عادل عبدالنظور حفنى", "28010101234567", "NBEGEGCXXXX", "EG000317070250", "0000000017070250", "NBEGEGCXXX", "16/03/2026", "02/04/2026", "02/04/2026", "10552", "02/04/2026"]
         ];
 
         const ws = XLSX.utils.aoa_to_sheet(ws_data);
@@ -2811,7 +2811,7 @@ class App {
         ws['!cols'] = wscols;
 
         XLSX.utils.book_append_sheet(wb, ws, "اسطمبة السداد الذكي");
-        XLSX.writeFile(wb, "Smart_Payment_Template.xlsx");
+        XLSX.writeFile(wb, "نموذج السداد.xlsx");
         
         this.showToast('تم تنزيل إسطمبة الإكسيل بنجاح', 'success');
     }
@@ -2927,9 +2927,9 @@ class App {
                 }
 
                 const record = {
-                    name: findCol(row, 'الاســــم', 'الاسم', 'CREDITOR_NAME', 'Name', 'اسم المستفيد'),
+                    name: findCol(row, 'الاسم', 'الاســــم', 'CREDITOR_NAME', 'Name', 'اسم المستفيد'),
                     nationalId: findCol(row, 'الرقم القومي', 'NationalId', 'National ID', 'NID'),
-                    batchCode: findCol(row, 'كـــود الملف', 'كود الملف', 'BatchCode', 'Batch ID'),
+                    batchCode: findCol(row, 'كود الملف', 'كـــود الملف', 'BatchCode', 'Batch ID'),
                     currentAccount: findCol(row, 'رقم الحساب', 'رقم الحساب الحالي', 'CurrentAccount', 'ACCOUNT_NUMBER'),
                     currentBank: findCol(row, 'البنك', 'اسم البنك', 'CurrentBank'),
                     modifiedAccount: findCol(row, 'رقم الحساب بعد التعديل', 'رقم الحساب الجديد', 'الحساب الجديد', 'ModifiedAccount'),
@@ -2939,7 +2939,7 @@ class App {
                     modDate: findCol(row, 'تاريخ التعديل', 'ModDate'),
                     modApprovalDate: findCol(row, 'تاريخ اعتماد التعديل', 'ModApprovalDate'),
                     settlementNo: findCol(row, 'رقم تسوية السداد', 'SettlementNo'),
-                    settlementDate: findCol(row, 'تاريخ تسوية السداد', 'تاريخ التسوية', 'SettlementDate')
+                    settlementDate: findCol(row, 'تاريخ تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد', 'تاريخ التسوية', 'SettlementDate')
                 };
 
                 // Debug: Log first mapped record
@@ -3146,16 +3146,16 @@ class App {
                     
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
                         <div class="source-field">
-                            <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('batchCode')}كود الملف</label>
-                            <input id="smart_input_${index}_batchCode" type="text" value="${item.sourceExcelRow.batchCode || ''}" 
-                                   onchange="app.updateSmartExcelValue(${index}, 'batchCode', this.value)"
-                                   style="background: rgba(255,255,255,0.02); ${isModified('batchCode')} color: #ccc; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
-                        </div>
-                        <div class="source-field">
                             <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('name')}الاسم</label>
                             <input id="smart_input_${index}_name" type="text" value="${item.sourceExcelRow.name || ''}" 
                                    onchange="app.updateSmartExcelValue(${index}, 'name', this.value)"
                                    style="background: rgba(255,255,255,0.02); ${isModified('name')} color: #ccc; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
+                        </div>
+                        <div class="source-field">
+                            <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('nationalId')}الرقم القومي</label>
+                            <input id="smart_input_${index}_nationalId" type="text" value="${item.sourceExcelRow.nationalId || ''}" 
+                                   onchange="app.updateSmartExcelValue(${index}, 'nationalId', this.value)"
+                                   style="background: rgba(255,255,255,0.02); ${isModified('nationalId')} color: #ccc; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
                             <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('currentAccount')}رقم الحساب</label>
@@ -3170,10 +3170,10 @@ class App {
                                    style="background: rgba(255,255,255,0.02); ${isModified('currentBank')} color: #ccc; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
-                            <label style="display: block; color: #00f0ff; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('modifiedAccount')}حساب جديد <i class="fas fa-star" style="font-size: 0.6em;"></i></label>
+                            <label style="display: block; color: #00f0ff; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('modifiedAccount')}حساب جديد</label>
                             <input id="smart_input_${index}_modifiedAccount" type="text" value="${item.sourceExcelRow.modifiedAccount || ''}" 
                                    onchange="app.updateSmartExcelValue(${index}, 'modifiedAccount', this.value)"
-                                   style="background: rgba(0, 240, 255, 0.03); ${item.sourceExcelRow[`_isModified_modifiedAccount`] ? 'border: 1px solid #ff9800 !important;' : 'border: 1px solid rgba(0,240,255,0.25);'} color: #00f0ff; width: 100%; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 0.9em; box-shadow: 0 0 10px rgba(0,240,255,0.05);">
+                                   style="background: rgba(0, 240, 255, 0.03); ${item.sourceExcelRow[`_isModified_modifiedAccount`] ? 'border: 1px solid #ff9800 !important;' : 'border: 1px solid rgba(0,240,255,0.25);'} color: #00f0ff; width: 100%; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 0.9em;">
                         </div>
                         <div class="source-field">
                             <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('modifiedBank')}البنك الجديد</label>
@@ -3182,10 +3182,10 @@ class App {
                                    style="background: rgba(255,255,255,0.02); ${isModified('modifiedBank')} color: #ccc; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
-                            <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('returnDate')}تاريخ المرتد</label>
-                            <input id="smart_input_${index}_returnDate" type="text" value="${item.sourceExcelRow.returnDate || ''}" 
-                                   onchange="app.updateSmartExcelValue(${index}, 'returnDate', this.value)"
-                                   style="background: rgba(255,255,255,0.02); ${isModified('returnDate')} color: #888; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
+                            <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('returnApprovalDate')}تاريخ اعتماد المرتدات</label>
+                            <input id="smart_input_${index}_returnApprovalDate" type="text" value="${item.sourceExcelRow.returnApprovalDate || ''}" 
+                                   onchange="app.updateSmartExcelValue(${index}, 'returnApprovalDate', this.value)"
+                                   style="background: rgba(255,255,255,0.02); ${isModified('returnApprovalDate')} color: #888; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
                             <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('modDate')}تاريخ التعديل</label>
@@ -3194,13 +3194,19 @@ class App {
                                    style="background: rgba(255,255,255,0.02); ${isModified('modDate')} color: #888; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
                         </div>
                         <div class="source-field">
+                            <label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px; font-weight: 600;">${modIcon('modApprovalDate')}تاريخ اعتماد التعديل</label>
+                            <input id="smart_input_${index}_modApprovalDate" type="text" value="${item.sourceExcelRow.modApprovalDate || ''}" 
+                                   onchange="app.updateSmartExcelValue(${index}, 'modApprovalDate', this.value)"
+                                   style="background: rgba(255,255,255,0.02); ${isModified('modApprovalDate')} color: #888; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">
+                        </div>
+                        <div class="source-field">
                             <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementNo')}رقم تسوية السداد</label>
                             <input id="smart_input_${index}_settlementNo" type="text" value="${item.sourceExcelRow.settlementNo || ''}" 
                                    onchange="app.updateSmartExcelValue(${index}, 'settlementNo', this.value)"
                                    style="background: rgba(16, 185, 129, 0.03); ${isModified('settlementNo')} color: #10b981; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; border: 1px solid rgba(16, 185, 129, 0.2);">
                         </div>
                         <div class="source-field">
-                            <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementDate')}تاريخ التسوية</label>
+                            <label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px; font-weight: 700;">${modIcon('settlementDate')}تاريخ اعتماد التعديل / السداد</label>
                             <input id="smart_input_${index}_settlementDate" type="text" value="${item.sourceExcelRow.settlementDate || ''}" 
                                    onchange="app.updateSmartExcelValue(${index}, 'settlementDate', this.value)"
                                    style="background: rgba(16, 185, 129, 0.03); ${isModified('settlementDate')} color: #10b981; width: 100%; padding: 3px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600; border: 1px solid rgba(16, 185, 129, 0.2);">
@@ -3230,14 +3236,16 @@ class App {
                                         <tr style="background: rgba(255,255,255,0.02);">
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">كود الملف</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الاسم (DB)</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الرقم القومي</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم الحساب</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">حساب جديد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك الجديد</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ المرتد</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ اعتماد المرتدات</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التعديل</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ اعتماد التعديل</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم تسوية السداد</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التسوية</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ اعتماد التعديل / تاريخ السداد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الحالة</th>
                                         </tr>
                                     </thead>
@@ -3246,12 +3254,14 @@ class App {
                                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
                                                 <td style="padding: 6px 8px; white-space: nowrap;">${m.batchCode || '---'}</td>
                                                 <td style="padding: 6px 8px; font-weight: 600; color: #fff; white-space: nowrap;">${m.name}</td>
+                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.nationalId || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; font-family: monospace; white-space: nowrap;">${m.currentAccount || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.currentBank || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #00f0ff; font-weight: 700; font-family: monospace; white-space: nowrap;">${m.modifiedAccount || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #ccc; white-space: nowrap;">${m.modifiedBank || '---'}</td>
-                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.returnDate || '---'}</td>
+                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.returnApprovalDate || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.modDate || '---'}</td>
+                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.modApprovalDate || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; font-weight: 600; white-space: nowrap;">${m.settlementNo || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; white-space: nowrap;">${m.settlementDate || '---'}</td>
                                                 <td style="padding: 6px 8px; white-space: nowrap;"><span class="badge-status ${m.status === 'تم التسوية' ? 'success' : 'warning'}" style="font-size: 0.8em; padding: 2px 6px;">${m.status || 'لم يتم التسوية'}</span></td>
@@ -3281,12 +3291,14 @@ class App {
                                         <tr style="background: rgba(255,255,255,0.02);">
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">كود الملف</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الاسم (DB)</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الرقم القومي</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم الحساب</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">حساب جديد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">البنك الجديد</th>
-                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ المرتد</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ اعتماد المرتدات</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التعديل</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ اعتماد التعديل</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم تسوية السداد</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">تاريخ التسوية</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الحالة</th>
@@ -3297,12 +3309,14 @@ class App {
                                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
                                                 <td style="padding: 6px 8px; white-space: nowrap;">${m.batchCode || '---'}</td>
                                                 <td style="padding: 6px 8px; font-weight: 600; color: #fff; white-space: nowrap;">${m.name}</td>
+                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.nationalId || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; font-family: monospace; white-space: nowrap;">${m.currentAccount || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.currentBank || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; font-weight: 700; font-family: monospace; white-space: nowrap;">${m.modifiedAccount || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #ccc; white-space: nowrap;">${m.modifiedBank || '---'}</td>
-                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.returnDate || '---'}</td>
+                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.returnApprovalDate || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.modDate || '---'}</td>
+                                                <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.modApprovalDate || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; font-weight: 600; white-space: nowrap;">${m.settlementNo || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; white-space: nowrap;">${m.settlementDate || '---'}</td>
                                                 <td style="padding: 6px 8px; white-space: nowrap;"><span class="badge-status ${m.status === 'تم التسوية' ? 'success' : 'warning'}" style="font-size: 0.8em; padding: 2px 6px;">${m.status || 'لم يتم التسوية'}</span></td>
@@ -3423,6 +3437,7 @@ class App {
             // Target fields setup exactly as they are sent to backend
             const updatePayload = {
                 BatchCode: getVal(src.batchCode, src.BatchCode),
+                NationalId: getVal(src.nationalId, src.NationalId),
                 NewAccount: getVal(src.modifiedAccount, src.ModifiedAccount),
                 NewBank: getVal(src.modifiedBank, src.ModifiedBank),
                 ReturnDate: getVal(src.returnDate, src.ReturnDate),

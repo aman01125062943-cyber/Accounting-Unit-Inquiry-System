@@ -441,7 +441,8 @@ public class DatabaseService
             var root = doc.RootElement;
             string[] nidKeys = new[] { "NationalID", "NID", "National_ID", "الرقم_القومي", "الرقم القومي", "National Id", "NationalId", "رقم قومي", "رقم البطاقة", "National ID", "الرقم القومى" };
             foreach (var prop in root.EnumerateObject()) {
-                if (nidKeys.Any(k => string.Equals(prop.Name, k, StringComparison.OrdinalIgnoreCase))) {
+                string cleanPropName = CleanArabic(prop.Name);
+                if (nidKeys.Any(k => string.Equals(cleanPropName, CleanArabic(k), StringComparison.OrdinalIgnoreCase))) {
                     string cleanRes = Regex.Replace(prop.Value.ToString(), @"[^\d]", "");
                     if (cleanRes.Length >= 10 && cleanRes.Length <= 14) return cleanRes;
                 }
