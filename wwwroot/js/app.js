@@ -3065,8 +3065,9 @@ class App {
             
             // --- UPDATE STATS CARDS ---
             const totalExcel = this.smartMatchResults.length;
-            const incentiveCount = this.smartMatchResults.filter(r => r.matches && r.matches.length > 0).length;
-            const salaryCount = this.smartMatchResults.filter(r => r.salaryMatches && r.salaryMatches.length > 0).length;
+            // Sum of all matching records found in database tables
+            const incentiveCount = this.smartMatchResults.reduce((acc, curr) => acc + (curr.matches?.length || 0), 0);
+            const salaryCount = this.smartMatchResults.reduce((acc, curr) => acc + (curr.salaryMatches?.length || 0), 0);
             const notFoundCount = this.smartMatchResults.filter(r => (!r.matches || r.matches.length === 0) && (!r.salaryMatches || r.salaryMatches.length === 0)).length;
 
             if (document.getElementById('smart-excel-count')) document.getElementById('smart-excel-count').textContent = totalExcel;
