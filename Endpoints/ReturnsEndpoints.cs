@@ -391,7 +391,6 @@ public static class ReturnsEndpoints
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(r.RawData, jsonOptions);
                 if (obj != null) {
                     obj["id"] = r.Id;
-                    obj["كود المرتد"] = r.ReturnCode; // Add localized name for the frontend
                     if (r.UploadDate != null) {
                         obj["تاريخ الرفع"] = r.UploadDate;
                     }
@@ -496,7 +495,6 @@ public static class ReturnsEndpoints
              var allRawRows = await conn.QueryAsync<string>(
                  $@"SELECT json_insert(RawData, 
                         '$.id', Id, 
-                        '$.كود المرتد', COALESCE(ReturnCode, ''), 
                         '$.تاريخ الرفع', {uploadDateSelect}, 
                         '$.AttachmentCount', COALESCE((SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = Returns.Id), 0)
                     )

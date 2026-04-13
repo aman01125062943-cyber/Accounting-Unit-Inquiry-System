@@ -1041,7 +1041,6 @@ class App {
         this.headers = Array.from(allKeys).filter(k =>
             k !== 'id' && k !== 'Id' && k !== 'AttachmentCount' &&
             k !== 'importId' && k !== '_conflictDetailsMultiAccOriginal' &&
-            k !== 'كود المرتد' && k !== 'كود_المرتد' &&
             !k.startsWith('_') // تجاهل الحقول البرمجية المخفية
         );
 
