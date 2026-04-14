@@ -25,10 +25,12 @@ public static class FullReturnsEndpoints
             var parameters = new DynamicParameters();
             
             if (!string.IsNullOrWhiteSpace(search)) {
-                // Fallback to RawData LIKE if FTS doesn't return results
-                sqlWhere += " AND (RawData LIKE @SearchParam OR Id IN (SELECT rowid FROM FullReturns_FTS WHERE FullReturns_FTS MATCH @SearchFTS))";
-                parameters.Add("SearchParam", $"%{search}%");
-                parameters.Add("SearchFTS", search);
+                var words = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                for (int i = 0; i < words.Length; i++) {
+                    string sp = $"SearchParam{i}";
+                    sqlWhere += $" AND RawData LIKE @{sp}";
+                    parameters.Add(sp, $"%{words[i]}%");
+                }
             }
             
             var totalCount = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM FullReturns {sqlWhere}", parameters);

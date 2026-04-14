@@ -50,6 +50,10 @@ class Auth {
         return false;
     }
 
+    isAuthenticated() {
+        return !!this.currentUser;
+    }
+
     getUser() {
         return this.currentUser;
     }

@@ -23,6 +23,7 @@ public static class SmartSettlementEndpoints
                 var results = new List<MatchResultItem>();
 
                 string monthFilter = request.Filters?.Month ?? "";
+                if (monthFilter == "all") monthFilter = ""; // Handle frontend "all" option
                 string statusFilter = request.Filters?.Status ?? "الكل";
                 string matchBy = request.Filters?.MatchBy ?? "الاسم";
                 string dataType = request.Filters?.DataType ?? "الكل";
@@ -131,10 +132,12 @@ public static class SmartSettlementEndpoints
                         string finalModDate = upd.ModDate ?? "";
                         string finalModApprovalDate = upd.ModApprovalDate ?? "";
                         
-                        // If NewAccount, BatchCode, ReturnDate, or ModDate is provided (non-empty), mark as settled
-                        bool hasNewInfo = !string.IsNullOrEmpty(upd.NewAccount) || !string.IsNullOrEmpty(upd.BatchCode) 
-                                        || !string.IsNullOrEmpty(upd.ReturnDate) || !string.IsNullOrEmpty(finalModDate);
-                        string statusVal = hasNewInfo ? "تم التسوية" : "لم يتم التسوية";
+                        // Criterion Change: A record is only considered "Settled" (تم التسوية) 
+                        // if it has a valid Settlement Number (رقم تسوية السداد).
+                        // ModDate/NewAccount alone don't constitute a full financial settlement status.
+                        bool hasSettlement = !string.IsNullOrEmpty(upd.SettlementNo);
+                        string statusVal = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
+
                         
                         string currentSql = upd.Source == "salary" ? salUpdateSql : incUpdateSql;
 
@@ -246,6 +249,34 @@ public static class SmartSettlementEndpoints
 
     }
 
+    private static string ExtractRecordMonth(string batchCode, string rawData)
+    {
+        if (!string.IsNullOrEmpty(batchCode))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(batchCode, @"(\d{1,2})-(\d{4})");
+            if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+        }
+        if (!string.IsNullOrEmpty(rawData))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(rawData);
+                var root = doc.RootElement;
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Name.Contains("حافز") || prop.Name.Contains("شهر"))
+                    {
+                        var val = prop.Value.ToString();
+                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
+                        if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+                    }
+                }
+            }
+            catch { }
+        }
+        return "";
+    }
+
     private static List<SettlementDBRecord> ProcessRows(IEnumerable<dynamic> rows, string monthFilter, string statusFilter, string source) {
         var list = new List<SettlementDBRecord>();
         foreach(var row in rows) {
@@ -279,10 +310,18 @@ public static class SmartSettlementEndpoints
             record.SettlementNo = GetJsonVal("رقم تسوية السداد", "SettlementNo");
             record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "SettlementDate");
             
-            record.Month = monthFilter;
-            record.Status = !string.IsNullOrEmpty(record.ModApprovalDate) ? "تم التسوية" : "لم يتم التسوية";
+            record.Month = ExtractRecordMonth(record.BatchCode ?? "", rawData);
             
-            if (statusFilter == "الكل" || record.Status == statusFilter) {
+            // Criterion Consistency: Alignment with SalaryReturns and Returns modules.
+            // Only records with an actual Settlement Number are marked as "Settled".
+            bool isSettled = !string.IsNullOrEmpty(record.SettlementNo);
+            record.Status = isSettled ? "تم التسوية" : "لم يتم التسوية";
+
+            
+            bool monthMatch = string.IsNullOrEmpty(monthFilter) || monthFilter == "all" || record.Month == monthFilter;
+            bool statusMatch = statusFilter == "الكل" || record.Status == statusFilter;
+
+            if (monthMatch && statusMatch) {
                 list.Add(record);
             }
         }

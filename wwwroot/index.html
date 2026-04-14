@@ -8,7 +8,8 @@
     <link rel="stylesheet" href="css/modern.css?v=3.7">
     <link rel="stylesheet" href="css/enterprise.css">
     <link rel="stylesheet" href="css/fonts.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/js/all.min.js" data-auto-replace-svg="overlay" defer></script>
+    <link rel="stylesheet" href="css/chat.css?v=1.0">
+    <script src="lib/fontawesome-all.min.js" data-auto-replace-svg="overlay" defer></script>
     <style>
         /* Smart Payment Hierarchical View Styles */
         .smart-payment-group {
@@ -195,6 +196,11 @@
                     <div class="nav-item" data-page="smart-payment" onclick="app.navigateTo('smart-payment')">
                         <span class="nav-item-icon">💸</span>
                         <span class="nav-item-text">السداد الذكي</span>
+                    </div>
+                    <div class="nav-item" data-page="chat" onclick="app.navigateTo('chat')">
+                        <span class="nav-item-icon">💬</span>
+                        <span class="nav-item-text">المراسلة</span>
+                        <span id="chat-unread-badge" class="chat-unread-badge hidden">0</span>
                     </div>
                 </div>
 
@@ -980,6 +986,67 @@
                                 </button>
                             </div>
                         </aside>
+                    </div>
+                </section>
+
+                <!-- Chat Page Content -->
+                <section id="page-chat" class="page-content hidden no-padding">
+                    <div class="chat-page-layout">
+                        <!-- Sidebar -->
+                        <div class="chat-sidebar">
+                            <div class="chat-sidebar-header">
+                                <h3>💬 المراسلة</h3>
+                            </div>
+                            <div class="chat-search-box">
+                                <div class="chat-search-wrapper">
+                                    <input type="text" id="chat-search-input" class="chat-search-input" placeholder="بحث...">
+                                    <i class="fas fa-search"></i>
+                                </div>
+                            </div>
+                            <div class="chat-sidebar-tabs" style="padding: 0 16px 10px; display: flex; gap: 4px;">
+                                <button class="chat-tab-btn active" data-tab="conversations" style="flex:1;">المحادثات</button>
+                                <button class="chat-tab-btn" data-tab="users" style="flex:1;">المستخدمين</button>
+                            </div>
+                            <div id="chat-conversations-list" class="chat-list"></div>
+                            <div id="chat-users-list" class="chat-list" style="display: none;"></div>
+                        </div>
+
+                        <!-- Main Chat Area -->
+                        <div class="chat-main" id="chat-main-area" style="display: none;">
+                            <div class="chat-header">
+                                <div class="chat-header-info">
+                                    <h4 class="chat-header-name" id="chat-header-name">مستخدم</h4>
+                                    <p class="chat-header-status" id="chat-header-status">غير متصل</p>
+                                </div>
+                                <div class="chat-header-actions">
+                                </div>
+                            </div>
+                            
+                            <div class="chat-messages-area" id="chat-messages-area"></div>
+                            
+                            <div class="chat-input-area">
+                                <div class="chat-input-wrapper">
+                                    <textarea id="chat-message-input" class="chat-input" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
+                                </div>
+                                <button id="chat-send-btn" class="chat-send-btn" disabled><i class="fas fa-paper-plane"></i></button>
+                            </div>
+                        </div>
+                        
+                        <!-- Empty State -->
+                        <div class="chat-empty-state" id="chat-empty-state">
+                            <div class="empty-icon">💬</div>
+                            <h3>مرحباً بك في نظام المراسلة</h3>
+                            <p>اختر محادثة للبدء في التواصل</p>
+                        </div>
+                        
+                        <!-- Tasks Panel -->
+                        <div class="chat-tasks-panel" id="chat-tasks-panel">
+                            <div class="chat-tasks-header">
+                                <h4>📋 المهام المتعلقة</h4>
+                                <button class="chat-header-btn" onclick="window.chatModule.toggleTasksPanel()"><i class="fas fa-times"></i></button>
+                            </div>
+                            <div class="chat-tasks-list" id="chat-tasks-list"></div>
+                        </div>
                     </div>
                 </section>
 
@@ -2102,7 +2169,8 @@
     <script src="js/auth.js"></script>
     <script src="js/database.js"></script>
     <script src="js/validation-service.js"></script>
-    <script src="js/app.js?v=6.7"></script>
+    <script src="js/chat.js?v=1.0"></script>
+    <script src="js/app.js?v=6.8"></script>
 </body>
 
 </html>

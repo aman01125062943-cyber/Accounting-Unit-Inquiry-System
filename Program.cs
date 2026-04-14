@@ -126,9 +126,11 @@ app.MapReturnsEndpoints();
 app.MapFullReturnsEndpoints();
 app.MapSalaryReturnsEndpoints();
 app.MapSmartSettlementEndpoints();
+app.MapChatEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");
+app.MapHub<ChatHub>("/chatHub");
 
 app.MapPost("/api/test/dbchange", async (DatabaseService db) => {
     using var conn = await db.GetOpenConnectionAsync();

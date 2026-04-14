@@ -48,7 +48,7 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // GET /salary-returns — Paged data with search/filter
         // ==========================================
-        app.MapGet("/salary-returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo) => {
+        app.MapGet("/salary-returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo, string? settlementStatus, string? returnStatus, string? month) => {
              using var conn = await db.GetOpenConnectionAsync();
              
              try {
@@ -102,6 +102,37 @@ public static class SalaryReturnsEndpoints
                        sqlWhere += " AND UploadDate <= @UploadDateTo";
                        parameters.Add("UploadDateTo", uploadDateTo);
                   }
+
+                  // 1. Settlement Status Filter
+                  if (!string.IsNullOrWhiteSpace(settlementStatus) && settlementStatus != "all") {
+                      if (settlementStatus == "تم التسوية" || settlementStatus == "تمت التسوية") {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NOT NULL AND json_extract(RawData, '$.\"رقم تسوية السداد\"') != '')";
+                      } else if (settlementStatus == "لم يتم التسوية") {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NULL OR json_extract(RawData, '$.\"رقم تسوية السداد\"') = '')";
+                      }
+                  }
+
+                  // 2. Return Status Filter (using json_extract for performance and accuracy)
+                  if (!string.IsNullOrWhiteSpace(returnStatus) && returnStatus != "all") {
+                      sqlWhere += @" AND (
+                          json_extract(RawData, '$.""الحالة""') LIKE @RetStatus
+                          OR json_extract(RawData, '$.""حالة الارتداد""') LIKE @RetStatus
+                          OR json_extract(RawData, '$.status') LIKE @RetStatus
+                      )";
+                      parameters.Add("RetStatus", $"%{returnStatus}%");
+                  }
+
+                  // 3. Month Filter
+                  if (!string.IsNullOrWhiteSpace(month) && month != "all") {
+                      if (month == "فارغ") {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '')";
+                      } else {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') = @MonthFilter OR RawData LIKE @MonthPattern OR ReturnCode LIKE @MonthPattern)";
+                          parameters.Add("MonthFilter", month);
+                          parameters.Add("MonthPattern", $"%{month}%");
+                      }
+                  }
+
              } catch (Exception ex) {
                   Console.WriteLine($"[SALARY FILTER ERROR] {ex.Message}");
              }

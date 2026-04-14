@@ -293,6 +293,7 @@ class App {
                 this.updateStats();
                 this.initSidebar();
                 this.currentArchiveTab = 'lauf';
+                if (window.chatModule) window.chatModule.init();
                 const tabLauf = document.getElementById('tab-btn-lauf');
                 if (tabLauf) tabLauf.addEventListener('click', () => this.switchArchiveTab('lauf'));
                 const tabFull = document.getElementById('tab-btn-full');
@@ -749,6 +750,7 @@ class App {
             await this.loadReturns();
             this.showToast(`مرحباً ${result.user.fullname}`, 'success');
             this.playNotificationSound();
+            if (window.chatModule) window.chatModule.init();
         } else {
             errorDiv.textContent = result.error || result.message || 'خطأ في تسجيل الدخول';
             errorDiv.classList.add('show');
@@ -819,6 +821,7 @@ class App {
             'salary-returns': { icon: '💰', text: 'مرتدات المرتبات' },
             'full-returns': { icon: '📚', text: 'البحث الشامل' },
             'smart-payment': { icon: '💸', text: 'السداد الذكي' },
+            chat: { icon: '💬', text: 'المراسلة' },
             archive: { icon: '🗄️', text: 'الأرشيف' },
             settings: { icon: '⚙️', text: 'الإعدادات' }
         };
@@ -843,6 +846,7 @@ class App {
             if (page === 'returns') this.loadReturns();
             if (page === 'full-returns') this.loadFullReturns();
             if (page === 'salary-returns') this.loadSalaryReturns();
+            if (page === 'chat' && window.chatModule) window.chatModule.loadConversations();
         }
 
 
@@ -1021,8 +1025,8 @@ class App {
                 let dataToUse = response.data;
 
                 dataToUse = dataToUse.map(row => {
-                    const settlementNo = row['رقم تسوية السداد'] || '';
-                    const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                    const val = row['رقم تسوية السداد'];
+                    const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
                     row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                     return row;
                 });
@@ -1164,8 +1168,8 @@ class App {
                 // مسبقاً: الحالة والتسوية
                 row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || row['حالة الارتداد'] || '');
                 {
-                    const settlementNo = row['رقم تسوية السداد'] || '';
-                    const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                    const val = row['رقم تسوية السداد'];
+                    const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
                     row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                     row._isSettled = hasSettlement;
                 }
@@ -1235,8 +1239,8 @@ class App {
                 row._amount = this.parseAmount(amountVal);
                 row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || '');
                 
-                const settlementNo = row['رقم تسوية السداد'] || '';
-                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                const val = row['رقم تسوية السداد'];
+                const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
                 row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                 row._isSettled = hasSettlement;
 
@@ -1273,24 +1277,34 @@ class App {
     triggerNameSearch(name) {
         if (!name) return;
         
+        console.log(`[QUICK-SEARCH] Triggering search for: ${name} on page: ${this.currentPage}`);
         let targetSearch = null;
-        if (this.currentPage === 'page-smart-payment') {
-            targetSearch = document.getElementById('salary-search');
-        } else if (this.currentPage === 'page-full-returns') {
-            const unifiedSearch = document.getElementById('unified-search-input');
-            if (unifiedSearch && !unifiedSearch.closest('.hidden')) {
-                targetSearch = unifiedSearch;
-            }
-        }
         
-        if (!targetSearch) {
+        // التحقق من الصفحة الحالية لتحديد حقل البحث المناسب
+        if (this.currentPage === 'salary-returns' || this.currentPage === 'page-salary-returns') {
+            targetSearch = document.getElementById('salary-search');
+        } else if (this.currentPage === 'full-returns' || this.currentPage === 'page-full-returns') {
+            targetSearch = document.getElementById('unified-search-input');
+        } else if (this.currentPage === 'smart-payment' || this.currentPage === 'page-smart-payment') {
+            targetSearch = document.getElementById('search-input') || document.getElementById('salary-search');
+        } else {
             targetSearch = document.getElementById('table-search');
         }
         
         if (targetSearch) {
             targetSearch.value = name;
+            // إطلاق حدث التغيير والفرز
             targetSearch.dispatchEvent(new Event('input', { bubbles: true }));
+            targetSearch.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // تمرير إلى أعلى الصفحة لرؤية النتائج
             window.scrollTo({top: 0, behavior: 'smooth'});
+            
+            if (this.currentPage === 'full-returns' || this.currentPage === 'page-full-returns') {
+                this.runUnifiedSearch();
+            }
+        } else {
+            console.warn('[QUICK-SEARCH] Target search input not found for page:', this.currentPage);
         }
     }
 
@@ -2028,7 +2042,9 @@ class App {
                 if (h.includes('قيمة') || h.includes('المبلغ')) dynamicClass += ' col-amount';
                 if (h.includes('<input')) dynamicClass += ' col-checkbox';
                 if (h === '#') dynamicClass += ' col-id';
-                if (isNameCol) dynamicClass += ' col-name';
+                if (isNameCol) {
+                    dynamicClass += ' col-name clickable-name';
+                }
 
                 return `<td class="${isSticky} ${dynamicClass}" style="${extraStyles}"${dblclickEvent}>${val}</td>`;
             }).join('');
@@ -2229,7 +2245,27 @@ class App {
 
     downloadSalaryTemplate() {
         try {
-            const headers = ['كود الملف', 'الشهر', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد'];
+            const headers = [
+                'كود الملف', 
+                'الشهر', 
+                'الاسم', 
+                'الرقم القومي', 
+                'رقم الحساب', 
+                'البنك', 
+                'قيمة العملية', 
+                'الحالة', 
+                'السبب', 
+                'رقم الحساب بعد التعديل', 
+                'البنك بعد التعديل', 
+                'كود الفرع بعد التعديل', 
+                'رقم تسوية التعلية', 
+                'تاريخ المرتد / تاريخ التعلية', 
+                'تاريخ اعتماد المرتدات', 
+                'تاريخ التعديل', 
+                'تاريخ اعتماد التعديل', 
+                'رقم تسوية السداد', 
+                'تاريخ اعتماد التعديل / تاريخ السداد'
+            ];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
             ws['!views'] = [{ RTL: true }];
             const wb = XLSX.utils.book_new();
@@ -2809,6 +2845,9 @@ class App {
 
         const ws = XLSX.utils.aoa_to_sheet(ws_data);
         
+        // ضبط التنسيق من اليمين إلى اليسار
+        ws['!views'] = [{ RTL: true }];
+
         // Auto-size columns slightly
         const wscols = headers.map(h => ({wch: Math.max(h.length + 5, 20)}));
         ws['!cols'] = wscols;
@@ -3210,7 +3249,7 @@ class App {
                             <span style="color: #666; font-size: 0.75em; font-family: monospace;">${this.smartExcelFileName || 'Excel_Data'}</span>
                         </div>
                         <div style="text-align: left;">
-                            <div style="color: #00f0ff; font-weight: 700; font-size: 1.1em; letter-spacing: 0.5px;">${item.sourceExcelRow.name}</div>
+                            <div style="color: #00f0ff; font-weight: 700; font-size: 1.1em; letter-spacing: 0.5px; cursor: pointer;" ondblclick="window.app.triggerNameSearch('${item.sourceExcelRow.name}')" title="انقر مرتين للبحث السريع عن هذا الاسم">${item.sourceExcelRow.name}</div>
                         </div>
                     </div>
                     
@@ -3305,6 +3344,7 @@ class App {
                                     <thead>
                                         <tr style="background: rgba(255,255,255,0.02);">
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">كود الملف</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الشهر المختص</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الاسم (DB)</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الرقم القومي</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم الحساب</th>
@@ -3320,10 +3360,20 @@ class App {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${item.matches.map(m => `
+                                        ${item.matches.map(m => {
+                                            let finalStatus = m.status || 'لم يتم التسوية ⏳';
+                                            let finalClass = (m.status === 'تم التسوية' || m.status === 'تمت التسوية') ? 'success' : 'pending';
+                                            
+                                            // Fallback emoji if not present in backend string
+                                            if (finalStatus === 'تم التسوية' && !finalStatus.includes('✅')) finalStatus += ' ✅';
+                                            if (finalStatus === 'لم يتم التسوية' && !finalStatus.includes('⏳')) finalStatus += ' ⏳';
+
+                                            
+                                            return `
                                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
                                                 <td style="padding: 6px 8px; white-space: nowrap;">${m.batchCode || '---'}</td>
-                                                <td style="padding: 6px 8px; font-weight: 600; color: #fff; white-space: nowrap;">${m.name}</td>
+                                                <td style="padding: 6px 8px; white-space: nowrap;">${m.month || '---'}</td>
+                                                <td style="padding: 6px 8px; font-weight: 600; color: #fff; white-space: nowrap; cursor: pointer;" ondblclick="window.app.triggerNameSearch('${m.name}')" title="انقر مرتين للبحث السريع عن هذا الاسم">${m.name}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.nationalId || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; font-family: monospace; white-space: nowrap;">${m.currentAccount || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.currentBank || '---'}</td>
@@ -3334,9 +3384,10 @@ class App {
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.modApprovalDate || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; font-weight: 600; white-space: nowrap;">${m.settlementNo || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; white-space: nowrap;">${m.settlementDate || '---'}</td>
-                                                <td style="padding: 6px 8px; white-space: nowrap;"><span class="badge-status ${m.status === 'تم التسوية' ? 'success' : 'warning'}" style="font-size: 0.8em; padding: 2px 6px;">${m.status || 'لم يتم التسوية'}</span></td>
+                                                <td style="padding: 6px 8px; white-space: nowrap;"><span class="badge-status ${finalClass}" style="font-size: 0.8em; padding: 2px 6px;">${finalStatus}</span></td>
                                             </tr>
-                                        `).join('')}
+                                        `;
+                                        }).join('')}
                                     </tbody>
                                 </table>
                             </div>
@@ -3360,6 +3411,7 @@ class App {
                                     <thead>
                                         <tr style="background: rgba(255,255,255,0.02);">
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">كود الملف</th>
+                                            <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الشهر المختص</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الاسم (DB)</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">الرقم القومي</th>
                                             <th style="padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); text-align: right; white-space: nowrap;">رقم الحساب</th>
@@ -3375,10 +3427,19 @@ class App {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${item.salaryMatches.map(m => `
+                                        ${item.salaryMatches.map(m => {
+                                            let finalStatus = m.status || 'لم يتم التسوية ⏳';
+                                            let finalClass = (m.status === 'تم التسوية' || m.status === 'تمت التسوية') ? 'success' : 'pending';
+                                            
+                                            if (finalStatus === 'تم التسوية' && !finalStatus.includes('✅')) finalStatus += ' ✅';
+                                            if (finalStatus === 'لم يتم التسوية' && !finalStatus.includes('⏳')) finalStatus += ' ⏳';
+
+                                            
+                                            return `
                                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
                                                 <td style="padding: 6px 8px; white-space: nowrap;">${m.batchCode || '---'}</td>
-                                                <td style="padding: 6px 8px; font-weight: 600; color: #fff; white-space: nowrap;">${m.name}</td>
+                                                <td style="padding: 6px 8px; white-space: nowrap;">${m.month || '---'}</td>
+                                                <td style="padding: 6px 8px; font-weight: 600; color: #fff; white-space: nowrap; cursor: pointer;" ondblclick="window.app.triggerNameSearch('${m.name}')" title="انقر مرتين للبحث السريع عن هذا الاسم">${m.name}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.nationalId || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; font-family: monospace; white-space: nowrap;">${m.currentAccount || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.currentBank || '---'}</td>
@@ -3389,9 +3450,10 @@ class App {
                                                 <td style="padding: 6px 8px; color: #888; white-space: nowrap;">${m.modApprovalDate || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; font-weight: 600; white-space: nowrap;">${m.settlementNo || '---'}</td>
                                                 <td style="padding: 6px 8px; color: #10b981; white-space: nowrap;">${m.settlementDate || '---'}</td>
-                                                <td style="padding: 6px 8px; white-space: nowrap;"><span class="badge-status ${m.status === 'تم التسوية' ? 'success' : 'warning'}" style="font-size: 0.8em; padding: 2px 6px;">${m.status || 'لم يتم التسوية'}</span></td>
+                                                <td style="padding: 6px 8px; white-space: nowrap;"><span class="badge-status ${finalClass}" style="font-size: 0.8em; padding: 2px 6px;">${finalStatus}</span></td>
                                             </tr>
-                                        `).join('')}
+                                        `;
+                                        }).join('')}
                                     </tbody>
                                 </table>
                             </div>
@@ -3467,8 +3529,8 @@ class App {
         if (body) {
             body.innerHTML = items.map(item => `
                 <tr>
-                    <td>${item.excelName}</td>
-                    <td style="font-weight: bold; color: #00f0ff;">${item.dbName}</td>
+                    <td style="cursor: pointer;" ondblclick="window.app.triggerNameSearch('${item.excelName}')" title="انقر مرتين للبحث السريع عن هذا الاسم">${item.excelName}</td>
+                    <td style="font-weight: bold; color: #00f0ff; cursor: pointer;" ondblclick="window.app.triggerNameSearch('${item.dbName}')" title="انقر مرتين للبحث السريع عن هذا الاسم">${item.dbName}</td>
                     <td>${item.newAccountNumber || '---'}</td>
                     <td>${item.newBankName || '---'}</td>
                     <td><span class="badge-status success">${item.currentStatus || 'غير محدد'}</span></td>
@@ -6904,12 +6966,7 @@ class App {
                     
                     // ميزة النقر المزدوج للبحث السريع
                     td.ondblclick = () => {
-                        const searchInput = document.getElementById('unified-search-input');
-                        if (searchInput) {
-                            searchInput.value = td.textContent.trim();
-                            this.runUnifiedSearch();
-                            this.showUnifiedToast('تم نسخ الاسم وبدء البحث السريع', 'info', 'بحث فوري');
-                        }
+                        this.triggerNameSearch(td.textContent.trim());
                     };
                 } else if (index === 1 && (h.includes('قيمة العملية') || h.includes('المبلغ'))) {
                     td.classList.add('sticky-col-2');
@@ -7477,6 +7534,10 @@ App.prototype.printReport = function () {
     }
 };
 
+App.prototype.printSalaryReport = function () {
+    this.printReport();
+};
+
 App.prototype.handleReportSearchInput = function (query) {
     const suggestionsContainer = document.getElementById('report-search-suggestions');
     if (!suggestionsContainer) return;
@@ -7957,8 +8018,8 @@ App.prototype.populateReturnsCache = async function () {
             row._amount = this.parseAmount(amountVal);
             row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || row['حالة الارتداد'] || '');
 
-            const settlementNo = row['رقم تسوية السداد'] || '';
-            const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+            const val = row['رقم تسوية السداد'];
+            const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
             row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
             row._isSettled = hasSettlement;
 
@@ -8047,35 +8108,58 @@ App.prototype._populateMonthFilter = function (type) {
 
     if (!data || data.length === 0) return;
 
-    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
     const monthSet = new Set();
     let hasEmpty = false;
 
     const sampleSize = Math.min(data.length, 5000);
-    for (let i = 0; i < sampleSize; i++) {
-        const row = data[i];
-        if (!row) continue;
-        let fileCode = '';
-        for (const k of fileCodeKeys) {
-            if (row[k]) { fileCode = String(row[k]); break; }
-        }
-        if (fileCode && fileCode.includes('-')) {
-            const parts = fileCode.split('-');
-            if (parts.length >= 2) {
-                const candidate = parts[parts.length - 2] + '-' + parts[parts.length - 1];
-                if (/^\d{2}-\d{4}$/.test(candidate)) {
-                    monthSet.add(candidate);
-                    continue;
+    
+    if (type === 'salary') {
+        const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
+        for (let i = 0; i < sampleSize; i++) {
+            const row = data[i];
+            if (!row) continue;
+            let monthVal = 'فارغ';
+            for (const k of Object.keys(row)) {
+                if (k.includes('شهر') || k.includes('الشهر') || k.toLowerCase().includes('month')) {
+                    if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') {
+                        monthVal = String(row[k]).trim();
+                        break;
+                    }
                 }
             }
+            if (monthVal === 'فارغ') {
+                monthVal = row._monthExtracted || this.extractMonthFromFileCode(this.findValue ? this.findValue(row, fileCodeKeys) : '');
+            }
+            if (monthVal && monthVal !== 'فارغ') {
+                monthSet.add(monthVal);
+            } else {
+                hasEmpty = true;
+            }
         }
-        hasEmpty = true;
+    } else {
+        const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
+        for (let i = 0; i < sampleSize; i++) {
+            const row = data[i];
+            if (!row) continue;
+            let fileCode = '';
+            for (const k of fileCodeKeys) {
+                if (row[k]) { fileCode = String(row[k]); break; }
+            }
+            
+            const monthVal = this.extractMonthFromFileCode(fileCode);
+            if (monthVal && monthVal !== 'فارغ') {
+                monthSet.add(monthVal);
+            } else {
+                hasEmpty = true;
+            }
+        }
     }
 
     const sorted = Array.from(monthSet).sort();
     // لا تعيد بناء القائمة إذا كانت البيانات موجودة فعلاً
     if (select.options.length > 1 && select.options.length >= sorted.length + (hasEmpty ? 2 : 1)) return;
 
+    const currentVal = select.value;
     select.innerHTML = '<option value="all">الكل</option>';
     if (hasEmpty) {
         const emptyOpt = document.createElement('option');
@@ -8090,8 +8174,73 @@ App.prototype._populateMonthFilter = function (type) {
         select.appendChild(opt);
     });
 
+    if (currentVal && [...select.options].some(o => o.value === currentVal)) {
+        select.value = currentVal;
+    }
+
     console.log(`[MONTH FILTER] Populated ${sorted.length} months for ${type}`);
 };
+
+// استخراج فلتر التاريخ من عمود "الشهر" في بيانات المرتبات مباشرة
+App.prototype._populateSalaryUploadDateFilter = function () {
+    const select = document.getElementById('salary-upload-date-filter');
+    if (!select) return;
+
+    const data = this.salaryReturnsData || [];
+    if (!data || data.length === 0) return;
+
+    const dateSet = new Set();
+    let hasEmpty = false;
+
+    const sampleSize = Math.min(data.length, 5000);
+    for (let i = 0; i < sampleSize; i++) {
+        const row = data[i];
+        if (!row) continue;
+        let dateVal = '';
+        for (const k of Object.keys(row)) {
+            if (k.includes('شهر') || k.includes('الشهر') || k.toLowerCase().includes('month')) {
+                if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') {
+                    dateVal = String(row[k]).trim();
+                    break;
+                }
+            }
+        }
+        if (dateVal) {
+            dateSet.add(dateVal);
+        } else {
+            hasEmpty = true;
+        }
+    }
+
+    const sorted = Array.from(dateSet).sort();
+
+    // لا تعيد البناء إذا كانت البيانات متطابقة بالفعل
+    const expectedCount = sorted.length + (hasEmpty ? 2 : 1);
+    if (select.options.length >= expectedCount) return;
+
+    const currentVal = select.value;
+    select.innerHTML = '<option value="all">كل التواريخ</option>';
+    if (hasEmpty) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = 'فارغ';
+        emptyOpt.textContent = 'فارغ';
+        select.appendChild(emptyOpt);
+    }
+    sorted.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        select.appendChild(opt);
+    });
+
+    // استعادة القيمة المحددة إن كانت موجودة
+    if (currentVal && [...select.options].some(o => o.value === currentVal)) {
+        select.value = currentVal;
+    }
+
+    console.log(`[UPLOAD DATE FILTER] Populated ${sorted.length} dates from عمود الشهر, hasEmpty=${hasEmpty}`);
+};
+
 
 App.prototype.handleMonthFilterChange = async function (val) {
     console.log('[FILTER] Month filter changed:', val);
@@ -8142,35 +8291,21 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
     this.salaryMonthFilterValue = document.getElementById('salary-month-filter')?.value || this.salaryMonthFilterValue || 'all';
 
     const uploadDateFilter = document.getElementById('salary-upload-date-filter')?.value || 'all';
-    if (uploadDateFilter && uploadDateFilter !== 'all') {
+    if (uploadDateFilter && uploadDateFilter !== 'all' && uploadDateFilter !== 'فارغ') {
         this.salaryUploadDateFrom = uploadDateFilter;
         this.salaryUploadDateTo = uploadDateFilter;
+    } else {
+        this.salaryUploadDateFrom = null;
+        this.salaryUploadDateTo = null;
     }
 
-    // Populate Upload Date Filter Options if empty
-    const uploadSelect = document.getElementById('salary-upload-date-filter');
-    if (uploadSelect && uploadSelect.options.length <= 1) {
-        try {
-            const dates = await db.getSalaryUploadDates();
-            if (dates && Array.isArray(dates) && dates.length > 0) {
-                uploadSelect.innerHTML = '<option value="all">كل التواريخ ▼</option>';
-                dates.forEach(d => {
-                    if (d) {
-                        const opt = document.createElement('option');
-                        opt.value = d;
-                        opt.textContent = d;
-                        uploadSelect.appendChild(opt);
-                    }
-                });
-            }
-        } catch (e) {
-            console.warn('Failed to load salary upload dates', e);
-        }
-    }
+
+    // Populate Upload Date Filter from loaded data (عمود الشهر)
+    // سيتم استدعاؤها بعد تحميل البيانات في نهاية الدالة
 
     // Populate Salary Month Filter dynamically
     const salaryMonthSelect = document.getElementById('salary-month-filter');
-    if (salaryMonthSelect && salaryMonthSelect.options.length <= 1) {
+    if (salaryMonthSelect) {
         try {
             this._populateMonthFilter('salary');
         } catch (e) {
@@ -8233,7 +8368,10 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
             this.salarySearchQuery,
             this.salaryAttachmentFilterValue,
             this.salaryUploadDateFrom,
-            this.salaryUploadDateTo
+            this.salaryUploadDateTo,
+            this.salarySettlementFilterValue,
+            this.salaryReturnStatusFilterValue,
+            this.salaryMonthFilterValue
         );
 
         if (response.data && response.data.length > 0) {
@@ -8242,77 +8380,11 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
 
             // Normalize Settlement Status
             dataToUse = dataToUse.map(row => {
-                const settlementNo = row['رقم تسوية السداد'] || '';
-                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                const val = row['رقم تسوية السداد'];
+                const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
                 row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                 return row;
             });
-
-            // Filter by Settlement first
-            if (this.salarySettlementFilterValue && this.salarySettlementFilterValue !== 'all' && this.salarySettlementFilterValue !== 'الكل') {
-                const mode = this.salarySettlementFilterValue.trim();
-                dataToUse = dataToUse.filter(row => {
-                    const actualVal = (row['حالة التسوية'] || '').trim();
-                    return actualVal === mode;
-                });
-            }
-
-            // Filter by Return Status
-            if (this.salaryReturnStatusFilterValue && this.salaryReturnStatusFilterValue !== 'all' && this.salaryReturnStatusFilterValue !== 'الكل') {
-                const mode = this.salaryReturnStatusFilterValue.toLowerCase();
-                dataToUse = dataToUse.filter(row => {
-                    const status = (row['الحالة'] || row['Status'] || '').toLowerCase();
-                    return status.includes(mode);
-                });
-            }
-
-            // Filter by Month next
-            if (this.salaryMonthFilterValue && this.salaryMonthFilterValue !== 'all') {
-                const selectedMonth = this.salaryMonthFilterValue;
-                dataToUse = dataToUse.filter(row => {
-                    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
-                    const fileCode = this.findValue(row, fileCodeKeys) || '';
-                    let monthVal = 'فارغ';
-                    if (fileCode && String(fileCode).includes('-')) {
-                        const parts = String(fileCode).split('-');
-                        if (parts.length >= 2) {
-                            const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1];
-                            if (/^\d{2}-\d{4}$/.test(possibleDate)) {
-                                monthVal = possibleDate;
-                            }
-                        }
-                    }
-                    return monthVal === selectedMonth;
-                });
-            }
-
-            if (dataToUse.length !== response.data.length) {
-                // Manually calculate stats if local filtering was applied
-                let totalAmount = 0, settledAmount = 0, pendingAmount = 0;
-                let settled = 0, pending = 0;
-
-                dataToUse.forEach(row => {
-                    const amountVal = row['قيمة العملية'] || row[' قيمة العملية'] || row['ProcessValue'] || row['المبلغ'] || row['Amount'];
-                    const num = this.parseAmount(amountVal);
-                    totalAmount += num;
-                    if (row['حالة التسوية'] === 'تم التسوية' || row['حالة التسوية'] === 'تمت التسوية') {
-                        settled++;
-                        settledAmount += num;
-                    } else {
-                        pending++;
-                        pendingAmount += num;
-                    }
-                });
-
-                displayStats = {
-                    filteredCount: dataToUse.length,
-                    totalAmount,
-                    successCount: settled,
-                    settledAmount,
-                    pendingCount: pending,
-                    pendingAmount
-                };
-            }
 
             if (append) {
                 this.salaryReturnsData = [...this.salaryReturnsData, ...dataToUse];
@@ -8321,9 +8393,6 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
                 this.salaryHeaders = this.extractSalaryHeaders(this.salaryReturnsData);
             }
             this.salaryPagination = response.pagination;
-            if (dataToUse.length !== response.data.length) {
-                this.salaryPagination.total = dataToUse.length;
-            }
             this.currentDisplayStats = displayStats;
         } else {
             if (!append) {
@@ -8335,6 +8404,7 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
             }
             this.currentDisplayStats = null;
         }
+
 
         const dataToRender = append ? this.salaryReturnsCache : null;
         this.renderSalaryTable(dataToRender, append);
@@ -8349,6 +8419,8 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
         this.updateSalaryStats(this.currentDisplayStats || response.stats);
         // ملء فلتر الشهر من البيانات المحملة
         this._populateMonthFilter('salary');
+        // ملء فلتر التاريخ من عمود "الشهر" في البيانات المحملة
+        this._populateSalaryUploadDateFilter();
 
     } catch (e) {
         console.error('Error loading salary returns:', e);
@@ -8383,58 +8455,40 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
             return;
         }
 
-        // إعادة ترتيب الأعمدة: وضع الاسم في المقدمة دائمًا
-        let displayHeaders = [...this.salaryHeaders];
-        const nameKeys = ['الاسم', 'الاســــم', 'Name', 'FullName'];
-        const nameIdx = displayHeaders.findIndex(h => nameKeys.includes(h));
+        // الترتيب الصارم والنهائي لأعمدة المرتبات - مطابق للحوافز مع إضافة الرقم القومي
+        const finalSalaryOrder = [
+            '#',
+            'كود الملف',
+            'الشهر',
+            'الاسم',
+            'الرقم القومي',
+            'رقم الحساب',
+            'البنك',
+            'قيمة العملية',
+            'الحالة',
+            'السبب',
+            'رقم الحساب بعد التعديل',
+            'البنك بعد التعديل',
+            'كود الفرع بعد التعديل',
+            'تاريخ الرفع',
+            'رقم تسوية التعلية',
+            'تاريخ المرتد / تاريخ التعلية',
+            'تاريخ اعتماد المرتدات',
+            'تاريخ التعديل',
+            'تاريخ اعتماد التعديل',
+            'رقم تسوية السداد',
+            'تاريخ اعتماد التعديل / تاريخ السداد',
+            'حالة التسوية'
+        ];
 
-        if (nameIdx !== -1) {
-            const nameHeader = displayHeaders.splice(nameIdx, 1)[0];
-            displayHeaders.unshift(nameHeader);
-        }
-
-        // إضافة "الرقم القومي" بعد الاسم مباشرة إن لم يوجد
-        if (!displayHeaders.some(h => h.includes('الرقم القومي') || h.includes('الرقم_القومي'))) {
-            const currentNameIdx = displayHeaders.findIndex(h => nameKeys.includes(h));
-            if (currentNameIdx !== -1) {
-                displayHeaders.splice(currentNameIdx + 1, 0, 'الرقم القومي');
-            } else {
-                displayHeaders.unshift('الرقم القومي');
-            }
-        }
-
-        // إضافة عمود "الشهر"
-        if (!displayHeaders.includes('الشهر')) {
-            const nidIdx = displayHeaders.findIndex(h => h.includes('الرقم القومي') || h.includes('الرقم_القومي'));
-            if (nidIdx !== -1) {
-                displayHeaders.splice(nidIdx + 1, 0, 'الشهر');
-            } else {
-                displayHeaders.push('الشهر');
-            }
-        }
-
-        // إضافة عمود "تاريخ الرفع"
-        if (!displayHeaders.includes('تاريخ الرفع')) {
-            displayHeaders.push('تاريخ الرفع');
-        }
-
-        // إضافة عمود "حالة التسوية" في النهاية
-        if (!displayHeaders.includes('حالة التسوية')) {
-            displayHeaders.push('حالة التسوية');
-        }
-
-        displayHeaders.unshift('#');
-        displayHeaders.unshift('<input type="checkbox" id="selectAllSalaryCheckbox" onchange="window.app.toggleSelectAllSalaryReturns(this.checked)" style="transform: scale(1.2); cursor: pointer;" title="تحديد الكل">');
-
-        tableHeaders.innerHTML = '<tr>' + displayHeaders.map(h => {
+        tableHeaders.innerHTML = '<tr>' + finalSalaryOrder.map(h => {
             const hNorm = h.replace(/ـ/g, '').replace(/[أإآ]/g, 'ا').toLowerCase();
             const isNameCol = hNorm.includes('الاسم') || hNorm.includes('name') || hNorm.includes('fullname');
 
             let isSticky = '';
-            if (h.includes('<input')) isSticky = 'sticky-col';
-            else if (h === '#') isSticky = 'sticky-col-2';
-            else if (isNameCol) isSticky = 'sticky-col-3';
-            else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-col-4';
+            if (h === '#') isSticky = 'sticky-seq';
+            else if (isNameCol) isSticky = 'sticky-name';
+            else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-amount';
 
             let dynamicClass = '';
             if (h === '#') dynamicClass = 'col-id';
@@ -8443,7 +8497,7 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
             return `<th class="sci-fi-th ${isSticky} ${dynamicClass}">${h}</th>`;
         }).join('') + '<th class="sci-fi-th col-actions" style="text-align:center;">الإجراءات</th></tr>';
         tableBody.innerHTML = '';
-        this._displaySalaryHeaders = displayHeaders;
+        this._displaySalaryHeaders = finalSalaryOrder;
     }
 
     const previousRowCount = append ? (document.getElementById('salary-returns-body')?.querySelectorAll('tr').length || 0) : 0;
@@ -8465,16 +8519,23 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
             const rowId = row.id || row.Id;
             const cells = (this._displaySalaryHeaders || this.salaryHeaders).map(h => {
                 let val = row[h] ?? '';
-                let rawVal = String(val);
+
+                // منطق استعادة القيم المسميات المزدوجة (للحفاظ على التوافق مع البيانات المخزنة)
+                if (val === '') {
+                    if (h === 'تاريخ المرتد / تاريخ التعلية') {
+                        val = row['تاريخ المرتد'] || row['تاريخ المرتدات'] || '';
+                    }
+                    if (h === 'تاريخ اعتماد التعديل / تاريخ السداد') {
+                        val = row['تاريخ اعتماد التعديل'] || row['تاريخ اعتماد المرتدات'] || row['SettlementDate'] || '';
+                    }
+                }
 
                 if (h === '#') {
                     val = previousRowCount + rowIndex + 1;
-                    rawVal = String(val);
                 } else if (h.includes('<input')) {
                     val = `<input type="checkbox" class="salary-row-checkbox" value="${rowId}" onchange="window.app.updateSelectAllSalaryReturns()" style="transform: scale(1.2); cursor: pointer;">`;
                 } else if (h === 'الاسم' || h === 'الاسم ') {
                     val = row['الاسم'] || row['الاسم '] || row['Name'] || '';
-                    rawVal = String(val);
                 } else if (h === 'الرقم القومي' || h === 'الرقم_القومي') {
                     for (const key in row) {
                         const lowKey = key.toLowerCase();
@@ -8483,27 +8544,14 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                             break;
                         }
                     }
-                    rawVal = String(val);
                 } else if (h === 'الشهر') {
                     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'FileCode', 'كُـــود المـلف', 'كود_الملف'];
                     const fileCode = this.findValue(row, fileCodeKeys) || '';
-                    val = 'فارغ';
-                    if (fileCode && String(fileCode).includes('-')) {
-                        const parts = String(fileCode).split('-');
-                        if (parts.length >= 2) {
-                            const possibleDate = parts[parts.length - 2] + '-' + parts[parts.length - 1]; // الشهر-السنة
-                            if (/^\d{2}-\d{4}$/.test(possibleDate)) {
-                                val = possibleDate;
-                            }
-                        }
-                    }
-                    rawVal = String(val);
+                    val = this.extractMonthFromFileCode(fileCode);
                 } else if (h === 'تاريخ الرفع') {
                     val = row['UploadDate'] || row['تاريخ الرفع'] || '';
-                    rawVal = String(val);
                 } else if (h === 'حالة التسوية') {
                     const actualVal = (row[h] || '').trim();
-                    rawVal = String(actualVal);
                     if (actualVal === 'تم التسوية' || actualVal === 'تمت التسوية') {
                         val = '<span class="badge-status success">تم التسوية ✅</span>';
                     } else if (actualVal === 'لم يتم التسوية') {
@@ -8515,7 +8563,6 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                     // Format dates
                     if ((h.includes('تاريخ') || h.includes('Date')) && val) {
                         val = this.formatDate(val);
-                        rawVal = val;
                     }
 
                     // Format numbers
@@ -8523,10 +8570,11 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                         const num = parseFloat(val);
                         if (!isNaN(num)) {
                             val = `<span class="${num >= 0 ? 'amount-positive' : 'amount-negative'}">${num.toLocaleString()}</span>`;
-                            rawVal = num.toLocaleString();
                         }
                     }
                 }
+
+                let rawVal = String(val).replace(/<[^>]*>?/gm, ''); // للنص الخام بدون HTML للملائمة مع البحث
 
                 // تطبيق التلوين على كل الحقول النصية (بما فيها الاسم) إذا تطابقت مع البحث
                 if (searchRegex && h !== '#' && !h.includes('<input') && h !== 'حالة التسوية') {
@@ -8539,16 +8587,21 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                 const isNameCol = hNorm.includes('الاسم') || hNorm.includes('name') || hNorm.includes('fullname');
 
                 let isSticky = '';
-                if (h.includes('<input')) isSticky = 'sticky-col';
-                else if (h === '#') isSticky = 'sticky-col-2';
-                else if (isNameCol) isSticky = 'sticky-col-3';
-                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-col-4';
+                if (h === '#') isSticky = 'sticky-seq';
+                else if (isNameCol) isSticky = 'sticky-name';
+                else if (h.includes('قيمة العملية') || h.includes('المبلغ')) isSticky = 'sticky-amount';
 
                 let dynamicClass = '';
                 if (h === '#') dynamicClass = 'col-id';
-                if (isNameCol) dynamicClass = 'col-name';
+                if (isNameCol) dynamicClass = 'col-name clickable-name';
 
-                return `<td class="${isSticky} ${dynamicClass}">${val}</td>`;
+                let dblclickEvent = '';
+                if (isNameCol && rawVal && rawVal.trim() !== '') {
+                    const escapedVal = String(rawVal).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    dblclickEvent = ` ondblclick="window.app.triggerNameSearch('${escapedVal}')" title="انقر مرتين للبحث السريع عن هذا الاسم" style="cursor: pointer;"`;
+                }
+
+                return `<td class="${isSticky} ${dynamicClass}"${dblclickEvent}>${val}</td>`;
             }).join('');
 
             const hasAttachments = row.AttachmentCount > 0;
@@ -8697,38 +8750,7 @@ App.prototype.showSalaryAutoSyncModal = function () {
     this.showAutoSyncModal();
 };
 
-App.prototype.downloadSalaryTemplate = function () {
-    const headers = [
-        'كود الملف',
-        'الاســــم',
-        'الرقم القومي',
-        'رقم الحساب',
-        'البنك',
-        'قيمة العملية',
-        'الحالة',
-        'السبب',
-        'رقم الحساب بعد التعديل',
-        'البنك بعد التعديل',
-        'كود الفرع بعد التعديل',
-        'رقم التعلية',
-        'تاريخ التعلية',
-        'تاريخ الارتداد',
-        'تاريخ اعتماد المرتدات',
-        'تاريخ التعديل',
-        'تاريخ اعتماد التعديل',
-        'رقم تسوية السداد',
-        'تاريخ تسوية السداد'
-    ];
-    
-    // إنشاء ورقة العمل بصفوف فارغة (رؤوس فقط)
-    const ws = XLSX.utils.aoa_to_sheet([headers]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Template");
-    
-    // تنزيل الملف
-    XLSX.writeFile(wb, "Salary_Returns_Template.xlsx");
-    this.showToast('تم تحميل نموذج المرتبات بنجاح', 'success');
-};
+// تم حذف النسخة المكررة لضمان استخدام النسخة الموحدة في بداية الملف
 
 App.prototype.printSalaryReport = function () {
     // فتح نفس نافذة الخيارات لتوحيد التجربة
@@ -8894,8 +8916,8 @@ App.prototype.populateSalaryReturnsCache = async function () {
 
             row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || row['حالة الارتداد'] || '');
             {
-                const settlementNo = row['رقم تسوية السداد'] || '';
-                const hasSettlement = settlementNo && String(settlementNo).trim() !== '';
+                const val = row['رقم تسوية السداد'];
+                const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
                 row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
                 row._isSettled = hasSettlement;
             }
@@ -8907,6 +8929,13 @@ App.prototype.populateSalaryReturnsCache = async function () {
             const normalizedValues = originalValues.map(v => this.normalizeArabic(v));
 
             row._searchStr = [...new Set([...originalValues, ...normalizedValues])].join(' ');
+
+            // إثراء السجل بالشهر المستخرج للفلترة السريعة
+            if (!row['الشهر'] && !row['الشهر ']) {
+                const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'FileCode', 'كُـــود المـلف', 'كود_الملف'];
+                const fCode = this.findValue(row, fileCodeKeys);
+                row._monthExtracted = this.extractMonthFromFileCode(fCode);
+            }
 
             return row;
         });
@@ -8938,6 +8967,38 @@ App.prototype.populateSalaryReturnsCache = async function () {
     }
 };
 
+/**
+ * دالة مساعدة لاستخراج الشهر من كود الملف (تدعم مختلف التنسيقات)
+ */
+App.prototype.extractMonthFromFileCode = function (fileCode) {
+    if (!fileCode || typeof fileCode !== 'string') return 'فارغ';
+    const cleanCode = fileCode.replace(/\/+$/, '').trim();
+    if (!cleanCode) return 'فارغ';
+
+    // 1. نمط YYYY-MM-DD
+    const ymd = cleanCode.match(/(20\d{2})-(0?[1-9]|1[0-2])-\d{2}/);
+    if (ymd) return `${ymd[1]}-${ymd[2].padStart(2, '0')}`;
+
+    // 2. نمط MM-YYYY ذكي (يتجاهل الأرقام الزائدة بعد السنة)
+    const my = cleanCode.match(/(?:^|-|_|\s)(0?[1-9]|1[0-2])-(20\d{2})/);
+    if (my) return `${my[1].padStart(2, '0')}-${my[2]}`;
+
+    // 3. نمط YYYY-MM ذكي (يتجاهل الأرقام الزائدة بعد الشهر)
+    const ym = cleanCode.match(/(?:^|-|_|\s)(20\d{2})-(0?[1-9]|1[0-2])/);
+    if (ym) return `${ym[1]}-${ym[2].padStart(2, '0')}`;
+
+    // 4. محاولة التقسيم إذا لم تنجح الأنماط الذكية
+    const parts = cleanCode.split(/[-_/]/).filter(p => p.length > 0);
+    if (parts.length >= 2) {
+        const p1 = parts[parts.length - 2];
+        const p2 = parts[parts.length - 1];
+        if (/^\d{1,2}$/.test(p1) && /^20\d{2}/.test(p2)) return `${p1.padStart(2, '0')}-${p2.substring(0, 4)}`;
+        if (/^20\d{2}/.test(p1) && /^\d{1,2}$/.test(p2)) return `${p1.substring(0, 4)}-${p2.padStart(2, '0')}`;
+    }
+
+    return 'فارغ';
+};
+
 App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page, pageSize = 200, append) {
     if (!this.salaryReturnsCache) return;
 
@@ -8951,8 +9012,7 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
     const settlementMode = this.salarySettlementFilterValue && this.salarySettlementFilterValue !== 'all' && this.salarySettlementFilterValue !== 'الكل' ? this.salarySettlementFilterValue.trim() : null;
     const returnStatusMode = this.salaryReturnStatusFilterValue && this.salaryReturnStatusFilterValue !== 'all' && this.salaryReturnStatusFilterValue !== 'الكل' ? this.salaryReturnStatusFilterValue : null;
     const attachMode = attachmentStatus && attachmentStatus !== 'all' ? attachmentStatus : null;
-    const uploadDateFrom = this.salaryUploadDateFrom;
-    const uploadDateTo = this.salaryUploadDateTo;
+    const uploadDateFilterVal = document.getElementById('salary-upload-date-filter')?.value || 'all';
 
     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
 
@@ -8968,16 +9028,30 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
         }
 
         if (selectedMonth) {
-            let fileCode = "";
-            for (const k of fileCodeKeys) {
-                if (row[k]) { fileCode = row[k]; break; }
+            let monthVal = 'فارغ';
+            // 1. البحث في أعمدة البيانات الأصلية
+            for (const k of Object.keys(row)) {
+                if (k.includes('شهر') || k.includes('الشهر') || k.toLowerCase().includes('month')) {
+                    if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') {
+                        monthVal = String(row[k]).trim();
+                        break;
+                    }
+                }
             }
-            if (!String(fileCode).includes(selectedMonth)) return false;
+            // 2. استخدام القيمة المستخرجة مسبقاً أو الاستخراج الفوري
+            if (monthVal === 'فارغ') {
+                monthVal = row._monthExtracted || this.extractMonthFromFileCode(this.findValue(row, fileCodeKeys));
+            }
+
+            if (monthVal !== selectedMonth) return false;
         }
 
         if (settlementMode) {
             const actualVal = (row['حالة التسوية'] || '').trim();
-            if (actualVal !== settlementMode) return false;
+            const matched = (actualVal === settlementMode) || 
+                            (settlementMode === 'تمت التسوية' && actualVal === 'تم التسوية') || 
+                            (settlementMode === 'تم التسوية' && actualVal === 'تمت التسوية');
+            if (!matched) return false;
         }
 
         if (returnStatusMode) {
@@ -8991,15 +9065,19 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
             if (attachMode === 'no' && hasAttach) return false;
         }
 
-        if (uploadDateFrom || uploadDateTo) {
-            const uploadDate = row['تاريخ الرفع'] || row['UploadDate'];
-            if (!uploadDate) return false;
-
-            if (uploadDateFrom && uploadDate < uploadDateFrom) return false;
-            if (uploadDateTo) {
-                let toLimit = uploadDateTo;
-                if (toLimit.length === 10) toLimit += " 23:59:59";
-                if (uploadDate > toLimit) return false;
+        if (uploadDateFilterVal && uploadDateFilterVal !== 'all') {
+            const dateKeys = ['الشهر', 'شهر'];
+            let dateVal = '';
+            for (const k of dateKeys) {
+                if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') {
+                    dateVal = String(row[k]).trim();
+                    break;
+                }
+            }
+            if (uploadDateFilterVal === 'فارغ') {
+                if (dateVal) return false;
+            } else {
+                if (dateVal !== uploadDateFilterVal) return false;
             }
         }
 
@@ -9059,7 +9137,8 @@ App.prototype.calculateLocalSalaryStats = function (filtered) {
         totalAmount += rowAmount;
 
         const status = obj._normStatus || '';
-        const isSettled = ((obj['حالة التسوية'] || '').trim() === 'تم التسوية');
+        const actualSettle = (obj['حالة التسوية'] || '').trim();
+        const isSettled = actualSettle === 'تم التسوية' || actualSettle === 'تمت التسوية';
 
         if (status.includes('مرفوض') || status.includes('reject')) {
             rejectedCount++;
@@ -9412,13 +9491,40 @@ App.prototype.processSalaryFile = async function (file) {
         const data = await this.readExcelFile(file);
         if (!data || data.length === 0) throw new Error('الملف فارغ أو غير صالح');
 
-        this.pendingAllData = data;
+        // خريطة تحويل المسميات لضمان المطابقة مع نظام الحوافز
+        const mappedData = data.map(row => {
+            const newRow = { ...row };
+            
+            // قاموس المسميات البديلة
+            const mappings = {
+                'الرقم القومي': ['الرقم القومى', 'الرقم_القومي', 'NationalID', 'National Id', 'NID'],
+                'قيمة العملية': ['المبلغ', 'القيمة', 'Amount', 'Transaction Value'],
+                'رقم تسوية السداد': ['رقم التسوية', 'رقم تسوية سداد', 'SettlementNo', 'Settlement No'],
+                'رقم تسوية التعلية': ['رقم تسوية تعلية', 'تسوية تعلية', 'AccrualSettlementNo'],
+                'تاريخ المرتد / تاريخ التعلية': ['تاريخ المرتد', 'تاريخ المرتدات', 'تاريخ التعلية', 'ReturnDate'],
+                'تاريخ اعتماد التعديل / تاريخ السداد': ['تاريخ السداد', 'تاريخ التسوية', 'تاريخ السداد الفعلي', 'SettlementDate']
+            };
+
+            for (const [targetKey, synonyms] of Object.entries(mappings)) {
+                if (!newRow[targetKey] || newRow[targetKey] === "") {
+                    for (const synonym of synonyms) {
+                        if (newRow[synonym]) {
+                            newRow[targetKey] = newRow[synonym];
+                            break;
+                        }
+                    }
+                }
+            }
+            return newRow;
+        });
+
+        this.pendingAllData = mappedData;
         this.pendingFile = file;
         this.isSalaryImport = true;
 
         // تشغيل نظام الفحص
         this._validationService = new ValidationService();
-        const validationResult = this._validationService.validate(data, this.salaryReturnsCache || []);
+        const validationResult = this._validationService.validate(mappedData, this.salaryReturnsCache || []);
 
         // عرض النتائج
         this.populateValidationModal(validationResult);

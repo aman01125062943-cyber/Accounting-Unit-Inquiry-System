@@ -287,7 +287,7 @@ class Database {
     // مرتبات (Salary Returns)
     // ========================================
 
-    async getSalaryReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, uploadDateFrom = null, uploadDateTo = null) {
+    async getSalaryReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, uploadDateFrom = null, uploadDateTo = null, settlementFilter = null, statusFilter = null, monthFilter = null) {
         const params = new URLSearchParams({
             page: page.toString(),
             pageSize: pageSize.toString()
@@ -295,7 +295,7 @@ class Database {
 
         if (search) params.append('search', search);
         if (filter) {
-            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filter);
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filter);
             const isDefaultFilter = filter.startsWith('default-');
             if (isUuid || isDefaultFilter) {
                 params.append('filterId', filter);
@@ -306,6 +306,9 @@ class Database {
         if (attachmentStatus && attachmentStatus !== 'all') params.append('attachmentStatus', attachmentStatus);
         if (uploadDateFrom) params.append('uploadDateFrom', uploadDateFrom);
         if (uploadDateTo) params.append('uploadDateTo', uploadDateTo);
+        if (settlementFilter && settlementFilter !== 'all') params.append('settlementStatus', settlementFilter);
+        if (statusFilter && statusFilter !== 'all') params.append('returnStatus', statusFilter);
+        if (monthFilter && monthFilter !== 'all') params.append('month', monthFilter);
 
         return await this.fetchApi(`/salary-returns?${params}`, { timeout: 30000 });
     }

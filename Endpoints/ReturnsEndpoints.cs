@@ -443,19 +443,17 @@ public static class ReturnsEndpoints
              string sqlWhere = "WHERE 1=1";
              var parameters = new DynamicParameters();
 
-             var config = DatabaseService.LoadServerConfig();
-             if (config.ActiveImportId > 0) {
-                 sqlWhere += " AND ImportId = @ActiveImportId";
-                 parameters.Add("ActiveImportId", config.ActiveImportId);
-             }
              sqlWhere += " AND IsDeleted = 0";
              
              try {
-                 if (!string.IsNullOrWhiteSpace(search)) {
-                     // Use FTS5 MATCH for search (global search across all columns)
-                     sqlWhere += " AND Id IN (SELECT rowid FROM Returns_FTS WHERE Returns_FTS MATCH @Search)";
-                     parameters.Add("Search", search);
-                 }
+                if (!string.IsNullOrWhiteSpace(search)) {
+                    var words = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i < words.Length; i++) {
+                        string sp = $"SearchParam{i}";
+                        sqlWhere += $" AND RawData LIKE @{sp}";
+                        parameters.Add(sp, $"%{words[i]}%");
+                    }
+                }
 
                  // Upload Date Filter
                  if (!string.IsNullOrEmpty(uploadDateFrom)) {
