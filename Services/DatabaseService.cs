@@ -64,13 +64,13 @@ public class DatabaseService
 
     private string GetLocalDbPath()
     {
-        // Try Absolute Root first if running from nested publish folders
-        var rootDir = "C:\\Users\\esth633\\Desktop\\hk";
-        var rootDb = Path.Combine(rootDir, "hk.db");
-        if (File.Exists(rootDb)) return rootDb;
+        // Try Base Directory first (standard for portable apps)
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        var baseDb = Path.Combine(baseDir, "hk.db");
+        if (File.Exists(baseDb)) return baseDb;
 
         // Fallback to Current directory
-        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "hk.db");
+        return Path.Combine(Directory.GetCurrentDirectory(), "hk.db");
     }
 
     private void SwitchToLocalDbPath(string reason)
@@ -308,16 +308,31 @@ public class DatabaseService
     private async Task MigrateReturnCodes(SqliteConnection conn)
     {
         try {
-            var count = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Returns WHERE ReturnCode IS NULL OR trim(ReturnCode) = ''");
-            if (count == 0) return;
-            var data = await conn.QueryAsync<dynamic>("SELECT Id, FileCode, RawData FROM Returns WHERE ReturnCode IS NULL OR trim(ReturnCode) = ''");
-            using var trans = conn.BeginTransaction();
-            foreach (var row in data) {
-                string fCode = row.FileCode ?? ExtractFileCodeDirect(row.RawData ?? "");
-                string rCode = ExtractReturnCode(fCode ?? "");
-                await conn.ExecuteAsync("UPDATE Returns SET ReturnCode = @ReturnCode WHERE Id = @Id", new { ReturnCode = rCode, Id = row.Id }, trans);
+            // 1. Process Returns
+            var count1 = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Returns WHERE ReturnCode IS NULL OR trim(ReturnCode) = ''");
+            if (count1 > 0) {
+                var data = await conn.QueryAsync<dynamic>("SELECT Id, FileCode, RawData FROM Returns WHERE ReturnCode IS NULL OR trim(ReturnCode) = ''");
+                using var trans = conn.BeginTransaction();
+                foreach (var row in data) {
+                    string fCode = row.FileCode ?? ExtractFileCodeDirect(row.RawData ?? "");
+                    string rCode = ExtractReturnCode(fCode ?? "");
+                    await conn.ExecuteAsync("UPDATE Returns SET ReturnCode = @ReturnCode WHERE Id = @Id", new { ReturnCode = rCode, Id = row.Id }, trans);
+                }
+                trans.Commit();
             }
-            trans.Commit();
+
+            // 2. Process SalaryReturns
+            var count2 = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM SalaryReturns WHERE ReturnCode IS NULL OR trim(ReturnCode) = ''");
+            if (count2 > 0) {
+                var data = await conn.QueryAsync<dynamic>("SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE ReturnCode IS NULL OR trim(ReturnCode) = ''");
+                using var trans = conn.BeginTransaction();
+                foreach (var row in data) {
+                    string fCode = ExtractFileCodeDirect(row.RawData ?? "");
+                    string rCode = ExtractReturnCode(fCode ?? "");
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET ReturnCode = @ReturnCode WHERE Id = @Id", new { ReturnCode = rCode, Id = row.Id }, trans);
+                }
+                trans.Commit();
+            }
         } catch {}
     }
 
@@ -478,7 +493,7 @@ public class DatabaseService
         var parts = fileCode.Trim().Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (fileCode.StartsWith("Army-c-", StringComparison.OrdinalIgnoreCase) && parts.Length >= 3) return parts[2];
         if (fileCode.StartsWith("Army-", StringComparison.OrdinalIgnoreCase) && parts.Length >= 2) return parts[1];
-        return "";
+        return fileCode.Trim();
     }
 
     public static string ExtractFileCodeDirect(string json) {

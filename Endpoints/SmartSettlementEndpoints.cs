@@ -59,9 +59,9 @@ public static class SmartSettlementEndpoints
                     
                     // Fix: Use CleanArabic on matchBy to correctly identify "الاسم" or "الاســــم" selection
                     if (DatabaseService.CleanArabic(matchBy ?? "") == "الاسم") {
-                        // MATCHING BY NAME: Use CleanArabic for robust matching (handles Hamza, Teh Marbuta, etc.)
                         string cleanExcelName = DatabaseService.CleanArabic(excelRow.Name?.ToString() ?? "");
                         if (!string.IsNullOrEmpty(cleanExcelName)) {
+                            // Priority: Strict Exact Match
                             item.Matches = dbIncentives.Where(d => DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName).ToList();
                             item.SalaryMatches = dbSalaries.Where(d => DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName).ToList();
                         }
@@ -179,68 +179,14 @@ public static class SmartSettlementEndpoints
             var sql = "SELECT ReturnCode as FileCode, RawData FROM Returns WHERE IsDeleted = 0 UNION SELECT ReturnCode as FileCode, RawData FROM SalaryReturns WHERE IsDeleted = 0";
             var rows = await conn.QueryAsync<dynamic>(sql);
 
-
             var monthSet = new HashSet<string>();
 
             foreach (var row in rows)
             {
                 string fc = (string?)row.FileCode ?? "";
                 string raw = (string?)row.RawData ?? "";
-
-                // 1. محاولة استخراج الشهر من RawData (حقل "حافز شهر" أو "كود الموازنة")
-                if (!string.IsNullOrEmpty(raw))
-                {
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(raw);
-                        var root = doc.RootElement;
-
-                        // بحث عن حقل "حافز شهر"
-                        foreach (var prop in root.EnumerateObject())
-                        {
-                            if (prop.Name.Contains("حافز") || prop.Name.Contains("شهر") || prop.Name.ToLower().Contains("month"))
-                            {
-                                var val = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : prop.Value.GetRawText();
-                                if (!string.IsNullOrEmpty(val) && val.Length >= 2)
-                                {
-                                    // محاولة توحيد التنسيق إلى MM-YYYY
-                                    var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
-                                    if (match.Success) {
-                                        var m = match.Groups[1].Value.PadLeft(2, '0');
-                                        var y = match.Groups[2].Value;
-                                        monthSet.Add($"{m}-{y}");
-                                    } else {
-                                        monthSet.Add(val.Trim());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    catch { /* ignore parse errors */ }
-                }
-
-                // 2. fallback: استخراج الشهر من FileCode بنمط MM-YYYY أو XXX-MM-YYYY
-                if (!string.IsNullOrEmpty(fc))
-                {
-                    var parts = fc.Trim().Split('-');
-                    if (parts.Length >= 2)
-                    {
-                        // نحاول العثور على السنة (4 أرقام) والشهر
-                        string m = "", y = "";
-                        if (parts.Length >= 3) {
-                             m = parts[parts.Length - 2];
-                             y = parts[parts.Length - 1];
-                        } else {
-                             m = parts[0];
-                             y = parts[1];
-                        }
-
-                        if (m.Length <= 2 && y.Length == 4 && int.TryParse(m, out _) && int.TryParse(y, out _))
-                        {
-                            monthSet.Add($"{m.PadLeft(2, '0')}-{y}");
-                        }
-                    }
-                }
+                string m = ExtractRecordMonth(fc, raw);
+                if (!string.IsNullOrEmpty(m)) monthSet.Add(m);
             }
 
             var months = monthSet.OrderByDescending(x => x).ToList();
@@ -262,9 +208,31 @@ public static class SmartSettlementEndpoints
             {
                 using var doc = JsonDocument.Parse(rawData);
                 var root = doc.RootElement;
+
+                // 1. Try explicit month keys first
+                string[] monthKeys = { "الشهر", "شهر", "حافز شهر", "الدفعة", "Month", "MonthCode" };
+                foreach (var k in monthKeys) {
+                    if (root.TryGetProperty(k, out var p)) {
+                        var val = p.ToString();
+                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
+                        if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+                    }
+                }
+
+                // 2. Try the original File Code from RawData
+                string[] fileCodeKeys = { "كود الملف", "كـود الملف", "كــود الملف", "كـــود الملف", "Batch ID", "Code", "FileCode" };
+                foreach (var k in fileCodeKeys) {
+                    if (root.TryGetProperty(k, out var p)) {
+                        var val = p.ToString();
+                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
+                        if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+                    }
+                }
+
+                // 3. Fallback: Generic scan
                 foreach (var prop in root.EnumerateObject())
                 {
-                    if (prop.Name.Contains("حافز") || prop.Name.Contains("شهر"))
+                    if (prop.Name.Contains("حافز") || prop.Name.Contains("شهر") || prop.Name.Contains("تاريخ"))
                     {
                         var val = prop.Value.ToString();
                         var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
@@ -291,24 +259,35 @@ public static class SmartSettlementEndpoints
             
             using var doc = JsonDocument.Parse(rawData);
             var root = doc.RootElement;
+
+            var propMap = new Dictionary<string, JsonElement>();
+            foreach(var p in root.EnumerateObject()) {
+                var ck = DatabaseService.CleanArabic(p.Name);
+                if (!propMap.ContainsKey(ck)) propMap[ck] = p.Value;
+            }
             
             string GetJsonVal(params string[] keys) {
                 foreach(var k in keys) {
-                    if (root.TryGetProperty(k, out var p)) return p.ValueKind == JsonValueKind.String ? (p.GetString() ?? "") : p.GetRawText();
+                    if (root.TryGetProperty(k, out var p)) 
+                        return p.ValueKind == JsonValueKind.String ? (p.GetString() ?? "") : p.GetRawText();
+                    
+                    var ck = DatabaseService.CleanArabic(k);
+                    if (propMap.TryGetValue(ck, out var cp))
+                        return cp.ValueKind == JsonValueKind.String ? (cp.GetString() ?? "") : cp.GetRawText();
                 }
                 return "";
             }
 
-            record.CurrentAccount = GetJsonVal("رقم الحساب", "الحساب الحالي", "ACCOUNT_NUMBER", "رقم الحساب السابق");
-            record.CurrentBank = GetJsonVal("البنك", "اسم البنك", "البنك السابق");
-            record.ModifiedAccount = GetJsonVal("رقم الحساب بعد التعديل");
-            record.ModifiedBank = GetJsonVal("البنك بعد التعديل");
-            record.ReturnDate = GetJsonVal("تاريخ المرتدات", "تاريخ المرتد", "تاريخ المرتجع");
-            record.ReturnApprovalDate = GetJsonVal("تاريخ اعتماد المرتدات", "تاريخ اعتماد المرتد", "تاريخ الاعتماد");
-            record.ModDate = GetJsonVal("تاريخ التعديل");
-            record.ModApprovalDate = GetJsonVal("تاريخ اعتماد التعديل");
-            record.SettlementNo = GetJsonVal("رقم تسوية السداد", "SettlementNo");
-            record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "SettlementDate");
+            record.CurrentAccount = GetJsonVal("رقم الحساب", "الحساب الحالي", "ACCOUNT_NUMBER", "رقم الحساب السابق", "حساب", "رقم_الحساب", "Account");
+            record.CurrentBank = GetJsonVal("البنك", "اسم البنك", "البنك السابق", "بنك", "Bank", "بانك", "اسم_البنك");
+            record.ModifiedAccount = GetJsonVal("رقم الحساب بعد التعديل", "رقم الحساب الجديد", "الحساب الجديد", "NewAccount", "رقم_الحساب_الجديد");
+            record.ModifiedBank = GetJsonVal("البنك بعد التعديل", "البنك الجديد", "اسم البنك الجديد", "NewBank", "اسم_البنك_الجديد");
+            record.ReturnDate = GetJsonVal("تاريخ المرتدات", "تاريخ المرتد", "تاريخ المرتجع", "تاريخ الارتداد", "تاريخ_المرتد", "ReturnDate");
+            record.ReturnApprovalDate = GetJsonVal("تاريخ اعتماد المرتدات", "تاريخ اعتماد المرتد", "تاريخ الاعتماد", "تاريخ_الاعتماد", "ApprovalDate");
+            record.ModDate = GetJsonVal("تاريخ التعديل", "تاريخ_التعديل", "ModDate");
+            record.ModApprovalDate = GetJsonVal("تاريخ اعتماد التعديل", "تاريخ_اعتماد_التعديل", "ModApprovalDate");
+            record.SettlementNo = GetJsonVal("رقم تسوية السداد", "رقم التسوية", "رقم_التسوية", "SettlementNo", "Settlement Number");
+            record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "تاريخ التسوية", "تاريخ_التسوية", "SettlementDate", "Settlement Date");
             
             record.Month = ExtractRecordMonth(record.BatchCode ?? "", rawData);
             

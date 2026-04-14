@@ -1333,15 +1333,21 @@ class App {
             // 1. Search Logic
             if (searchWords.length > 0) {
                 const rowStr = row._searchStr || "";
-                // Optimization: Case-insensitive search already handled by _searchStr generation
-                // We check if EVERY word in the search query exists in the row's search string
-                // We also check against the original un-normalized query just in case
                 const originalSearchWords = (search || "").toLowerCase().split(/\s+/).filter(w => w.length > 0);
+                const searchTotal = (search || "").toLowerCase().trim();
 
-                const matchNormalized = searchWords.every(word => rowStr.includes(word));
-                const matchOriginal = originalSearchWords.every(word => rowStr.includes(word));
+                // High Priority: Exact phrase match (Normalized or Original)
+                const matchPhrase = rowStr.includes(searchQuery) || rowStr.includes(searchTotal);
+                
+                if (!matchPhrase) {
+                    // Fallback Priority: Word-by-word matching
+                    // We restrict this for long queries (> 2 words) to avoid broad results in name searches
+                    if (searchWords.length > 2) return false;
 
-                if (!matchNormalized && !matchOriginal) return false;
+                    const matchNormalized = searchWords.every(word => rowStr.includes(word));
+                    const matchOriginal = originalSearchWords.every(word => rowStr.includes(word));
+                    if (!matchNormalized && !matchOriginal) return false;
+                }
             }
 
             // 2. Category Logic
@@ -1408,6 +1414,18 @@ class App {
 
             return true;
         });
+
+        // Priority Sorting: Bring exact phrase matches to the top
+        const sortQ = searchQuery || (search || "").toLowerCase().trim();
+        if (sortQ) {
+            filtered.sort((a, b) => {
+                const aExact = (a._searchStr || "").includes(sortQ);
+                const bExact = (b._searchStr || "").includes(sortQ);
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+                return 0;
+            });
+        }
 
         console.timeEnd('[PERF] Local Search');
         console.log(`[LOCAL SEARCH] Found ${filtered.length} matches.`);
@@ -7057,15 +7075,36 @@ class App {
             if (!data) return [];
             return data.filter(row => {
                 const searchStr = row._searchStr || '';
+                const searchTotal = (query || "").toLowerCase().trim();
+
+                // High Priority: Exact phrase match
+                const matchPhrase = searchStr.includes(normalizedQuery) || searchStr.includes(searchTotal);
+                if (matchPhrase) return true;
+
+                // Fallback: Word-by-word (only for short queries)
+                if (words.length > 2) return false;
                 return words.every(word => searchStr.includes(word));
             });
         };
 
+        const sortQ = normalizedQuery || (query || "").toLowerCase().trim();
         const incentiveResults = filterData(this.returnsCache);
         const salaryResults = filterData(this.salaryReturnsCache);
 
-        this.unifiedIncentiveData = incentiveResults;
-        this.unifiedSalaryData = salaryResults;
+        // Priority Sorting: Bring exact phrase matches to the top
+        const prioritizedSort = (results) => {
+            if (!sortQ) return results;
+            return results.sort((a, b) => {
+                const aExact = (a._searchStr || "").includes(sortQ);
+                const bExact = (b._searchStr || "").includes(sortQ);
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+                return 0;
+            });
+        };
+
+        this.unifiedIncentiveData = prioritizedSort(incentiveResults);
+        this.unifiedSalaryData = prioritizedSort(salaryResults);
 
         // Update Stats (Mimic the API stats structure)
         const incStats = { totalCount: incentiveResults.length, totalAmount: incentiveResults.reduce((s, r) => s + (r._amount || 0), 0) };
@@ -9020,11 +9059,20 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
         if (searchWords.length > 0) {
             const rowStr = row._searchStr || "";
             const originalSearchWords = (search || "").toLowerCase().split(/\s+/).filter(w => w.length > 0);
+            const searchTotal = (search || "").toLowerCase().trim();
 
-            const matchNormalized = searchWords.every(word => rowStr.includes(word));
-            const matchOriginal = originalSearchWords.every(word => rowStr.includes(word));
+            // High Priority: Exact phrase match (Normalized or Original)
+            const matchPhrase = rowStr.includes(searchQuery) || rowStr.includes(searchTotal);
+            
+            if (!matchPhrase) {
+                // Fallback Priority: Word-by-word matching
+                // We restrict this for long queries (> 2 words) to avoid broad results in name searches
+                if (searchWords.length > 2) return false;
 
-            if (!matchNormalized && !matchOriginal) return false;
+                const matchNormalized = searchWords.every(word => rowStr.includes(word));
+                const matchOriginal = originalSearchWords.every(word => rowStr.includes(word));
+                if (!matchNormalized && !matchOriginal) return false;
+            }
         }
 
         if (selectedMonth) {
@@ -9084,8 +9132,20 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
         return true;
     });
 
-    console.timeEnd('[PERF] Local Salary Search');
-    console.log(`[LOCAL SALARY SEARCH] Found ${filtered.length} matches.`);
+        // Priority Sorting: Bring exact phrase matches to the top
+        const sortQ = searchQuery || (search || "").toLowerCase().trim();
+        if (sortQ) {
+            filtered.sort((a, b) => {
+                const aExact = (a._searchStr || "").includes(sortQ);
+                const bExact = (b._searchStr || "").includes(sortQ);
+                if (aExact && !bExact) return -1;
+                if (!aExact && bExact) return 1;
+                return 0;
+            });
+        }
+
+        console.timeEnd('[PERF] Local Salary Search');
+        console.log(`[LOCAL SALARY SEARCH] Found ${filtered.length} matches.`);
 
     const total = filtered.length;
     const totalPages = Math.ceil(total / pageSize);
