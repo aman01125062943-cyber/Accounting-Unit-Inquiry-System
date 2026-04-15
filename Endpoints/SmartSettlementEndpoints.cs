@@ -194,13 +194,17 @@ public static class SmartSettlementEndpoints
         });
 
     }
-
-    private static string ExtractRecordMonth(string batchCode, string rawData)
-    {
+    
+    private static string ExtractRecordMonth(string batchCode, string rawData) {
         if (!string.IsNullOrEmpty(batchCode))
         {
-            var match = System.Text.RegularExpressions.Regex.Match(batchCode, @"(\d{1,2})-(\d{4})");
-            if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+            // Case 1: MM-YYYY (Lenient)
+            var match = System.Text.RegularExpressions.Regex.Match(batchCode, @"(?:^|[ \-/_\s])(0?[1-9]|1[0-2])([ \-/])(20\d{2})");
+            if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[3].Value}";
+            
+            // Case 2: YYYY-MM (Lenient)
+            var matchInv = System.Text.RegularExpressions.Regex.Match(batchCode, @"(?:^|[ \-/_\s])(20\d{2})([ \-/])(0?[1-9]|1[0-2])");
+            if (matchInv.Success) return $"{matchInv.Groups[3].Value.PadLeft(2, '0')}-{matchInv.Groups[1].Value}";
         }
         if (!string.IsNullOrEmpty(rawData))
         {
@@ -251,11 +255,15 @@ public static class SmartSettlementEndpoints
             var rawData = (string)row.RawData;
             var record = new SettlementDBRecord {
                 Id = row.Id,
-                BatchCode = row.ReturnCode ?? "",
+                BatchCode = DatabaseService.ExtractFileCodeDirect(rawData),
                 Name = DatabaseService.ExtractName(rawData),
                 NationalId = DatabaseService.ExtractNID(rawData),
                 Source = source
             };
+
+            // Fallback if direct extraction fails
+            if (string.IsNullOrEmpty(record.BatchCode)) record.BatchCode = row.ReturnCode ?? "";
+
             
             using var doc = JsonDocument.Parse(rawData);
             var root = doc.RootElement;
@@ -282,14 +290,35 @@ public static class SmartSettlementEndpoints
             record.CurrentBank = GetJsonVal("البنك", "اسم البنك", "البنك السابق", "بنك", "Bank", "بانك", "اسم_البنك");
             record.ModifiedAccount = GetJsonVal("رقم الحساب بعد التعديل", "رقم الحساب الجديد", "الحساب الجديد", "NewAccount", "رقم_الحساب_الجديد");
             record.ModifiedBank = GetJsonVal("البنك بعد التعديل", "البنك الجديد", "اسم البنك الجديد", "NewBank", "اسم_البنك_الجديد");
-            record.ReturnDate = GetJsonVal("تاريخ المرتدات", "تاريخ المرتد", "تاريخ المرتجع", "تاريخ الارتداد", "تاريخ_المرتد", "ReturnDate");
+            record.ModifiedBranchCode = GetJsonVal("كود الفرع بعد التعديل", "كود الفرع", "BranchCode", "ModifiedBranchCode");
+            
+            record.Amount = 0;
+            var amountVal = GetJsonVal("قيمة العملية", "صافي المبلغ", "المبلغ", "الإجمالي", "Amount");
+            if (!string.IsNullOrEmpty(amountVal)) {
+                amountVal = amountVal.Replace(",", "").Trim();
+                if (double.TryParse(amountVal, out var parsedAmt)) record.Amount = parsedAmt;
+            }
+
+            record.Reason = GetJsonVal("السبب", "سبب المرتد", "Reason");
+            record.OriginalStatus = GetJsonVal("الحالة", "حالة الحركة", "Status");
+            record.UploadDate = row.UploadDate ?? GetJsonVal("تاريخ الرفع", "تاريخ الملف", "UploadDate");
+            record.AccrualSettlementNo = GetJsonVal("رقم تسوية التعلية", "رقم تسوية الاضافة", "AccrualSettlementNo");
+
+            record.ReturnDate = GetJsonVal("تاريخ المرتد / تاريخ التعلية", "تاريخ المرتدات", "تاريخ المرتد", "تاريخ المرتجع", "تاريخ الارتداد", "تاريخ_المرتد", "ReturnDate");
             record.ReturnApprovalDate = GetJsonVal("تاريخ اعتماد المرتدات", "تاريخ اعتماد المرتد", "تاريخ الاعتماد", "تاريخ_الاعتماد", "ApprovalDate");
             record.ModDate = GetJsonVal("تاريخ التعديل", "تاريخ_التعديل", "ModDate");
             record.ModApprovalDate = GetJsonVal("تاريخ اعتماد التعديل", "تاريخ_اعتماد_التعديل", "ModApprovalDate");
             record.SettlementNo = GetJsonVal("رقم تسوية السداد", "رقم التسوية", "رقم_التسوية", "SettlementNo", "Settlement Number");
             record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "تاريخ التسوية", "تاريخ_التسوية", "SettlementDate", "Settlement Date");
+
             
-            record.Month = ExtractRecordMonth(record.BatchCode ?? "", rawData);
+            record.Month = GetJsonVal("الشهر", "شهر", "حافز شهر", "الدفعة", "Month", "MonthCode");
+            
+            // Fallback to calculated month if direct field is empty
+            if (string.IsNullOrEmpty(record.Month)) {
+                record.Month = ExtractRecordMonth(record.BatchCode ?? "", rawData);
+            }
+
             
             // Criterion Consistency: Alignment with SalaryReturns and Returns modules.
             // Only records with an actual Settlement Number are marked as "Settled".
@@ -337,6 +366,12 @@ public class SettlementDBRecord
     public string? CurrentBank { get; set; }
     public string? ModifiedAccount { get; set; }
     public string? ModifiedBank { get; set; }
+    public string? ModifiedBranchCode { get; set; }
+    public double? Amount { get; set; }
+    public string? Reason { get; set; }
+    public string? OriginalStatus { get; set; }
+    public string? UploadDate { get; set; }
+    public string? AccrualSettlementNo { get; set; }
     public string? ReturnDate { get; set; }
     public string? ReturnApprovalDate { get; set; }
     public string? ModDate { get; set; }
@@ -346,6 +381,7 @@ public class SettlementDBRecord
     public string? Status { get; set; }
     public string? Source { get; set; } // "incentive" or "salary"
 }
+
 
 public class MatchResultItem
 {
