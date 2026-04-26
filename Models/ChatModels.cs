@@ -28,6 +28,9 @@ public class ChatMessage
     public string? SentAt { get; set; }
     public bool IsRead { get; set; }
     public bool IsTaskConverted { get; set; }
+    public string? AttachmentUrl { get; set; }
+    public string? AttachmentType { get; set; } // "image", "pdf", "file"
+    public int LikeCount { get; set; }
 
     // Navigation
     public string? SenderName { get; set; }
@@ -41,6 +44,9 @@ public class ChatTask
     public string Title { get; set; } = "";
     public string? Description { get; set; }
     public string? DueDate { get; set; }
+    public string? ReminderTime { get; set; } // وقت التنبيه المحدد
+    public string? AlertSound { get; set; }    // نغمة التنبيه المختارة
+    public bool IsReminderActive { get; set; } = true;
     public string Priority { get; set; } = "Medium";
     public string Status { get; set; } = "New";
     public int AssignedToId { get; set; }
@@ -64,6 +70,14 @@ public class SendMessageRequest
     public long ConversationId { get; set; }
     public int SenderId { get; set; }
     public string Content { get; set; } = "";
+    public string? AttachmentUrl { get; set; }
+    public string? AttachmentType { get; set; }
+}
+
+public class LikeMessageRequest
+{
+    public long MessageId { get; set; }
+    public int UserId { get; set; }
 }
 
 public class CreateConversationRequest
@@ -79,10 +93,20 @@ public class CreateTaskFromMessageRequest
     public string Title { get; set; } = "";
     public string? Description { get; set; }
     public string? DueDate { get; set; }
+    public string? ReminderTime { get; set; }
+    public string? AlertSound { get; set; }
     public string Priority { get; set; } = "Medium";
     public int AssignedToId { get; set; }
     public int CreatedById { get; set; }
     public string? Attachments { get; set; }
+}
+
+public class RescheduleTaskRequest
+{
+    public long TaskId { get; set; }
+    public string? NewDueDate { get; set; }
+    public string? NewReminderTime { get; set; }
+    public int UpdatedById { get; set; }
 }
 
 public class UpdateTaskStatusRequest

@@ -508,6 +508,50 @@ class Database {
         });
         return response.success;
     }
+
+    // ========================================
+    // المهام والمشاركة (Advanced Features)
+    // ========================================
+
+    async getMyTasks(userId) {
+        return await this.fetchApi(`/tasks/my?userId=${userId}`);
+    }
+
+    async assignTask(taskData) {
+        return await this.fetchApi('/tasks/assign', {
+            method: 'POST',
+            body: JSON.stringify(taskData)
+        });
+    }
+
+    async sendShare(shareData) {
+        return await this.fetchApi('/shares/send', {
+            method: 'POST',
+            body: JSON.stringify(shareData)
+        });
+    }
+
+    async getPendingShares(userId) {
+        return await this.fetchApi(`/shares/pending?userId=${userId}`);
+    }
+
+    async respondToShare(shareId, userId, status) {
+        return await this.fetchApi('/shares/respond', {
+            method: 'POST',
+            body: JSON.stringify({ shareId, userId, status })
+        });
+    }
+
+    async setArchiveExclusive(archiveId, type, userId) {
+        return await this.fetchApi('/archives/exclusive', {
+            method: 'POST',
+            body: JSON.stringify({ archiveId, type, userId })
+        });
+    }
+
+    async getAuditLogs() {
+        return await this.fetchApi('/audit/logs');
+    }
 }
 
 // تصدير

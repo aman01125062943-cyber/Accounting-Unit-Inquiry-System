@@ -21,5 +21,18 @@ namespace HKServer.Hubs
         {
             await Clients.All.SendAsync("UpdateData", module, userName);
         }
+
+        public async Task SendNotificationToUser(string userId, string title, string message, string type = "task")
+        {
+            // Note: userId here is the system ID, we need to map it or use Groups
+            // For simplicity in this demo, we'll use a Group named after the userId
+            await Clients.Group(userId).SendAsync("ReceiveNotification", new { title, message, type, time = DateTime.Now.ToString("HH:mm") });
+        }
+
+        public async Task JoinGroup(string userId)
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, userId);
+            Console.WriteLine($"[SignalR] User {userId} joined group {userId}");
+        }
     }
 }

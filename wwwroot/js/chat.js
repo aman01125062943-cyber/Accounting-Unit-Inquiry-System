@@ -12,6 +12,7 @@ class ChatModule {
         this.messages = [];
         this.tasks = [];
         this.unreadTotal = 0;
+        this.selectedFile = null; // للمرفقات
         
         this.elements = {
             userList: null,
@@ -26,7 +27,10 @@ class ChatModule {
             emptyState: null,
             chatMain: null,
             unreadBadge: null,
-            searchInput: null
+            searchInput: null,
+            attachBtn: null, // زر المرفقات
+            fileInput: null, // حقل الملفات المخفي
+            previewArea: null // منطقة المعاينة قبل الإرسال
         };
     }
 
@@ -46,6 +50,8 @@ class ChatModule {
             await this.initSignalR();
             await this.loadConversations();
             
+            // طلب إذن الإشعارات تم إيقافه هنا لمنع الخطأ في المتصفح
+
             // تحديث مؤشر الإشعارات
             this.updateTotalUnreadCount();
         } catch (e) {
@@ -67,9 +73,22 @@ class ChatModule {
         this.elements.chatMain = document.getElementById('chat-main-area');
         this.elements.unreadBadge = document.getElementById('chat-unread-badge');
         this.elements.searchInput = document.getElementById('chat-search-input');
+        
+        // المرفقات
+        this.elements.attachBtn = document.getElementById('chat-attach-btn');
+        this.elements.fileInput = document.getElementById('chat-file-input');
+        this.elements.previewArea = document.getElementById('chat-attachment-preview-area');
     }
 
     _setupEventListeners() {
+        if(this.elements.attachBtn) {
+            this.elements.attachBtn.addEventListener('click', () => this.elements.fileInput.click());
+        }
+
+        if(this.elements.fileInput) {
+            this.elements.fileInput.addEventListener('change', (e) => this.handleFileSelection(e));
+        }
+
         if(this.elements.sendBtn) {
             this.elements.sendBtn.addEventListener('click', () => this.sendMessage());
         }
@@ -126,33 +145,196 @@ class ChatModule {
         });
     }
 
+    async deleteTask(taskId) {
+        if (!this.currentUser) return;
+        if (!confirm('هل أنت متأكد من حذف هذه المهمة؟')) return;
+        
+        try {
+            const response = await db.fetchApi(`/chat/tasks/${taskId}?userId=${this.currentUser.id}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.success) {
+                window.app?.showToast('تم حذف المهمة بنجاح', 'success');
+                this.tasks = this.tasks.filter(t => t.id != taskId);
+                this.renderTasks(this.tasks);
+            }
+        } catch (e) {
+            console.error('[Chat] Failed to delete task', e);
+            window.app?.showToast('فشل في حذف المهمة', 'error');
+        }
+    }
+
+    showRescheduleModal(taskId, currentDate, currentTime) {
+        let modal = document.getElementById('chat-reschedule-modal');
+        if (!modal) {
+            const modalHtml = `
+                <div id="chat-reschedule-modal" class="chat-task-modal-overlay">
+                    <div class="chat-task-modal">
+                        <div class="chat-task-modal-header">
+                            <h3>إعادة جدولة المهمة</h3>
+                            <button class="chat-task-modal-close" onclick="document.getElementById('chat-reschedule-modal').classList.remove('show')">✕</button>
+                        </div>
+                        <div class="chat-task-modal-body">
+                            <input type="hidden" id="reschedule-task-id">
+                            <div class="chat-task-form-group">
+                                <label>تاريخ الاستحقاق الجديد</label>
+                                <input type="date" id="reschedule-date">
+                            </div>
+                            <div class="chat-task-form-group">
+                                <label>وقت التنبيه الجديد</label>
+                                <div class="custom-time-picker">
+                                    <select id="reschedule-hour">
+                                        ${Array.from({length: 12}, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+                                    </select>
+                                    <span>:</span>
+                                    <select id="reschedule-minute">
+                                        ${Array.from({length: 60}, (_, i) => `<option value="${i.toString().padStart(2, '0')}">${i.toString().padStart(2, '0')}</option>`).join('')}
+                                    </select>
+                                    <select id="reschedule-period">
+                                        <option value="AM">صباحاً</option>
+                                        <option value="PM">مساءً</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chat-task-modal-footer">
+                            <button class="chat-task-save-btn" onclick="window.chatModule.saveReschedule()">حفظ التعديلات</button>
+                            <button class="chat-task-cancel-btn" onclick="document.getElementById('chat-reschedule-modal').classList.remove('show')">إلغاء</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            modal = document.getElementById('chat-reschedule-modal');
+        }
+        
+        document.getElementById('reschedule-task-id').value = taskId;
+        document.getElementById('reschedule-date').value = currentDate;
+        
+        // تعيين قيم الوقت في الـ picker المخصص
+        if (currentTime) {
+            const [h24, m] = currentTime.split(':');
+            let h12 = parseInt(h24);
+            const period = h12 >= 12 ? 'PM' : 'AM';
+            h12 = h12 % 12;
+            if (h12 === 0) h12 = 12;
+            
+            document.getElementById('reschedule-hour').value = h12;
+            document.getElementById('reschedule-minute').value = m;
+            document.getElementById('reschedule-period').value = period;
+        }
+
+        modal.classList.add('show');
+    }
+
+    async saveReschedule() {
+        const taskId = document.getElementById('reschedule-task-id').value;
+        const newDate = document.getElementById('reschedule-date').value;
+        
+        const hour = document.getElementById('reschedule-hour').value;
+        const minute = document.getElementById('reschedule-minute').value;
+        const period = document.getElementById('reschedule-period').value;
+        const newTime = this._convertPickerTo24h(hour, minute, period);
+        
+        try {
+            const response = await db.fetchApi(`/chat/tasks/${taskId}/reschedule`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    taskId: parseInt(taskId),
+                    newDueDate: newDate,
+                    newReminderTime: newTime,
+                    updatedById: parseInt(this.currentUser.id)
+                })
+            });
+            
+            if (response.success) {
+                document.getElementById('chat-reschedule-modal').classList.remove('show');
+                window.app?.showToast('تم تحديث موعد المهمة', 'success');
+                
+                // تحديث البيانات محلياً
+                const task = this.tasks.find(t => t.id == taskId);
+                if (task) {
+                    task.dueDate = newDate;
+                    task.reminderTime = newTime;
+                    this.renderTasks(this.tasks);
+                }
+            }
+        } catch (e) {
+            console.error('[Chat] Failed to reschedule', e);
+            window.app?.showToast('فشل في إعادة الجدولة', 'error');
+        }
+    }
+
     async initSignalR() {
         if (!this.currentUser) return;
-        
+
+        // نظام التنبيهات الصوتي بناءً على وقت المهام
+        // فحص كل 15 ثانية لضمان الدقة وعدم تفويت أي دقيقة
+        if (this.taskReminderInterval) clearInterval(this.taskReminderInterval);
+        this.taskReminderInterval = setInterval(() => this.checkTaskReminders(), 15000); 
+
         // استخدام اتصال مستقل عن الإشعارات العامة
         this.hubConnection = new signalR.HubConnectionBuilder()
             .withUrl(`/chatHub?userId=${this.currentUser.id}`)
-            .withAutomaticReconnect([0, 2000, 10000, 30000])
+            .withAutomaticReconnect({
+                nextRetryDelayInMilliseconds: retryContext => {
+                    if (retryContext.elapsedMilliseconds < 60000) {
+                        // If we've been reconnecting for less than 60 seconds, retry every 2s, 5s, 10s
+                        return [2000, 5000, 10000][retryContext.previousRetryCount] || 15000;
+                    } else {
+                        // If we've been reconnecting for more than 60 seconds, retry every 30s
+                        return 30000;
+                    }
+                }
+            })
             .build();
+
+        this.hubConnection.onreconnecting((error) => {
+            console.warn("[Chat] SignalR Reconnecting:", error);
+            window.app?.updateSignalRUI('reconnecting');
+        });
+
+        this.hubConnection.onreconnected((connectionId) => {
+            console.log("[Chat] SignalR Reconnected:", connectionId);
+            window.app?.updateSignalRUI('online');
+            // Re-register user after reconnection
+            this.hubConnection.invoke("RegisterUser", parseInt(this.currentUser.id)).catch(err => console.error(err));
+        });
+
+        this.hubConnection.onclose((error) => {
+            console.error("[Chat] SignalR Closed:", error);
+            window.app?.updateSignalRUI('offline');
+            // Attempt to restart after a delay
+            setTimeout(() => this.startHub(), 5000);
+        });
 
         this.hubConnection.on("ReceiveMessage", (message) => {
             console.log("Chat message received:", message);
             
+            const isFromMe = message.senderId == this.currentUser.id;
+            
+            // Play sound for all incoming messages (not from me)
+            if (!isFromMe) {
+                window.app?.playNotificationSound();
+            }
+
             // إذا كانت الرسالة في المحادثة المفتوحة حالياً
             if (this.currentConversationId == message.conversationId) {
-                this.messages.push(message);
-                this.renderMessage(message, true);
+                // منع التكرار لو أضيفت محلياً
+                if (!this.messages.find(m => m.id == message.id)) {
+                    this.messages.push(message);
+                    this.renderMessage(message, true, !isFromMe); // Highlight if from others
+                }
                 
-                // تحديد كمقروءة مباشرة بما أن المحادثة مفتوحة
-                if (message.senderId != this.currentUser.id) {
+                // تحديد كمقروء مباشرة بما أن المحادثة مفتوحة
+                if (!isFromMe) {
                     this.markMessagesAsRead(message.conversationId);
                 }
-            } else if (message.senderId != this.currentUser.id) {
+            } else if (!isFromMe) {
                 // إظهار إشعار عام إذا لم تكن المحادثة مفتوحة
                 this.showGlobalMessageNotification(message);
-                window.app?.playNotificationSound();
-            } else {
-                window.app?.playNotificationSound();
             }
             
             // تحديث قائمة المحادثات لرفعها للأعلى
@@ -188,6 +370,42 @@ class ChatModule {
             }
         });
 
+        this.hubConnection.on("TaskRescheduled", (data) => {
+            const task = this.tasks.find(t => t.id == data.taskId);
+            if (task) {
+                task.dueDate = data.newDueDate;
+                task.reminderTime = data.newReminderTime;
+                this.renderTasks();
+                window.app?.showToast(`تم إعادة جدولة مهمة بواسطة ${data.updatedBy}`, 'info');
+            }
+        });
+
+        this.hubConnection.on("TaskDeleted", (data) => {
+            this.tasks = this.tasks.filter(t => t.id != data.taskId);
+            this.renderTasks();
+            window.app?.showToast(`تم حذف مهمة بواسطة ${data.deletedBy}`, 'warning');
+        });
+
+        this.hubConnection.on("MessageLiked", (data) => {
+            const msg = this.messages.find(m => m.id == data.messageId);
+            if (msg) {
+                msg.likeCount = data.likeCount;
+                const likeBadge = document.querySelector(`#msg-${data.messageId} .chat-msg-like-count`);
+                if (likeBadge) {
+                    likeBadge.textContent = data.likeCount;
+                    likeBadge.classList.add('pulse');
+                    setTimeout(() => likeBadge.classList.remove('pulse'), 500);
+                } else {
+                    // إذا لم يكن موجوداً، نعيد رسم الرسالة أو نضيف الـ badge
+                    this.updateMessageLikeUI(data.messageId, data.likeCount);
+                }
+                
+                if (data.likedBy != this.currentUser.id) {
+                    // ربما إشعار صغير "فلان أعجب برسالته"
+                }
+            }
+        });
+
         this.hubConnection.on("UserOnline", (userId) => {
             this.updateUserStatus(userId, true);
         });
@@ -196,14 +414,22 @@ class ChatModule {
             this.updateUserStatus(userId, false);
         });
 
+        await this.startHub();
+    }
+
+    async startHub() {
+        if (!this.hubConnection) return;
+        
         try {
             await this.hubConnection.start();
             console.log("[Chat] SignalR Connected");
+            window.app?.updateSignalRUI('online');
             await this.hubConnection.invoke("RegisterUser", parseInt(this.currentUser.id));
         } catch (err) {
             console.error("[Chat] SignalR Error:", err.toString());
+            window.app?.updateSignalRUI('offline');
             // Retry after 5 secs
-            setTimeout(() => this.initSignalR(), 5000);
+            setTimeout(() => this.startHub(), 5000);
         }
     }
 
@@ -472,7 +698,7 @@ class ChatModule {
         this.scrollToBottom();
     }
 
-    renderMessage(msg, isNew = false) {
+    renderMessage(msg, isNew = false, highlight = false) {
         if (!this.elements.messageArea) return;
         
         // إزالة رسالة "أرسل رسالة للبدء" لو موجودة
@@ -482,6 +708,7 @@ class ChatModule {
         
         const isSentByMe = msg.senderId == this.currentUser.id;
         const msgClass = isSentByMe ? 'sent' : 'received';
+        const highlightClass = highlight ? 'chat-message-new' : '';
         
         const timeStr = this.formatTimeOnly(msg.sentAt);
         const tickHtml = isSentByMe ? (msg.isRead ? '<i class="fas fa-check-double chat-read-tick"></i>' : '<i class="fas fa-check chat-read-tick" style="color: #64748b;"></i>') : '';
@@ -490,13 +717,57 @@ class ChatModule {
         const taskBtnTitle = msg.isTaskConverted ? 'تم التحويل لمهمة' : 'تحويل لمهمة';
         const taskIcon = msg.isTaskConverted ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-tasks"></i>';
         
-        // استبدال \n بـ <br> للتنسيق المكتوب
-        const formattedContent = msg.content.replace(/\n/g, '<br>');
+        // المرفقات
+        let attachmentHtml = '';
+        if (msg.attachmentUrl) {
+            const fileName = msg.attachmentUrl.split('/').pop();
+            const lowerFileName = fileName.toLowerCase();
+            let fileIcon = 'fa-file';
+            let iconColor = '';
+            
+            if (msg.attachmentType === 'image') {
+                attachmentHtml = `
+                    <div class="chat-msg-attachment image">
+                        <img src="${msg.attachmentUrl}" onclick="window.chatModule.previewFullImage('${msg.attachmentUrl}')" alt="صورة">
+                        <a href="${msg.attachmentUrl}" download="${fileName}" class="chat-attachment-download" title="تنزيل الصورة"><i class="fas fa-download"></i></a>
+                    </div>`;
+            } else {
+                if (msg.attachmentType === 'pdf' || lowerFileName.endsWith('.pdf')) {
+                    fileIcon = 'fa-file-pdf';
+                } else if (lowerFileName.endsWith('.doc') || lowerFileName.endsWith('.docx')) {
+                    fileIcon = 'fa-file-word';
+                    iconColor = 'color: #2b579a;';
+                } else if (lowerFileName.endsWith('.xls') || lowerFileName.endsWith('.xlsx')) {
+                    fileIcon = 'fa-file-excel';
+                    iconColor = 'color: #217346;';
+                }
+                
+                attachmentHtml = `
+                    <div class="chat-msg-attachment file">
+                        <a href="${msg.attachmentUrl}" target="_blank" style="${iconColor}"><i class="fas ${fileIcon}"></i> ${fileName}</a>
+                        <a href="${msg.attachmentUrl}" download="${fileName}" class="chat-attachment-download" title="تنزيل الملف"><i class="fas fa-download"></i></a>
+                    </div>`;
+            }
+        }
+
+        // التفاعلات (الإعجابات)
+        const likeHtml = `
+            <div class="chat-msg-likes-wrapper" onclick="window.chatModule.likeMessage(${msg.id})">
+                <i class="fas fa-heart ${msg.likeCount > 0 ? 'liked' : ''}"></i>
+                ${msg.likeCount > 0 ? `<span class="chat-msg-like-count">${msg.likeCount}</span>` : ''}
+            </div>
+        `;
+
+        // استبدال \n بـ <br> للتنسيق المكتوب (مع تعقيم)
+        const escapeText = (text) => text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+        const formattedContent = escapeText(msg.content || '').replace(/\n/g, '<br>');
         
         const html = `
-            <div class="chat-message-wrapper ${msgClass}" id="msg-${msg.id}">
+            <div class="chat-message-wrapper ${msgClass} ${highlightClass}" id="msg-${msg.id}">
                 <div class="chat-bubble">
+                    ${attachmentHtml}
                     ${formattedContent}
+                    ${likeHtml}
                     <div class="chat-msg-actions">
                         <button class="chat-msg-action-btn ${taskBtnClass}" title="${taskBtnTitle}" onclick="window.chatModule.showTaskModal(${msg.id}, '${msg.content.replace(/'/g, "\\'")}')">
                             ${taskIcon}
@@ -516,6 +787,145 @@ class ChatModule {
         }
     }
 
+    async likeMessage(msgId) {
+        if (!this.currentUser) return;
+        
+        // إظهار القلب سريعاً (تحسين تجربة المستخدم)
+        const heart = document.querySelector(`#msg-${msgId} .fa-heart`);
+        if (heart) heart.classList.add('liked', 'pulse');
+
+        try {
+            await db.fetchApi('/chat/messages/like', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messageId: msgId,
+                    userId: parseInt(this.currentUser.id)
+                })
+            });
+        } catch (e) {
+            console.error('[Chat] Like failed', e);
+        }
+    }
+
+    updateMessageLikeUI(msgId, count) {
+        const wrapper = document.querySelector(`#msg-${msgId} .chat-msg-likes-wrapper`);
+        if (wrapper) {
+            wrapper.innerHTML = `<i class="fas fa-heart liked"></i><span class="chat-msg-like-count">${count}</span>`;
+        }
+    }
+
+    previewFullImage(url) {
+        // إنشاء مودال للمعاينة داخل الصفحة (Lightbox)
+        let modal = document.getElementById('chat-image-viewer');
+        if (!modal) {
+            const modalHtml = `
+                <div id="chat-image-viewer" class="chat-image-viewer" onclick="this.classList.remove('show')">
+                    <span class="close-viewer">&times;</span>
+                    <img class="viewer-content" id="viewer-img">
+                    <div id="viewer-caption"></div>
+                    <a id="viewer-download" class="viewer-download" download onclick="event.stopPropagation()"><i class="fas fa-download"></i> تحميل الأصل</a>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            modal = document.getElementById('chat-image-viewer');
+        }
+        
+        const img = document.getElementById('viewer-img');
+        const caption = document.getElementById('viewer-caption');
+        const download = document.getElementById('viewer-download');
+        
+        img.src = url;
+        download.href = url;
+        caption.textContent = url.split('/').pop();
+        
+        modal.classList.add('show');
+    }
+
+    handleFileSelection(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const allowedExtensions = ['jpg','jpeg','png','gif','pdf','doc','docx','xls','xlsx','txt','rar','zip'];
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        if (!allowedExtensions.includes(ext)) {
+            window.app?.showToast('نوع الملف غير مدعوم', 'error');
+            this.elements.fileInput.value = '';
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            window.app?.showToast('حجم الملف كبير جداً (الأقصى 10MB)', 'error');
+            this.elements.fileInput.value = '';
+            return;
+        }
+
+        this.selectedFile = file;
+        this.renderFilePreview();
+        
+        if (this.elements.sendBtn) {
+            this.elements.sendBtn.removeAttribute('disabled');
+        }
+    }
+
+    renderFilePreview() {
+        if (!this.elements.previewArea || !this.selectedFile) return;
+
+        this.elements.previewArea.innerHTML = '';
+        this.elements.previewArea.classList.add('show');
+
+        const isImage = this.selectedFile.type.startsWith('image/');
+        
+        if (isImage) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const previewHtml = `
+                    <div class="chat-file-preview-item">
+                        <img src="${e.target.result}" alt="Preview">
+                        <button class="remove-preview-btn" onclick="window.chatModule.clearSelectedFile()">✕</button>
+                    </div>
+                `;
+                this.elements.previewArea.innerHTML = previewHtml;
+            };
+            reader.readAsDataURL(this.selectedFile);
+        } else {
+            const lowerFileName = this.selectedFile.name.toLowerCase();
+            let fileIcon = 'fa-file';
+            let iconColor = '';
+            
+            if (lowerFileName.endsWith('.pdf')) {
+                fileIcon = 'fa-file-pdf';
+            } else if (lowerFileName.endsWith('.doc') || lowerFileName.endsWith('.docx')) {
+                fileIcon = 'fa-file-word';
+                iconColor = 'color: #2b579a;';
+            } else if (lowerFileName.endsWith('.xls') || lowerFileName.endsWith('.xlsx')) {
+                fileIcon = 'fa-file-excel';
+                iconColor = 'color: #217346;';
+            }
+
+            const previewHtml = `
+                <div class="chat-file-preview-item">
+                    <div class="file-icon-preview" style="${iconColor}"><i class="fas ${fileIcon}"></i><span>${this.selectedFile.name}</span></div>
+                    <button class="remove-preview-btn" onclick="window.chatModule.clearSelectedFile()">✕</button>
+                </div>
+            `;
+            this.elements.previewArea.innerHTML = previewHtml;
+        }
+    }
+
+    clearSelectedFile() {
+        this.selectedFile = null;
+        if (this.elements.fileInput) this.elements.fileInput.value = '';
+        if (this.elements.previewArea) {
+            this.elements.previewArea.innerHTML = '';
+            this.elements.previewArea.classList.remove('show');
+        }
+        if (this.elements.sendBtn && this.elements.input && this.elements.input.value.trim() === '') {
+            this.elements.sendBtn.setAttribute('disabled', 'true');
+        }
+    }
+
     scrollToBottom() {
         if (this.elements.messageArea) {
             this.elements.messageArea.scrollTop = this.elements.messageArea.scrollHeight;
@@ -526,18 +936,50 @@ class ChatModule {
         if (!this.elements.input || !this.currentConversationId || !this.currentUser) return;
         
         const content = this.elements.input.value.trim();
-        if (content === '') return;
+        if (content === '' && !this.selectedFile) return;
         
+        const sendBtn = this.elements.sendBtn;
+        const originalBtnContent = sendBtn.innerHTML;
+        sendBtn.disabled = true;
+        sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+        let attachmentUrl = null;
+        let attachmentType = null;
+
+        if (this.selectedFile) {
+            try {
+                const formData = new FormData();
+                formData.append('file', this.selectedFile);
+                
+                const uploadRes = await fetch('/chat/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (uploadRes.ok) {
+                    const data = await uploadRes.json();
+                    attachmentUrl = data.url;
+                    attachmentType = this.selectedFile.type.startsWith('image/') ? 'image' : (this.selectedFile.type === 'application/pdf' ? 'pdf' : 'file');
+                } else {
+                    throw new Error('فشل رفع الملف');
+                }
+            } catch (err) {
+                console.error('[Chat] Upload error:', err);
+                window.app?.showToast('فشل رفع المرفق، سيتم إرسال النص فقط', 'warning');
+            }
+        }
+
         const reqData = {
             conversationId: this.currentConversationId,
             senderId: parseInt(this.currentUser.id),
-            content: content
+            content: content,
+            attachmentUrl: attachmentUrl,
+            attachmentType: attachmentType
         };
         
-        // تفريغ الحقل سريعاً للتجربة الجيدة
         this.elements.input.value = '';
         this.elements.input.style.height = 'auto';
-        this.elements.sendBtn.setAttribute('disabled', 'true');
+        this.clearSelectedFile();
         
         try {
             const response = await db.fetchApi('/chat/messages', {
@@ -547,7 +989,6 @@ class ChatModule {
             });
             
             if (response.success && response.message) {
-                // سيأتي الإشعار عبر SignalR ولكن نسرع العملية بإضافتها محلياً إن لم تأتِ بعد
                 if (!this.messages.find(m => m.id == response.message.id)) {
                     this.messages.push(response.message);
                     this.renderMessage(response.message, true);
@@ -557,9 +998,10 @@ class ChatModule {
         } catch (e) {
             console.error('[Chat] Failed to send message', e);
             window.app?.showToast('فشل في إرسال الرسالة', 'error');
-            // استعادة النص لو فشل
             this.elements.input.value = content;
-            this.elements.sendBtn.removeAttribute('disabled');
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = originalBtnContent;
         }
     }
 
@@ -690,7 +1132,7 @@ class ChatModule {
             }
             
             const html = `
-                <div class="chat-task-card">
+                <div class="chat-task-card" id="task-item-${task.id}">
                     ${quotedText}
                     <h5 class="chat-task-title">${task.title}</h5>
                     ${task.description ? `<p style="font-size: 0.8em; color: #94a3b8; margin: 0 0 8px;">${task.description}</p>` : ''}
@@ -702,7 +1144,16 @@ class ChatModule {
                     
                     <div style="display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 10px; padding-top: 8px;">
                         <div class="chat-task-assignee">لـ: ${task.assignedToName}</div>
-                        ${task.dueDate ? `<div class="chat-task-assignee" style="color: #00f0ff;"><i class="far fa-clock"></i> ${task.dueDate}</div>` : ''}
+                        ${task.dueDate ? `<div class="chat-task-assignee" style="color: #00f0ff;"><i class="far fa-clock"></i> ${task.dueDate} ${this.formatTime12h(task.reminderTime)}</div>` : ''}
+                    </div>
+
+                    <div class="chat-task-actions" style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button class="chat-task-btn reschedule" onclick="window.chatModule.showRescheduleModal(${task.id}, '${task.dueDate || ''}', '${task.reminderTime || ''}')" title="إعادة جدولة">
+                            <i class="fas fa-calendar-alt"></i>
+                        </button>
+                        <button class="chat-task-btn delete" onclick="window.chatModule.deleteTask(${task.id})" title="حذف المهمة">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
                     </div>
                 </div>
             `;
@@ -772,6 +1223,34 @@ class ChatModule {
                             </div>
                             
                             <div class="chat-task-form-row">
+                                <div class="chat-task-form-group" style="flex: 1.5;">
+                                    <label>وقت التنبيه</label>
+                                    <div class="custom-time-picker">
+                                        <select id="task-modal-hour" title="الساعة">
+                                            ${Array.from({length: 12}, (_, i) => `<option value="${i+1}">${i+1}</option>`).join('')}
+                                        </select>
+                                        <span>:</span>
+                                        <select id="task-modal-minute" title="الدقيقة">
+                                            ${Array.from({length: 60}, (_, i) => `<option value="${i.toString().padStart(2, '0')}">${i.toString().padStart(2, '0')}</option>`).join('')}
+                                        </select>
+                                        <select id="task-modal-period" title="الفترة">
+                                            <option value="AM">صباحاً</option>
+                                            <option value="PM" selected>مساءً</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="chat-task-form-group" style="flex: 1;">
+                                    <label>نغمة التنبيه</label>
+                                    <select id="task-modal-alert-sound">
+                                        <option value="default">افتراضي (نقي)</option>
+                                        <option value="chime">جرس (Chime)</option>
+                                        <option value="pulse">نبض (Pulse)</option>
+                                        <option value="urgent">تنبيه عاجل</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="chat-task-form-row">
                                 <div class="chat-task-form-group">
                                     <label>الأولوية</label>
                                     <select id="task-modal-priority">
@@ -822,6 +1301,14 @@ class ChatModule {
         const desc = document.getElementById('task-modal-desc').value.trim();
         const assignee = document.getElementById('task-modal-assignee').value;
         const duedate = document.getElementById('task-modal-date').value;
+        
+        // جلب الوقت من الـ picker المخصص
+        const hour = document.getElementById('task-modal-hour').value;
+        const minute = document.getElementById('task-modal-minute').value;
+        const period = document.getElementById('task-modal-period').value;
+        const reminderTime = this._convertPickerTo24h(hour, minute, period);
+
+        const alertSound = document.getElementById('task-modal-alert-sound').value;
         const priority = document.getElementById('task-modal-priority').value;
         
         if (title === '') {
@@ -840,6 +1327,8 @@ class ChatModule {
                 title: title,
                 description: desc,
                 dueDate: duedate,
+                reminderTime: reminderTime,
+                alertSound: alertSound,
                 priority: priority,
                 assignedToId: parseInt(assignee),
                 createdById: parseInt(this.currentUser.id),
@@ -874,6 +1363,185 @@ class ChatModule {
     // ========================================
     // مساعدات وتنسيق
     // ========================================
+
+    requestNotificationPermission() {
+        if (!("Notification" in window)) {
+            console.warn("[Chat] Browser doesn't support notifications");
+            return;
+        }
+
+        if (Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    }
+
+    checkTaskReminders() {
+        const now = new Date();
+        // الحصول على التاريخ المحلي بالتنسيق الصحيح YYYY-MM-DD
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const currentDateStr = `${year}-${month}-${day}`;
+        
+        // الحصول على الوقت المحلي HH:mm
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const currentTimeStr = `${hours}:${minutes}`;
+
+        this.tasks.forEach(task => {
+            if (task.status !== 'Done' && task.status !== 'Canceled' && 
+                task.isReminderActive && 
+                task.dueDate === currentDateStr && 
+                task.reminderTime === currentTimeStr) {
+                
+                this.triggerTaskAlert(task);
+            }
+        });
+    }
+
+    async triggerTaskAlert(task) {
+        // 1. تشغيل الصوت حسب الأولوية والنغمة
+        this.playTaskAlertSound(task.alertSound, task.priority);
+        
+        // 2. إظهار إشعار Toast داخلي
+        window.app?.showToast(`تنبيه مهمة: ${task.title}`, 'info');
+        
+        // 3. إنشاء إشعار منبثق مخصص (Custom Popup) داخل التطبيق يشبه الواتساب
+        this.showCustomTaskPopup(task);
+
+        // 4. إظهار إشعار متصفح (Desktop Notification) إذا كان مدعوماً
+        if (Notification.permission === "granted") {
+            const notification = new Notification("تنبيه مهمة!", {
+                body: task.title,
+                icon: '/favicon.ico'
+            });
+            notification.onclick = () => {
+                window.focus();
+                this.showTaskInUI(task);
+            };
+        }
+
+        // 5. إيقاف التنبيه محلياً وفورياً
+        task.isReminderActive = false; 
+
+        // 6. إيقاف التنبيه في السيرفر لضمان عدم تكراره
+        try {
+            await db.fetchApi(`/chat/tasks/${task.id}/deactivate-reminder`, {
+                method: 'PUT'
+            });
+        } catch (e) {
+            console.error('[Chat] Failed to deactivate reminder', e);
+        }
+    }
+
+    showCustomTaskPopup(task) {
+        const container = document.body;
+        
+        // إزالة أي تنبيه سابق
+        const existing = document.querySelector('.task-alert-popup');
+        if (existing) existing.remove();
+
+        const popup = document.createElement('div');
+        popup.className = 'task-alert-popup';
+        
+        const priorityColor = task.priority === 'High' ? '#ef4444' : (task.priority === 'Low' ? '#10b981' : '#f59e0b');
+
+        popup.innerHTML = `
+            <div class="tap-icon" style="background: ${priorityColor}">
+                <i class="fas fa-thumbtack"></i>
+            </div>
+            <div class="tap-body">
+                <div class="tap-title">تنبيه مهمة مستحقة!</div>
+                <div class="tap-text">${task.title}</div>
+                <div class="tap-hint">اضغط لفتح المهمة</div>
+            </div>
+            <div class="tap-close" onclick="event.stopPropagation(); this.closest('.task-alert-popup').remove();">
+                <i class="fas fa-times"></i>
+            </div>
+        `;
+
+        popup.onclick = () => {
+            this.showTaskInUI(task);
+            popup.remove();
+        };
+
+        container.appendChild(popup);
+        
+        // إخفاء تلقائي بعد 10 ثوانٍ
+        setTimeout(() => {
+            if (popup.parentElement) {
+                popup.classList.add('hiding');
+                setTimeout(() => popup.remove(), 400);
+            }
+        }, 10000);
+    }
+
+    showTaskInUI(task) {
+        // الانتقال لصفحة الدردشة إذا لم نكن فيها
+        if (window.app && window.app.currentPage !== 'chat') {
+            window.app.navigateTo('chat');
+        }
+        
+        // فتح المحادثة المرتبطة بالمهمة
+        if (task.conversationId) {
+            const conv = this.conversations.find(c => c.id == task.conversationId);
+            if (conv) {
+                this.openConversation(conv.id, conv.otherUserId, conv.otherUserName, conv.isOnline);
+            } else {
+                this.openConversation(task.conversationId);
+            }
+        }
+
+        // فتح لوحة المهام
+        if (this.elements.tasksPanel) {
+            this.elements.tasksPanel.classList.add('active');
+        }
+
+        // تمييز المهمة في القائمة (بصرياً)
+        setTimeout(() => {
+            const taskElement = document.getElementById(`task-item-${task.id}`);
+            if (taskElement) {
+                taskElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                taskElement.classList.add('highlight-task');
+                setTimeout(() => taskElement.classList.remove('highlight-task'), 3000);
+            }
+        }, 500);
+    }
+
+    playTaskAlertSound(soundType, priority) {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        // تخصيص التردد والنمط حسب الأولوية
+        if (priority === 'High' || soundType === 'urgent') {
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        } else if (priority === 'Low' || soundType === 'chime') {
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4
+            gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        } else {
+            oscillator.type = 'triangle';
+            oscillator.frequency.setValueAtTime(660, audioCtx.currentTime); // E5
+            gainNode.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        }
+
+        oscillator.start();
+        
+        // نمط الرنين (تنبيه متقطع للأولوية العالية)
+        if (priority === 'High' || soundType === 'urgent') {
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 2);
+            oscillator.stop(audioCtx.currentTime + 2);
+        } else {
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1);
+            oscillator.stop(audioCtx.currentTime + 1);
+        }
+    }
 
     updateUserStatus(userId, isOnline) {
         // تحديث في القائمة
@@ -949,30 +1617,76 @@ class ChatModule {
     }
 
     /**
+     * تحويل الوقت من نظام 24 ساعة إلى 12 ساعة مع AM/PM
+     */
+    formatTime12h(time24) {
+        if (!time24) return '';
+        try {
+            const [hours, minutes] = time24.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours), parseInt(minutes));
+            return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+        } catch (e) {
+            return time24;
+        }
+    }
+
+    _convertPickerTo24h(h12, m, period) {
+        let h24 = parseInt(h12);
+        if (period === 'PM' && h24 < 12) h24 += 12;
+        if (period === 'AM' && h24 === 12) h24 = 0;
+        return `${h24.toString().padStart(2, '0')}:${m}`;
+    }
+
+    /**
      * إظهار إشعار عام عند استقبال رسالة جديدة
      */
     showGlobalMessageNotification(message) {
         // إذا كان المستخدم في نفس المحادثة أصلاً، لا داعي للإشعار العائم
         if (this.currentConversationId == message.conversationId) return;
 
+        // تظهر فقط إذا كانت شاشة المحادثة (الصفحة بالكامل) مغلقة كما طلب المستخدم
+        if (window.app && window.app.currentPage === 'chat') {
+            return;
+        }
+
         const container = document.body;
         const colorClass = this.getUserColorClass(message.senderId);
         const avatarChar = message.senderName ? message.senderName.charAt(0) : '?';
         
-        // إنشاء عنصر الإشعار
+        // إزالة أي إشعار سابق لتجنب التراكم
+        const existing = document.querySelector('.global-chat-notification');
+        if (existing) existing.remove();
+
+        // إنشاء عنصر الإشعار بتصميم "واتساب" احترافي
         const notification = document.createElement('div');
-        notification.className = 'global-chat-notification';
+        notification.className = `global-chat-notification whatsapp-style ${colorClass}`;
         
+        // استخدام ألوان مخصصة لكل مرسل لتمييز الإشعار
+        notification.style.borderLeft = `4px solid var(--user-color-${message.senderId % 7 + 1})`;
+
+        const escapeText = (text) => text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
         notification.innerHTML = `
-            <div class="gcn-avatar ${colorClass}">
-                ${avatarChar}
+            <div class="gcn-avatar-wrapper">
+                <div class="gcn-avatar ${colorClass}">
+                    ${avatarChar}
+                </div>
+                <div class="gcn-whatsapp-icon">
+                    <i class="fab fa-whatsapp"></i>
+                </div>
             </div>
-            <div class="gcn-content">
-                <div class="gcn-sender">${message.senderName}</div>
-                <div class="gcn-msg">${message.content}</div>
+            <div class="gcn-body">
+                <div class="gcn-header">
+                    <span class="gcn-sender-name">${message.senderName}</span>
+                    <span class="gcn-time">الآن</span>
+                </div>
+                <div class="gcn-message-preview">${escapeText(message.content || '')}</div>
             </div>
-            <div class="gcn-close" onclick="event.stopPropagation(); this.parentElement.classList.add('hiding'); setTimeout(() => this.parentElement.remove(), 400);">
-                ✕
+            <div class="gcn-actions">
+                <div class="gcn-close-btn" onclick="event.stopPropagation(); const el = this.closest('.global-chat-notification'); el.classList.add('hiding'); setTimeout(() => { if (el && el.parentElement) el.remove(); }, 400);">
+                    <i class="fas fa-times"></i>
+                </div>
             </div>
         `;
 

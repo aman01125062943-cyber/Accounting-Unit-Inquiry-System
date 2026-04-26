@@ -23,7 +23,7 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
     return false;
 };
 
-console.log('App JS Loaded Successfully version 7.0 - Data Persistence & Filter Stability');
+console.log('App JS Loaded Successfully version 7.1 - Dual Filter Logic Refined');
 
 /**
  * نظام إدارة المرتدات - التطبيق الرئيسي
@@ -797,7 +797,24 @@ class App {
         this.loadReturns(1, this.pagination ? this.pagination.itemsPerPage : 50, this.searchQuery, this.filterValue, this.attachmentFilterValue);
     }
 
-    navigateTo(page, preventLoad = false) {
+    openTasksPanel() {
+        const panel = document.getElementById('tasks-panel');
+        if (panel) {
+            panel.classList.remove('hidden');
+            if (window.chatModule && typeof window.chatModule.loadTasks === 'function') {
+                window.chatModule.loadTasks();
+            }
+        }
+    }
+
+    closeTasksPanel() {
+        const panel = document.getElementById('tasks-panel');
+        if (panel) {
+            panel.classList.add('hidden');
+        }
+    }
+
+    navigateTo(page, preventLoad = false, chatUserId = null, chatUserName = null) {
         console.log('Navigating to:', page, preventLoad); // Debug log
         this.initTheme();
         if (!page) return;
@@ -823,6 +840,7 @@ class App {
             'salary-returns': { icon: '💰', text: 'مرتدات المرتبات' },
             'full-returns': { icon: '📚', text: 'البحث الشامل' },
             'smart-payment': { icon: '💸', text: 'السداد الذكي' },
+            tasks: { icon: '📝', text: 'مهام اليوم' },
             chat: { icon: '💬', text: 'المراسلة' },
             archive: { icon: '🗄️', text: 'الأرشيف' },
             settings: { icon: '⚙️', text: 'الإعدادات' }
@@ -848,7 +866,14 @@ class App {
             if (page === 'returns') this.loadReturns();
             if (page === 'full-returns') this.loadFullReturns();
             if (page === 'salary-returns') this.loadSalaryReturns();
-            if (page === 'chat' && window.chatModule) window.chatModule.loadConversations();
+            if (page === 'tasks') this.loadTasksPage();
+            if (page === 'chat' && window.chatModule) {
+                window.chatModule.loadConversations().then(() => {
+                    if (chatUserId && chatUserName) {
+                        window.chatModule.startNewConversation(chatUserId, chatUserName);
+                    }
+                });
+            }
         }
 
 
@@ -1875,6 +1900,7 @@ class App {
                 'كود الملف',
                 'الشهر',
                 'الاسم',
+                'الرقم القومي',
                 'رقم الحساب',
                 'البنك',
                 'قيمة العملية',
@@ -3082,6 +3108,7 @@ class App {
                 })),
                 Filters: {
                     Month: document.getElementById('smart-month-filter')?.value || '',
+                    FileCode: document.getElementById('smart-file-code-filter')?.value || '',
                     Status: document.querySelector('.smart-filter-card.active')?.getAttribute('data-value') || 'الكل',
                     MatchBy: 'الاسم',
                     DataType: this.smartPaymentTypeFilter || 'salary' 
@@ -3274,9 +3301,11 @@ class App {
 
     populateSmartMonthFilter(results) {
         const select = document.getElementById('smart-month-filter');
+        const fileSelect = document.getElementById('smart-file-code-filter');
         if (!select) return;
 
         const months = new Set();
+        const fileCodes = new Set();
         const activeType = this.smartPaymentTypeFilter || 'salary';
 
         (results || []).forEach(item => {
@@ -3285,6 +3314,7 @@ class App {
                     const fCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
                     const month = this.extractMonthFromFileCode(fCode) || m.month || m.Month || 'فارغ';
                     if (month) months.add(month);
+                    if (fCode) fileCodes.add(fCode);
                 });
             };
 
@@ -3296,21 +3326,37 @@ class App {
             const srcFCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
             const srcMonth = this.extractMonthFromFileCode(srcFCode) || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ';
             if (srcMonth && srcMonth !== 'فارغ') months.add(srcMonth);
+            if (srcFCode) fileCodes.add(srcFCode);
         });
 
-        const sorted = Array.from(months).sort();
+        // --- Populate Months ---
+        const sortedMonths = Array.from(months).sort();
         const currentVal = select.value;
-        
         select.innerHTML = `<option value="">كل الأشهر (${activeType === 'incentive' ? 'الحوافز' : 'المرتبات'})</option>`;
-        sorted.forEach(m => {
+        sortedMonths.forEach(m => {
             const opt = document.createElement('option');
             opt.value = m;
             opt.textContent = m;
             select.appendChild(opt);
         });
-
         if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
             select.value = currentVal;
+        }
+
+        // --- Populate File Codes ---
+        if (fileSelect) {
+            const sortedFiles = Array.from(fileCodes).sort();
+            const currentFileVal = fileSelect.value;
+            fileSelect.innerHTML = `<option value="">-- كل أكواد الملفات (${sortedFiles.length}) --</option>`;
+            sortedFiles.forEach(fc => {
+                const opt = document.createElement('option');
+                opt.value = fc;
+                opt.textContent = fc;
+                fileSelect.appendChild(opt);
+            });
+            if (currentFileVal && Array.from(fileSelect.options).some(o => o.value === currentFileVal)) {
+                fileSelect.value = currentFileVal;
+            }
         }
     }
 
@@ -3406,18 +3452,18 @@ class App {
         }
 
         const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
+        const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
+        const activeType = this.smartPaymentTypeFilter || 'salary';
+        
+        console.log(`[SMART-RENDER] Starting with filters: Month=${selectedMonth}, FileCode=${selectedFileCode}, Type=${activeType}`);
+        
+        // Final frontend filtering before render
         if (selectedMonth !== 'all' && selectedMonth !== '') {
-            console.log('[SMART-FILTER] Filtering by month:', selectedMonth);
-            const beforeCount = filtered.length;
-            const activeType = this.smartPaymentTypeFilter || 'salary';
-
             filtered = filtered.filter(item => {
-                // Check if the source itself matches
                 const fCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
                 const mMonth = this.extractMonthFromFileCode(fCode) || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ';
                 if (mMonth === selectedMonth) return true;
 
-                // OR check if ANY match in the active/relevant list matches this month
                 const relevantMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
                 return relevantMatches.some(m => {
                     const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
@@ -3425,8 +3471,22 @@ class App {
                     return mmMonth === selectedMonth;
                 });
             });
-            console.log(`[SMART-FILTER] Filtered from ${beforeCount} to ${filtered.length} records`);
         }
+
+        if (selectedFileCode !== '') {
+            filtered = filtered.filter(item => {
+                const fCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
+                if (fCode === selectedFileCode) return true;
+
+                const relevantMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+                return relevantMatches.some(m => {
+                    const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
+                    return mfCode === selectedFileCode;
+                });
+            });
+        }
+        
+        console.log(`[SMART-RENDER] Groups after top-level filtering: ${filtered.length}`);
 
         resultsContainer.innerHTML = '';
 
@@ -3435,10 +3495,67 @@ class App {
             return;
         }
 
-        filtered.forEach((item, index) => {
-            const hasSalaries = item.salaryMatches && item.salaryMatches.length > 0;
-            const hasIncentives = item.matches && item.matches.length > 0;
-            const hasMatchesInActiveTab = (this.smartPaymentTypeFilter === 'incentive' ? hasIncentives : hasSalaries);
+        // 1. Group by Name to avoid UI duplicates
+        const groupedResults = {};
+        filtered.forEach(item => {
+            const name = item.sourceExcelRow.name || 'مجهول';
+            if (!groupedResults[name]) {
+                groupedResults[name] = {
+                    sourceExcelRow: { ...item.sourceExcelRow },
+                    matches: [],
+                    salaryMatches: []
+                };
+            }
+            
+            // Merge matches uniquely using robust keys
+            const mergeUnique = (target, source) => {
+                (source || []).forEach(m => {
+                    // Use Id as primary key, fallback to ReturnCode + BatchCode
+                    const mid = m.id || m.Id || `${m.returnCode || m.ReturnCode}-${m.batchCode || m.BatchCode}`;
+                    if (!target.some(t => (t.id || t.Id || `${t.returnCode || t.ReturnCode}-${t.batchCode || t.BatchCode}`) === mid)) {
+                        target.push(m);
+                    }
+                });
+            };
+            mergeUnique(groupedResults[name].matches, item.matches);
+            mergeUnique(groupedResults[name].salaryMatches, item.salaryMatches);
+        });
+
+        // 2. Process the grouped results
+        const finalResults = Object.values(groupedResults);
+        
+        finalResults.forEach((item, index) => {
+            const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
+            const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
+            const isIncentiveTab = this.smartPaymentTypeFilter === 'incentive';
+            
+            // A. Get initial matches based on tab
+            let matchesToRender = isIncentiveTab ? (item.matches || []) : (item.salaryMatches || []);
+            
+            // B. Apply Month Filter to internal matches
+            if (selectedMonth !== 'all' && selectedMonth !== '') {
+                matchesToRender = matchesToRender.filter(m => {
+                    const fCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
+                    const mMonth = this.extractMonthFromFileCode(fCode) || m.month || m.Month || 'فارغ';
+                    return mMonth === selectedMonth;
+                });
+            }
+            
+            // C. Apply File Code Filter to internal matches
+            if (selectedFileCode !== '') {
+                matchesToRender = matchesToRender.filter(m => {
+                    const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
+                    return mfCode === selectedFileCode;
+                });
+            }
+
+            // D. If a filter is active, and this group has NO matches left, skip rendering this group entirely
+            const isFilterActive = (selectedMonth !== 'all' && selectedMonth !== '') || (selectedFileCode !== '');
+            if (isFilterActive && matchesToRender.length === 0) {
+                return;
+            }
+
+            const hasMatchesInActiveTab = matchesToRender.length > 0;
             
             const groupDiv = document.createElement('div');
             groupDiv.className = 'smart-payment-group';
@@ -3482,20 +3599,7 @@ class App {
             `;
 
             let matchesHtml = '<div class="smart-matches-container" style="padding: 15px;">';
-            if (hasMatchesInActiveTab) {
-                    const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
-                    const isIncentiveTab = this.smartPaymentTypeFilter === 'incentive';
-                    let matchesToRender = isIncentiveTab ? (item.matches || []) : (item.salaryMatches || []);
-                    
-                    if (selectedMonth !== 'all' && selectedMonth !== '') {
-                        matchesToRender = matchesToRender.filter(m => {
-                            const fCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
-                            const mMonth = this.extractMonthFromFileCode(fCode) || m.month || m.Month || 'فارغ';
-                            return mMonth === selectedMonth;
-                        });
-                    }
-
-                    if (matchesToRender.length > 0) {
+            if (matchesToRender.length > 0) {
                         const sectionColor = isIncentiveTab ? '#fbbf24' : '#10b981';
                         const sectionLabel = isIncentiveTab ? 'مطابقات الحوافز' : 'مطابقات المرتبات';
                         const sectionIcon = isIncentiveTab ? 'fa-gift' : 'fa-money-check-alt';
@@ -3545,17 +3649,12 @@ class App {
                                 </tbody>
                             </table>
                         </div>`;
-                    }
-
-                    if (matchesToRender.length === 0) {
-                        matchesHtml += `<div style="padding: 1.5rem; text-align: center; border: 1px dashed rgba(255,160,0,0.2); border-radius: 8px; color: #fbbf24; font-size: 0.8em;"> لا توجد بيانات مطابقة لهذا الشهر ضمن هذا السجل</div>`;
-                    }
-                } else {
-                    matchesHtml += `<div style="padding: 2.5rem; text-align: center; border: 1px dashed rgba(239,68,68,0.2); border-radius: 8px; color: #ef4444; font-size: 0.85em;"> لم يتم العثور على سجلات مطابقة في قاعدة البيانات لهذا الاسم</div>`;
-                }
-                matchesHtml += '</div>';
-                groupDiv.innerHTML = sourceHtml + matchesHtml;
-                resultsContainer.appendChild(groupDiv);
+            } else {
+                matchesHtml += `<div style="padding: 2.5rem; text-align: center; border: 1px dashed rgba(239,68,68,0.2); border-radius: 8px; color: #ef4444; font-size: 0.85em;"> لم يتم العثور على سجلات مطابقة في قاعدة البيانات لهذا الاسم</div>`;
+            }
+            matchesHtml += '</div>';
+            groupDiv.innerHTML = sourceHtml + matchesHtml;
+            resultsContainer.appendChild(groupDiv);
         });
     }
 
@@ -4600,15 +4699,23 @@ class App {
         const tbody = document.getElementById('archive-table-body');
         if (!tbody) return;
 
-        tbody.innerHTML = data.map((item, index) => `
+        tbody.innerHTML = data.map((item, index) => {
+            const isExclusive = !!(item.exclusiveUserId || item.ExclusiveUserId);
+            const statusIcon = isExclusive ? '<i class="fas fa-lock" title="جدول حصري" style="color: #fbbf24; margin-right: 5px;"></i>' : '<i class="fas fa-globe-americas" title="جدول عام" style="color: #10b981; margin-right: 5px;"></i>';
+            const shareBtn = (this.currentUser && this.currentUser.role === 'admin') 
+                ? `<button class="btn btn-sm btn-outline-info" onclick="app.showShareTableModal(${item.id || item.Id}, 'Archives')" title="مشاركة مع مستخدم">🔗 مشاركة</button>` 
+                : '';
+
+            return `
             <tr>
                 <td>${index + 1}</td>
                 <td dir="ltr">${new Date(item.date || item.Date).toLocaleString('ar-EG')}</td>
-                <td>${item.filename || item.Filename}</td>
+                <td>${statusIcon} ${item.filename || item.Filename}</td>
                 <td>${(item.recordCount || item.RecordCount || 0).toLocaleString()} سجل</td>
                 <td>${((item.size || item.Size || 0) / 1024 / 1024).toFixed(2)} MB</td>
                 <td>
                     <div style="display: flex; gap: 8px;">
+                        ${shareBtn}
                         <button class="btn btn-sm btn-primary" onclick="app.restoreArchive(${item.id || item.Id})">
                             🔄 استعادة
                         </button>
@@ -4618,7 +4725,8 @@ class App {
                     </div>
                 </td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     }
 
     async restoreArchive(id) {
@@ -4710,15 +4818,22 @@ class App {
                 dateStr = new Date(dateVal).toLocaleString('ar-EG');
             }
 
+            const isExclusive = !!(item.exclusiveUserId || item.ExclusiveUserId);
+            const statusIcon = isExclusive ? '<i class="fas fa-lock" title="جدول حصري" style="color: #fbbf24; margin-right: 5px;"></i>' : '<i class="fas fa-globe-americas" title="جدول عام" style="color: #10b981; margin-right: 5px;"></i>';
+            const shareBtn = (this.currentUser && this.currentUser.role === 'admin') 
+                ? `<button class="btn btn-sm btn-outline-info" onclick="app.showShareTableModal(${item.id || item.Id}, 'SalaryArchives')" title="مشاركة مع مستخدم">🔗 مشاركة</button>` 
+                : '';
+
             return `
                 <tr>
                     <td>${index + 1}</td>
                     <td dir="ltr">${dateStr}</td>
-                    <td><code>${item.filename || item.Filename}</code></td>
+                    <td>${statusIcon} <code>${item.filename || item.Filename}</code></td>
                     <td>${(item.recordCount || item.RecordCount || 0).toLocaleString()} سجل</td>
                     <td>${this.formatFileSize(item.size || item.Size || 0)}</td>
                     <td>
                         <div style="display: flex; gap: 8px;">
+                            ${shareBtn}
                             <button class="btn btn-sm btn-primary" onclick="app.restoreSalaryArchive(${item.id || item.Id})" title="استعادة هذا الأرشيف">
                                 🔄 استعادة
                             </button>
@@ -4807,14 +4922,19 @@ class App {
           <td><span class="badge badge-${this.getRoleBadge(user.role)}">${this.getRoleName(user.role)}</span></td>
           <td><span class="badge badge-${user.active ? 'success' : 'error'}">${user.active ? 'مفعل' : 'معطل'}</span></td>
           <td>
-            <button class="btn btn-sm btn-secondary" onclick="app.editUser(${user.id})">
-              تعديل
-            </button>
-            ${user.username !== 'admin' ? `
-              <button class="btn btn-sm btn-error" onclick="app.deleteUser(${user.id})">
-                حذف
-              </button>
-            ` : ''}
+            <div style="display: flex; gap: 5px;">
+                <button class="btn btn-sm btn-outline-primary" onclick="app.showAssignTaskModal(${user.id}, '${user.fullname}')" title="إسناد مهمة مباشرة">
+                    📋 مهمة
+                </button>
+                <button class="btn btn-sm btn-secondary" onclick="app.editUser(${user.id})">
+                    تعديل
+                </button>
+                ${user.username !== 'admin' ? `
+                <button class="btn btn-sm btn-error" onclick="app.deleteUser(${user.id})">
+                    حذف
+                </button>
+                ` : ''}
+            </div>
           </td>
         </tr>
       `).join('');
@@ -8270,66 +8390,6 @@ App.prototype._populateMonthFilter = function (type) {
     console.log(`[MONTH FILTER] Populated ${sorted.length} months for ${type}`);
 };
 
-// استخراج فلتر التاريخ من عمود "الشهر" في بيانات المرتبات مباشرة
-App.prototype._populateSalaryUploadDateFilter = function () {
-    const select = document.getElementById('salary-upload-date-filter');
-    if (!select) return;
-
-    const data = this.salaryReturnsData || [];
-    if (!data || data.length === 0) return;
-
-    const dateSet = new Set();
-    let hasEmpty = false;
-
-    const sampleSize = Math.min(data.length, 5000);
-    for (let i = 0; i < sampleSize; i++) {
-        const row = data[i];
-        if (!row) continue;
-        let dateVal = '';
-        for (const k of Object.keys(row)) {
-            if (k.includes('شهر') || k.includes('الشهر') || k.toLowerCase().includes('month')) {
-                if (row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== '') {
-                    dateVal = String(row[k]).trim();
-                    break;
-                }
-            }
-        }
-        if (dateVal) {
-            dateSet.add(dateVal);
-        } else {
-            hasEmpty = true;
-        }
-    }
-
-    const sorted = Array.from(dateSet).sort();
-
-    // لا تعيد البناء إذا كانت البيانات متطابقة بالفعل
-    const expectedCount = sorted.length + (hasEmpty ? 2 : 1);
-    if (select.options.length >= expectedCount) return;
-
-    const currentVal = select.value;
-    select.innerHTML = '<option value="all">كل التواريخ</option>';
-    if (hasEmpty) {
-        const emptyOpt = document.createElement('option');
-        emptyOpt.value = 'فارغ';
-        emptyOpt.textContent = 'فارغ';
-        select.appendChild(emptyOpt);
-    }
-    sorted.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d;
-        opt.textContent = d;
-        select.appendChild(opt);
-    });
-
-    // استعادة القيمة المحددة إن كانت موجودة
-    if (currentVal && [...select.options].some(o => o.value === currentVal)) {
-        select.value = currentVal;
-    }
-
-    console.log(`[UPLOAD DATE FILTER] Populated ${sorted.length} dates from عمود الشهر, hasEmpty=${hasEmpty}`);
-};
-
 
 App.prototype.handleMonthFilterChange = async function (val) {
     console.log('[FILTER] Month filter changed:', val);
@@ -8389,8 +8449,28 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
     }
 
 
-    // Populate Upload Date Filter from loaded data (عمود الشهر)
-    // سيتم استدعاؤها بعد تحميل البيانات في نهاية الدالة
+    // Populate Upload Date Filter from Server
+    const salaryUploadSelect = document.getElementById('salary-upload-date-filter');
+    if (salaryUploadSelect && salaryUploadSelect.options.length <= 1) {
+        try {
+            const dates = await db.getSalaryUploadDates();
+            if (dates && Array.isArray(dates) && dates.length > 0) {
+                const currentVal = salaryUploadSelect.value;
+                salaryUploadSelect.innerHTML = '<option value="all">الكل</option>';
+                dates.forEach(d => {
+                    if (d) {
+                        const opt = document.createElement('option');
+                        opt.value = d;
+                        opt.textContent = d;
+                        salaryUploadSelect.appendChild(opt);
+                    }
+                });
+                if (currentVal) salaryUploadSelect.value = currentVal;
+            }
+        } catch (e) {
+            console.warn('Failed to load salary upload dates', e);
+        }
+    }
 
     // Populate Salary Month Filter dynamically
     const salaryMonthSelect = document.getElementById('salary-month-filter');
@@ -8508,8 +8588,6 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
         this.updateSalaryStats(this.currentDisplayStats || response.stats);
         // ملء فلتر الشهر من البيانات المحملة
         this._populateMonthFilter('salary');
-        // ملء فلتر التاريخ من عمود "الشهر" في البيانات المحملة
-        this._populateSalaryUploadDateFilter();
 
     } catch (e) {
         console.error('Error loading salary returns:', e);
@@ -9903,6 +9981,11 @@ App.prototype.initSignalR = function () {
                 const op = opMap[e?.operation] || e?.operation || "تحديث";
                 const table = tableMap[e?.table] || e?.table || e?.table || "البيانات";
 
+                // إخفاء إشعارات الدردشة لأن ChatModule يتكفل بها بشكل احترافي
+                if (e?.table === "ChatMessages") {
+                    return;
+                }
+
                 // Robust Name Comparison
                 const currentName = (this.currentUser?.fullname || this.currentUser?.FullName || "").trim();
                 const eventUser = (user || "").trim();
@@ -9947,15 +10030,34 @@ App.prototype.initSignalR = function () {
                 this.showSignalRNotification(sourceName, user, operation);
             });
 
+            this.hubConnection.on("ReceiveNotification", (data) => {
+                console.log("[SignalR] Notification Received:", data);
+                if (data.type === "share") {
+                    this.showShareRequest(data);
+                } else if (data.type === "task") {
+                    this.showManagerTask(data);
+                } else {
+                    this.showUnifiedToast(data.message, 'info', data.title);
+                }
+            });
+
             this.hubConnection.onreconnecting(() => this.updateSignalRUI('reconnecting'));
             this.hubConnection.onreconnected(() => this.updateSignalRUI('online'));
             this.hubConnection.onclose(() => this.updateSignalRUI('offline'));
 
             this.hubConnection.start()
-                .then(() => {
+                .then(async () => {
                     const urlInfo = this.hubConnection.connection.baseUrl || url;
                     console.log(`[RealTime] Connected to SignalR Hub at: ${urlInfo}`);
                     this.updateSignalRUI('online');
+                    
+                    // Join user group for private notifications
+                    if (this.currentUser && this.currentUser.id) {
+                        try {
+                            await this.hubConnection.invoke("JoinGroup", this.currentUser.id.toString());
+                            console.log(`[RealTime] Joined personal group: ${this.currentUser.id}`);
+                        } catch (e) { console.warn("Failed to join group", e); }
+                    }
                 })
                 .catch(err => {
                     console.warn("[RealTime] Initial connection failed. System will retry in 5s...", err);
@@ -9988,86 +10090,40 @@ App.prototype.initSignalR = function () {
 };
 
 /**
- * Show a pleasant, non-intrusive floating notification card
+ * Show a pleasant, modern, non-intrusive floating notification card (WhatsApp Style)
  */
-App.prototype.showSignalRNotification = function (sourceName, user, operation = "تحديث") {
+App.prototype.showSignalRNotification = function (sourceName, user, operation = "تعديل") {
     const cardId = 'signalr-notification-card';
     let card = document.getElementById(cardId);
     
+    // Remove existing notification if any to prevent stacking
     if (card) card.remove();
     
     card = document.createElement('div');
     card.id = cardId;
-    card.dir = 'rtl';
-    card.style.cssText = `
-        position: fixed;
-        top: 25px;
-        left: 25px;
-        width: 400px;
-        background: linear-gradient(135deg, rgba(13, 22, 35, 0.95) 0%, rgba(20, 35, 55, 0.9) 100%);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        color: white;
-        padding: 22px;
-        z-index: 20000;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-left: 6px solid #00f0ff;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 0 20px rgba(0, 240, 255, 0.05);
-        font-family: 'Cairo', sans-serif;
-        animation: slideInNotificationLeft 0.8s cubic-bezier(0.19, 1, 0.22, 1);
-        display: flex;
-        flex-direction: column;
-        gap: 18px;
-    `;
-    
-    // Add Animations
-    if (!document.getElementById('anim-signalr-professional')) {
-        const style = document.createElement('style');
-        style.id = 'anim-signalr-professional';
-        style.innerHTML = `
-            @keyframes slideInNotificationLeft {
-                from { transform: translateX(-120%) scale(0.9); opacity: 0; }
-                to { transform: translateX(0) scale(1); opacity: 1; }
-            }
-            @keyframes fadeOutNotificationLeft {
-                to { transform: translateX(-120%) scale(0.9); opacity: 0; }
-            }
-            @keyframes pulseBorder {
-                0% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.4); }
-                70% { box-shadow: 0 0 0 10px rgba(0, 240, 255, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(0, 240, 255, 0); }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-    
+    card.className = 'noti-v2-card';
     card.innerHTML = `
-        <div style="display: flex; align-items: flex-start; gap: 15px;">
-            <div style="min-width: 50px; height: 50px; background: rgba(0, 240, 255, 0.15); border-radius: 15px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(0,240,255,0.1);">
-                <i class="fas fa-satellite-dish" style="color: #00f0ff; font-size: 1.4em;"></i>
+        <div class="noti-v2-header">
+            <span class="noti-v2-badge">تحديث لحظي</span>
+            <span class="noti-v2-time">الآن</span>
+        </div>
+        <div class="noti-v2-body">
+            <div class="noti-v2-icon-wrapper">
+                <i class="fas fa-satellite-dish"></i>
+                <div class="noti-v2-pulse-dot"></div>
             </div>
-            <div style="flex: 1;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                    <span style="font-size: 0.8em; color: #00f0ff; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">تحديث لحظي</span>
-                    <span style="font-size: 0.75em; color: #555;">الآن</span>
-                </div>
-                <div style="line-height: 1.6; font-size: 1em; color: #e0e0e0;">
-                    <strong style="color: #ffc107;">${user}</strong> قام بـ <span style="background: rgba(0,240,255,0.1); padding: 2px 8px; border-radius: 6px; color: #00f0ff;">${operation}</span> 
-                    في <span style="font-weight: bold; color: #fff;">${sourceName}</span>.
+            <div class="noti-v2-content">
+                <span class="noti-v2-user">${user}</span>
+                <div class="noti-v2-msg">
+                    قام بـ <strong>${operation}</strong> في <strong>${sourceName}</strong>
                 </div>
             </div>
         </div>
-        
-        <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px; font-size: 0.9em; color: #aaa; text-align: center; border: 1px dashed rgba(255,255,255,0.05);">
-            هل ترغب في مزامنة البيانات الحالية؟
-        </div>
-
-        <div style="display: flex; gap: 12px;">
-            <button id="noti-accept" class="btn" style="flex: 2; background: #00f0ff; color: #0d1623; font-weight: 800; padding: 12px; border-radius: 12px; border: none; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 0.95em; animation: pulseBorder 2s infinite;">
-                <i class="fas fa-sync-alt"></i> نعم، تحديث الآن
+        <div class="noti-v2-footer">
+            <button id="noti-accept" class="noti-v2-btn noti-v2-btn-primary">
+                <i class="fas fa-sync-alt"></i> تحديث الآن
             </button>
-            <button id="noti-close" class="btn" style="flex: 1; background: rgba(255,255,255,0.05); color: #888; border: 1px solid rgba(255,255,255,0.08); padding: 12px; border-radius: 12px; cursor: pointer; transition: all 0.3s; font-size: 0.9em;">
+            <button id="noti-close" class="noti-v2-btn noti-v2-btn-secondary">
                 تجاهل
             </button>
         </div>
@@ -10078,44 +10134,56 @@ App.prototype.showSignalRNotification = function (sourceName, user, operation = 
     const acceptBtn = document.getElementById('noti-accept');
     const closeBtn = document.getElementById('noti-close');
 
-    const removeCard = (delay = 500) => {
-        card.style.animation = 'fadeOutNotificationLeft 0.8s cubic-bezier(0.19, 1, 0.22, 1) forwards';
-        setTimeout(() => card.remove(), delay);
+    const removeCard = (delay = 0) => {
+        card.classList.add('hiding');
+        setTimeout(() => {
+            if (card && card.parentElement) card.remove();
+        }, delay || 600);
     };
 
     acceptBtn.onclick = async () => {
-        // Feedback State
         acceptBtn.disabled = true;
+        closeBtn.disabled = true;
+        
+        // Visual processing state
+        const originalHtml = acceptBtn.innerHTML;
+        acceptBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري المزامنة...';
         acceptBtn.style.background = '#10b981';
         acceptBtn.style.color = 'white';
-        acceptBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري المزامنة...';
         
         try {
             await this.refreshCurrentPage();
             
-            // Success Mark
-            acceptBtn.innerHTML = '<i class="fas fa-check-circle"></i> تم التحديث بنجاح';
-            setTimeout(() => removeCard(800), 1200);
+            // Success indicator
+            acceptBtn.innerHTML = '<i class="fas fa-check-circle"></i> تم التحديث';
+            setTimeout(() => removeCard(600), 1000);
         } catch (e) {
+            console.error('[SignalR] Refresh failed:', e);
             acceptBtn.style.background = '#ef4444';
             acceptBtn.innerHTML = '<i class="fas fa-times-circle"></i> فشل التحديث';
-            setTimeout(() => removeCard(800), 2000);
+            setTimeout(() => {
+                acceptBtn.disabled = false;
+                closeBtn.disabled = false;
+                acceptBtn.innerHTML = originalHtml;
+                acceptBtn.style.removeProperty('background');
+                acceptBtn.style.removeProperty('color');
+            }, 2000);
         }
     };
     
     closeBtn.onclick = () => removeCard();
     
-    // Hover effects
-    acceptBtn.onmouseover = () => { if (!acceptBtn.disabled) { acceptBtn.style.transform = 'translateY(-3px)'; acceptBtn.style.boxShadow = '0 8px 20px rgba(0,240,255,0.3)'; } };
-    acceptBtn.onmouseout = () => { if (!acceptBtn.disabled) { acceptBtn.style.transform = 'translateY(0)'; acceptBtn.style.boxShadow = 'none'; } };
-    closeBtn.onmouseover = () => { closeBtn.style.background = 'rgba(255,255,255,0.1)'; closeBtn.style.color = 'white'; closeBtn.style.borderColor = 'rgba(255,255,255,0.2)'; };
-    closeBtn.onmouseout = () => { closeBtn.style.background = 'rgba(255,255,255,0.05)'; closeBtn.style.color = '#888'; closeBtn.style.borderColor = 'rgba(255,255,255,0.08)'; };
+    // Auto-remove after 30 seconds
+    const autoRemoveTimeout = setTimeout(() => {
+        if (document.getElementById(cardId) && !acceptBtn.disabled) {
+            removeCard();
+        }
+    }, 30000);
 
-    // Auto remove after 20 seconds
-    setTimeout(() => {
-        if (card && card.parentElement && !acceptBtn.disabled) removeCard();
-    }, 25000);
+    // Cancel auto-remove if user interacts
+    card.onmouseover = () => clearTimeout(autoRemoveTimeout);
 };
+
 
 /**
  * Play a professional soft notification chime using Web Audio API (No files needed)
@@ -10153,9 +10221,471 @@ App.prototype.playNotificationSound = function () {
     }
 };
 
+// ==========================================
+// Advanced Features Logic (Tasks & Sharing)
+// ==========================================
+
+App.prototype.showShareRequest = function(data) {
+    this.playNotificationSound();
+    const modal = document.createElement('div');
+    modal.className = 'glass-modal-overlay show';
+    modal.innerHTML = `
+        <div class="glass-modal-content share-modal-content">
+            <div class="share-modal-icon"><i class="fas fa-handshake"></i></div>
+            <h2 style="color: white; margin-bottom: 15px;">🔍 دعوة مشاركة جدول</h2>
+            <p style="font-size: 1.1rem; color: #94a3b8; margin: 15px 0;">${data.message}</p>
+            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 30px;">
+                <button class="btn btn-primary" onclick="app.respondToShare(${data.shareId}, 'Accepted', this.parentElement.parentElement.parentElement)">قبول المشاركة</button>
+                <button class="btn btn-secondary" onclick="app.respondToShare(${data.shareId}, 'Rejected', this.parentElement.parentElement.parentElement)">تجاهل</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+};
+
+App.prototype.respondToShare = async function(shareId, status, modalElement) {
+    try {
+        const resp = await fetch('/shares/respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shareId, status, userId: this.currentUser.id })
+        });
+        const result = await resp.json();
+        if (result.success) {
+            if (status === 'Accepted') {
+                this.showToast("تم القبول", "يمكنك الآن الوصول إلى الجدول من قائمة الأرشيف", "success");
+                this.loadArchive(); 
+            }
+            modalElement.remove();
+        }
+    } catch (e) {
+        console.error(e);
+        this.showToast("خطأ في الاتصال", "error");
+    }
+};
+
+App.prototype.showManagerTask = function(data) {
+    this.playNotificationSound();
+    const toast = document.createElement('div');
+    toast.className = `signalr-notification-v2 task-v2-card task-v2-priority-${data.priority || 'Medium'}`;
+    toast.style.cssText = `
+        position: fixed; bottom: 20px; left: 20px; width: 350px; z-index: 10001;
+        background: #1e293b; border-radius: 1rem; padding: 1.5rem;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-right: 5px solid ${data.priority === 'High' ? '#ef4444' : '#f59e0b'};
+        animation: slideInLeft 0.5s ease-out;
+    `;
+    
+    toast.innerHTML = `
+        <div class="task-v2-header" style="display:flex; justify-content:space-between; margin-bottom:1rem;">
+            <span class="task-v2-badge-manager"><i class="fas fa-tasks"></i> مهمة جديدة</span>
+            <span style="font-size: 0.75rem; color: #64748b;">الآن</span>
+        </div>
+        <h4 style="margin: 0 0 0.5rem 0; color: white; font-size: 1.1rem;">${data.title}</h4>
+        <p style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 1.5rem 0; line-height: 1.4;">${data.message}</p>
+        <div style="display: flex; justify-content: flex-end;">
+            <button class="btn btn-sm btn-primary" onclick="this.parentElement.parentElement.remove()">فهمت</button>
+        </div>
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.animation = 'fadeOut 0.5s ease-in forwards';
+        setTimeout(() => toast.remove(), 500);
+    }, 60000);
+};
+
+App.prototype.loadAuditLogs = async function() {
+    try {
+        const resp = await fetch('/audit/logs');
+        const logs = await resp.json();
+        const container = document.getElementById('audit-log-container');
+        if (!container) return;
+        
+        let html = `
+            <div class="table-container">
+                <table class="audit-log-table">
+                    <thead>
+                        <tr>
+                            <th>التوقيت</th>
+                            <th>المستخدم</th>
+                            <th>العملية</th>
+                            <th>التفاصيل</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        logs.forEach(log => {
+            html += `
+                <tr>
+                    <td style="font-family: monospace; font-size: 0.8rem; color: #64748b;">${log.createdAt}</td>
+                    <td style="font-weight: 600; color: #f1f5f9;">${log.username}</td>
+                    <td><span class="badge badge-info" style="font-size: 0.75rem;">${log.action}</span></td>
+                    <td style="color: #94a3b8; font-size: 0.85rem;">${log.details}</td>
+                </tr>
+            `;
+        });
+        
+        html += `</tbody></table></div>`;
+        container.innerHTML = html;
+    } catch (e) {
+        console.error("Error loading audit logs:", e);
+    }
+};
+
+App.prototype.showShareTableModal = async function(tableId, tableType) {
+    const users = await db.getUsers();
+    const otherUsers = users.filter(u => u.id !== this.currentUser.id);
+    
+    const userOptions = otherUsers.map(u => `<option value="${u.id}">${u.fullname} (@${u.username})</option>`).join('');
+    
+    const modal = document.createElement('div');
+    modal.className = 'glass-modal-overlay show';
+    modal.innerHTML = `
+        <div class="glass-modal-content" style="width: 400px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                <h3 style="color:white; margin:0;"><i class="fas fa-share-alt"></i> مشاركة الجدول</h3>
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.2rem;">&times;</button>
+            </div>
+            <div class="form-group">
+                <label style="color:#94a3b8; display:block; margin-bottom:8px;">اختر المستخدم للمشاركة معه:</label>
+                <select id="share-user-id" class="form-control" style="background:#0f172a; border-color:#334155; color:white;">
+                    ${userOptions}
+                </select>
+            </div>
+            <div class="form-group" style="margin-top:20px;">
+                <label style="color:#94a3b8; display:block; margin-bottom:8px;">رسالة (اختياري):</label>
+                <input type="text" id="share-message" class="form-control" placeholder="يرجى مراجعة هذا الجدول..." style="background:#0f172a; border-color:#334155; color:white;">
+            </div>
+            <div style="margin-top:30px; display:flex; gap:10px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">إلغاء</button>
+                <button class="btn btn-primary" onclick="app.executeShare(${tableId}, '${tableType}')">تأكيد المشاركة</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+};
+
+App.prototype.executeShare = async function(tableId, tableType) {
+    const userId = document.getElementById('share-user-id').value;
+    const message = document.getElementById('share-message').value;
+    
+    try {
+        const resp = await fetch('/shares/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                tableId, 
+                tableType, 
+                targetUserId: parseInt(userId), 
+                fromUserId: this.currentUser.id,
+                message: message || "لديك طلب مشاركة جديد"
+            })
+        });
+        const result = await resp.json();
+        if (result.success) {
+            this.showToast("تم إرسال طلب المشاركة بنجاح", "success");
+            document.querySelector('.glass-modal-overlay.show').remove();
+        } else {
+            this.showToast(result.error || "فشلت المشاركة", "error");
+        }
+    } catch (e) {
+        this.showToast("خطأ في الاتصال", "error");
+    }
+};
+
+App.prototype.showAssignTaskModal = function(userId, fullname) {
+    const modal = document.createElement('div');
+    modal.className = 'glass-modal-overlay show';
+    modal.innerHTML = `
+        <div class="glass-modal-content" style="width: 450px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+                <h3 style="color:white; margin:0;"><i class="fas fa-tasks"></i> إسناد مهمة لـ ${fullname}</h3>
+                <button onclick="this.parentElement.parentElement.parentElement.remove()" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.2rem;">&times;</button>
+            </div>
+            <div class="form-group">
+                <label style="color:#94a3b8; display:block; margin-bottom:8px;">عنوان المهمة:</label>
+                <input type="text" id="task-title" class="form-control" placeholder="مثال: مراجعة أرشيف مرتبات شهر 3" style="background:#0f172a; border-color:#334155; color:white;">
+            </div>
+            <div class="form-group" style="margin-top:15px;">
+                <label style="color:#94a3b8; display:block; margin-bottom:8px;">التفاصيل:</label>
+                <textarea id="task-message" class="form-control" rows="3" placeholder="اكتب تفاصيل المهمة هنا..." style="background:#0f172a; border-color:#334155; color:white;"></textarea>
+            </div>
+            <div class="form-group" style="margin-top:15px;">
+                <label style="color:#94a3b8; display:block; margin-bottom:8px;">الأولوية:</label>
+                <select id="task-priority" class="form-control" style="background:#0f172a; border-color:#334155; color:white;">
+                    <option value="Low">منخفضة</option>
+                    <option value="Medium" selected>متوسطة</option>
+                    <option value="High">عاجلة جداً</option>
+                </select>
+            </div>
+            <div style="margin-top:30px; display:flex; gap:10px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">إلغاء</button>
+                <button class="btn btn-primary" onclick="app.executeAssignTask(${userId})">إرسال المهمة</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+};
+
+App.prototype.executeAssignTask = async function(userId) {
+    const title = document.getElementById('task-title').value;
+    const message = document.getElementById('task-message').value;
+    const priority = document.getElementById('task-priority').value;
+    
+    if (!title || !message) {
+        this.showToast("يرجى إدخال العنوان والتفاصيل", "warning");
+        return;
+    }
+    
+    try {
+        const resp = await fetch('/tasks/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                targetUserId: userId, 
+                managerId: this.currentUser.id,
+                title,
+                message,
+                priority
+            })
+        });
+        const result = await resp.json();
+        if (result.success) {
+            this.showToast("تم إرسال المهمة بنجاح", "success");
+            document.querySelector('.glass-modal-overlay.show').remove();
+        } else {
+            this.showToast(result.error || "فشل إرسال المهمة", "error");
+        }
+    } catch (e) {
+        this.showToast("خطأ في الاتصال", "error");
+    }
+};
+
+// ========================================
+// Tasks Page Functions
+// ========================================
+
+App.prototype.tasksData = [];
+App.prototype.tasksTab = 'my';
+App.prototype.tasksStatusFilter = 'all';
+
+App.prototype.loadTasksPage = async function() {
+    try {
+        const userId = this.currentUser?.id;
+        if (!userId) return;
+
+        // Load stats
+        const statsRes = await fetch(`/tasks/stats?userId=${userId}`);
+        const stats = await statsRes.json();
+        document.getElementById('task-stat-total').textContent = stats.total || 0;
+        document.getElementById('task-stat-new').textContent = stats.newCount || 0;
+        document.getElementById('task-stat-progress').textContent = stats.inProgress || 0;
+        document.getElementById('task-stat-done').textContent = stats.done || 0;
+        document.getElementById('task-stat-urgent').textContent = stats.highPriority || 0;
+
+        // Load tasks based on current tab
+        await this.fetchTasks();
+    } catch (e) {
+        console.error('[Tasks] Load error:', e);
+    }
+};
+
+App.prototype.fetchTasks = async function() {
+    const userId = this.currentUser?.id;
+    if (!userId) return;
+
+    let url = '';
+    switch (this.tasksTab) {
+        case 'my': url = `/tasks/my?userId=${userId}`; break;
+        case 'assigned': url = `/tasks/assigned?managerId=${userId}`; break;
+        case 'all': url = `/tasks/all`; break;
+    }
+
+    try {
+        const res = await fetch(url);
+        this.tasksData = await res.json();
+        this.renderTasksBoard();
+    } catch (e) {
+        console.error('[Tasks] Fetch error:', e);
+    }
+};
+
+App.prototype.renderTasksBoard = function() {
+    const data = this.tasksStatusFilter === 'all' 
+        ? this.tasksData 
+        : this.tasksData.filter(t => t.status === this.tasksStatusFilter);
+
+    const newTasks = data.filter(t => t.status === 'New');
+    const progressTasks = data.filter(t => t.status === 'InProgress');
+    const doneTasks = data.filter(t => t.status === 'Done');
+
+    document.getElementById('col-count-new').textContent = newTasks.length;
+    document.getElementById('col-count-progress').textContent = progressTasks.length;
+    document.getElementById('col-count-done').textContent = doneTasks.length;
+
+    document.getElementById('col-body-new').innerHTML = newTasks.map(t => this.renderTaskCard(t)).join('');
+    document.getElementById('col-body-progress').innerHTML = progressTasks.map(t => this.renderTaskCard(t)).join('');
+    document.getElementById('col-body-done').innerHTML = doneTasks.map(t => this.renderTaskCard(t)).join('');
+
+    const board = document.getElementById('tasks-board');
+    const empty = document.getElementById('tasks-empty-state');
+    if (data.length === 0) {
+        board.classList.add('hidden');
+        empty.classList.remove('hidden');
+    } else {
+        board.classList.remove('hidden');
+        empty.classList.add('hidden');
+    }
+};
+
+App.prototype.renderTaskCard = function(task) {
+    const priorityMap = {
+        'High': { cls: 'priority-high', label: '🔴 عالية', color: '#ef4444' },
+        'Medium': { cls: 'priority-medium', label: '🟡 متوسطة', color: '#f59e0b' },
+        'Low': { cls: 'priority-low', label: '🟢 منخفضة', color: '#10b981' }
+    };
+    const p = priorityMap[task.priority] || priorityMap.Medium;
+
+    const statusActions = {
+        'New': `<button class="task-action-btn action-start" onclick="app.updateTaskStatus(${task.id}, 'InProgress')" title="بدء التنفيذ"><i class="fas fa-play"></i></button>`,
+        'InProgress': `<button class="task-action-btn action-done" onclick="app.updateTaskStatus(${task.id}, 'Done')" title="إنهاء"><i class="fas fa-check"></i></button>`,
+        'Done': `<button class="task-action-btn action-reopen" onclick="app.updateTaskStatus(${task.id}, 'New')" title="إعادة فتح"><i class="fas fa-undo"></i></button>`
+    };
+
+    const createdDate = task.createdAt ? new Date(task.createdAt).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '';
+    const dueDate = task.dueDate ? new Date(task.dueDate).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '';
+    
+    const isOverdue = task.dueDate && task.status !== 'Done' && new Date(task.dueDate) < new Date();
+    const overdueClass = isOverdue ? 'task-overdue' : '';
+
+    const assigneeInfo = this.tasksTab === 'assigned' 
+        ? `<span class="task-assignee"><i class="fas fa-user"></i> ${task.targetUserName || ''}</span>` 
+        : `<span class="task-manager"><i class="fas fa-user-tie"></i> ${task.managerName || ''}</span>`;
+
+    return `
+        <div class="task-card ${p.cls} ${overdueClass}" data-id="${task.id}">
+            <div class="task-card-header">
+                <span class="task-priority-badge" style="background: ${p.color}20; color: ${p.color}; border: 1px solid ${p.color}40;">${p.label}</span>
+                ${isOverdue ? '<span class="task-overdue-badge">⏰ متأخرة</span>' : ''}
+            </div>
+            <h4 class="task-card-title">${task.title || ''}</h4>
+            ${task.description ? `<p class="task-card-desc">${task.description}</p>` : ''}
+            <div class="task-card-meta">
+                ${assigneeInfo}
+                <span class="task-date"><i class="fas fa-calendar-alt"></i> ${createdDate}</span>
+                ${dueDate ? `<span class="task-due ${isOverdue ? 'due-overdue' : ''}"><i class="fas fa-clock"></i> ${dueDate}</span>` : ''}
+            </div>
+            <div class="task-card-actions">
+                ${statusActions[task.status] || ''}
+                <button class="task-action-btn action-delete" onclick="app.deleteTask(${task.id})" title="حذف"><i class="fas fa-trash-alt"></i></button>
+            </div>
+        </div>`;
+};
+
+App.prototype.switchTaskTab = function(tab, btn) {
+    this.tasksTab = tab;
+    document.querySelectorAll('.task-tab').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    this.fetchTasks();
+};
+
+App.prototype.filterTasks = function(status, btn) {
+    this.tasksStatusFilter = status;
+    document.querySelectorAll('.task-chip').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    this.renderTasksBoard();
+};
+
+App.prototype.updateTaskStatus = async function(taskId, newStatus) {
+    try {
+        const res = await fetch('/tasks/update-status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, status: newStatus })
+        });
+        if (res.ok) {
+            this.showToast('تم تحديث حالة المهمة', 'success');
+            await this.loadTasksPage();
+        }
+    } catch (e) {
+        this.showToast('خطأ في تحديث المهمة', 'error');
+    }
+};
+
+App.prototype.deleteTask = async function(taskId) {
+    const confirmed = await window.confirm('هل تريد حذف هذه المهمة نهائياً؟');
+    if (!confirmed) return;
+    try {
+        const res = await fetch(`/tasks/${taskId}`, { method: 'DELETE' });
+        if (res.ok) {
+            this.showToast('تم حذف المهمة', 'success');
+            await this.loadTasksPage();
+        }
+    } catch (e) {
+        this.showToast('خطأ في حذف المهمة', 'error');
+    }
+};
+
+App.prototype.showCreateTaskModal = async function() {
+    const modal = document.getElementById('create-task-modal');
+    modal.classList.remove('hidden');
+    
+    // Reset form
+    document.getElementById('task-title-input').value = '';
+    document.getElementById('task-desc-input').value = '';
+    document.getElementById('task-priority-input').value = 'Medium';
+    document.getElementById('task-due-input').value = '';
+
+    // Populate assignee list
+    try {
+        const res = await fetch('/users');
+        const users = await res.json();
+        const select = document.getElementById('task-assignee-input');
+        select.innerHTML = users.filter(u => u.active).map(u => 
+            `<option value="${u.id}" ${u.id === this.currentUser?.id ? 'selected' : ''}>${u.fullname}</option>`
+        ).join('');
+    } catch (e) {}
+};
+
+App.prototype.hideCreateTaskModal = function() {
+    document.getElementById('create-task-modal').classList.add('hidden');
+};
+
+App.prototype.createTask = async function() {
+    const title = document.getElementById('task-title-input').value.trim();
+    if (!title) { this.showToast('يرجى إدخال عنوان المهمة', 'error'); return; }
+
+    const task = {
+        managerId: this.currentUser?.id,
+        targetUserId: parseInt(document.getElementById('task-assignee-input').value),
+        title: title,
+        description: document.getElementById('task-desc-input').value.trim(),
+        priority: document.getElementById('task-priority-input').value,
+        dueDate: document.getElementById('task-due-input').value || null
+    };
+
+    try {
+        const res = await fetch('/tasks/assign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(task)
+        });
+        if (res.ok) {
+            this.showToast('تم إنشاء المهمة بنجاح ✅', 'success');
+            this.hideCreateTaskModal();
+            await this.loadTasksPage();
+        } else {
+            this.showToast('خطأ في إنشاء المهمة', 'error');
+        }
+    } catch (e) {
+        this.showToast('خطأ في الاتصال', 'error');
+    }
+};
+
 // Initialize App
 
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new App();
-    window.app.init(); // تفعيل تشغيل التطبيق
+    window.app.init(); 
 });

@@ -24,6 +24,7 @@ public static class SmartSettlementEndpoints
 
                 string monthFilter = request.Filters?.Month ?? "";
                 if (monthFilter == "all") monthFilter = ""; // Handle frontend "all" option
+                string fileCodeFilter = request.Filters?.FileCode ?? "";
                 string statusFilter = request.Filters?.Status ?? "الكل";
                 string matchBy = request.Filters?.MatchBy ?? "الاسم";
                 string dataType = request.Filters?.DataType ?? "الكل";
@@ -38,7 +39,7 @@ public static class SmartSettlementEndpoints
                     string likeParam = $"%-{monthFilter}%";
                     string rawParam = $"%{monthFilter}%";
                     var incRows = await conn.QueryAsync<dynamic>(incSql, new { LikeParam = likeParam, RawParam = rawParam });
-                    dbIncentives = ProcessRows(incRows, monthFilter, statusFilter, "incentive");
+                    dbIncentives = ProcessRows(incRows, monthFilter, fileCodeFilter, statusFilter, "incentive");
                 }
                 
                 // --- 2. Fetch Salary Data (SalaryReturns) ---
@@ -51,7 +52,7 @@ public static class SmartSettlementEndpoints
                     string likeParam = $"%-{monthFilter}%";
                     string rawParam = $"%{monthFilter}%";
                     var salRows = await conn.QueryAsync<dynamic>(salSql, new { LikeParam = likeParam, RawParam = rawParam });
-                    dbSalaries = ProcessRows(salRows, monthFilter, statusFilter, "salary");
+                    dbSalaries = ProcessRows(salRows, monthFilter, fileCodeFilter, statusFilter, "salary");
                 }
 
                 foreach(var excelRow in request.Records) {
@@ -249,7 +250,7 @@ public static class SmartSettlementEndpoints
         return "";
     }
 
-    private static List<SettlementDBRecord> ProcessRows(IEnumerable<dynamic> rows, string monthFilter, string statusFilter, string source) {
+    private static List<SettlementDBRecord> ProcessRows(IEnumerable<dynamic> rows, string monthFilter, string fileCodeFilter, string statusFilter, string source) {
         var list = new List<SettlementDBRecord>();
         foreach(var row in rows) {
             var rawData = (string)row.RawData;
@@ -301,7 +302,9 @@ public static class SmartSettlementEndpoints
 
             record.Reason = GetJsonVal("السبب", "سبب المرتد", "Reason");
             record.OriginalStatus = GetJsonVal("الحالة", "حالة الحركة", "Status");
-            record.UploadDate = row.UploadDate ?? GetJsonVal("تاريخ الرفع", "تاريخ الملف", "UploadDate");
+            object uDateVal = null;
+            try { uDateVal = row.UploadDate; } catch {}
+            record.UploadDate = (uDateVal != null ? uDateVal.ToString() : null) ?? GetJsonVal("تاريخ الرفع", "تاريخ الملف", "UploadDate");
             record.AccrualSettlementNo = GetJsonVal("رقم تسوية التعلية", "رقم تسوية الاضافة", "AccrualSettlementNo");
 
             record.ReturnDate = GetJsonVal("تاريخ المرتد / تاريخ التعلية", "تاريخ المرتدات", "تاريخ المرتد", "تاريخ المرتجع", "تاريخ الارتداد", "تاريخ_المرتد", "ReturnDate");
@@ -327,9 +330,10 @@ public static class SmartSettlementEndpoints
 
             
             bool monthMatch = string.IsNullOrEmpty(monthFilter) || monthFilter == "all" || record.Month == monthFilter;
+            bool fileCodeMatch = string.IsNullOrEmpty(fileCodeFilter) || record.BatchCode == fileCodeFilter;
             bool statusMatch = statusFilter == "الكل" || record.Status == statusFilter;
 
-            if (monthMatch && statusMatch) {
+            if (monthMatch && fileCodeMatch && statusMatch) {
                 list.Add(record);
             }
         }
@@ -407,6 +411,7 @@ public class MatchRequest
 public class MatchFilter
 {
     public string? Month { get; set; }
+    public string? FileCode { get; set; }
     public string? Status { get; set; }
     public string? MatchBy { get; set; }
     public string? DataType { get; set; }

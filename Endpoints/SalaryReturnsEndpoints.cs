@@ -18,9 +18,40 @@ public static class SalaryReturnsEndpoints
         app.MapGet("/salary-returns/upload-dates", async (DatabaseService db) => {
             try {
                 using var conn = await db.GetOpenConnectionAsync();
-                var dates = await conn.QueryAsync<string>(
-                    "SELECT DISTINCT UploadDate FROM SalaryReturns WHERE UploadDate IS NOT NULL AND UploadDate != '' ORDER BY UploadDate DESC");
-                return Results.Ok(dates.ToList());
+                
+                // Fetch raw distinct dates (might still have time parts)
+                var rawDates = await conn.QueryAsync<string>(@"
+                    SELECT DISTINCT UploadDate 
+                    FROM SalaryReturns 
+                    WHERE UploadDate IS NOT NULL AND UploadDate != ''
+                    ORDER BY UploadDate DESC");
+                
+                // Process dates in C# for strict deduplication (YYYY-MM-DD)
+                var formattedDates = rawDates
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    .Select(d => {
+                        if (DateTime.TryParse(d, out var dt)) {
+                            return dt.ToString("yyyy-MM-dd");
+                        }
+                        
+                        var match = System.Text.RegularExpressions.Regex.Match(d, @"(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})");
+                        if (match.Success) {
+                            string p1 = match.Groups[1].Value;
+                            string p2 = match.Groups[2].Value.PadLeft(2, '0');
+                            string p3 = match.Groups[3].Value.PadLeft(2, '0');
+                            
+                            if (p1.Length == 4) return $"{p1}-{p2}-{p3}";
+                            if (p3.Length == 4) return $"{p3}-{p2}-{p1}";
+                        }
+                        
+                        return d.Length >= 10 ? d.Substring(0, 10) : d;
+                    })
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    .Distinct()
+                    .OrderByDescending(d => d)
+                    .ToList();
+
+                return Results.Ok(formattedDates);
             } catch (Exception ex) {
                 Console.WriteLine($"[ERROR] Fetching salary upload dates: {ex.Message}");
                 return Results.Ok(new List<string>()); 
@@ -231,10 +262,12 @@ public static class SalaryReturnsEndpoints
 
                 if (obj != null) {
                     obj["id"] = r.Id;
-                    if (r.UploadDate != null) {
-                        obj["تاريخ الرفع"] = r.UploadDate;
+                    object uDateVal = r.UploadDate;
+                    if (uDateVal != null) {
+                        obj["تاريخ الرفع"] = uDateVal.ToString();
                     }
-                    obj["AttachmentCount"] = attachmentCounts.ContainsKey(r.Id) ? attachmentCounts[r.Id] : 0;
+                    long rIdVal = r.Id;
+                    obj["AttachmentCount"] = attachmentCounts.ContainsKey(rIdVal) ? attachmentCounts[rIdVal] : 0;
                 }
                 return obj;
              }).Where(obj => obj != null).ToList();

@@ -52,6 +52,16 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddSignalR();
 
+// Increase request size limits for large file uploads (100MB)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 100 * 1024 * 1024; // 100MB
+});
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.MaxRequestBodySize = 100 * 1024 * 1024; // 100MB
+});
+
 builder.Services.ConfigureHttpJsonOptions(options => {
     options.SerializerOptions.Encoder = System.Text.Encodings.Web.JavaScriptEncoder.Create(System.Text.Unicode.UnicodeRanges.All);
     options.SerializerOptions.WriteIndented = true;
@@ -96,6 +106,17 @@ app.Use(async (context, next) => {
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// Serve uploaded files from wwwroot/uploads (for chat attachments etc.)
+var uploadsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads");
+if (Directory.Exists(uploadsPath))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
+        RequestPath = "/uploads"
+    });
+}
+
 // 3. Init DB
 using (var scope = app.Services.CreateScope()) {
     var db = scope.ServiceProvider.GetRequiredService<DatabaseService>();
@@ -127,6 +148,7 @@ app.MapFullReturnsEndpoints();
 app.MapSalaryReturnsEndpoints();
 app.MapSmartSettlementEndpoints();
 app.MapChatEndpoints();
+app.MapTaskEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");

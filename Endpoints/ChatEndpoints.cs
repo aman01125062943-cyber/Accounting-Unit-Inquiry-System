@@ -181,6 +181,7 @@ public static class ChatEndpoints
 
                 var messages = await conn.QueryAsync<dynamic>(@"
                     SELECT m.Id, m.ConversationId, m.SenderId, m.Content, m.SentAt, m.IsRead, m.IsTaskConverted,
+                           m.AttachmentUrl, m.AttachmentType, m.LikeCount,
                            u.Fullname as SenderName
                     FROM ChatMessages m
                     LEFT JOIN Users u ON m.SenderId = u.Id
@@ -198,6 +199,9 @@ public static class ChatEndpoints
                     sentAt = (string?)m.SentAt,
                     isRead = ((long)m.IsRead) == 1,
                     isTaskConverted = ((long)m.IsTaskConverted) == 1,
+                    attachmentUrl = (string?)m.AttachmentUrl,
+                    attachmentType = (string?)m.AttachmentType,
+                    likeCount = (int)(long)m.LikeCount,
                     senderName = (string?)m.SenderName ?? "مستخدم"
                 }).Reverse(); // عكس الترتيب ليكون الأقدم أولاً
 
@@ -232,10 +236,17 @@ public static class ChatEndpoints
 
                 // إدراج الرسالة
                 var msgId = await conn.ExecuteScalarAsync<long>(@"
-                    INSERT INTO ChatMessages (ConversationId, SenderId, Content, SentAt, IsRead, IsTaskConverted)
-                    VALUES (@ConvId, @SenderId, @Content, @Now, 0, 0);
+                    INSERT INTO ChatMessages (ConversationId, SenderId, Content, SentAt, IsRead, IsTaskConverted, AttachmentUrl, AttachmentType, LikeCount)
+                    VALUES (@ConvId, @SenderId, @Content, @Now, 0, 0, @AttachmentUrl, @AttachmentType, 0);
                     SELECT last_insert_rowid();
-                ", new { ConvId = req.ConversationId, SenderId = req.SenderId, Content = req.Content, Now = now });
+                ", new { 
+                    ConvId = req.ConversationId, 
+                    SenderId = req.SenderId, 
+                    Content = req.Content, 
+                    Now = now,
+                    AttachmentUrl = req.AttachmentUrl,
+                    AttachmentType = req.AttachmentType
+                });
 
                 // تحديث آخر رسالة في المحادثة
                 await conn.ExecuteAsync(
@@ -257,6 +268,9 @@ public static class ChatEndpoints
                     sentAt = now,
                     isRead = false,
                     isTaskConverted = false,
+                    attachmentUrl = req.AttachmentUrl,
+                    attachmentType = req.AttachmentType,
+                    likeCount = 0,
                     senderName
                 };
 
@@ -273,6 +287,150 @@ public static class ChatEndpoints
             catch (Exception ex)
             {
                 Console.WriteLine($"[Chat] Send message error: {ex.Message}");
+                return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+            }
+        });
+
+        // ═══════════════════════════════════════════
+        // التفاعل مع رسالة (Like)
+        // ═══════════════════════════════════════════
+        app.MapPost("/chat/messages/like", async (HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub) =>
+        {
+            try
+            {
+                var req = await context.Request.ReadFromJsonAsync<LikeMessageRequest>();
+                if (req == null) return Results.BadRequest(new { success = false, message = "Invalid request" });
+
+                await InitChatTables(db);
+                using var conn = await db.GetOpenConnectionAsync();
+
+                // تحديث عداد الإعجابات
+                await conn.ExecuteAsync(
+                    "UPDATE ChatMessages SET LikeCount = LikeCount + 1 WHERE Id = @Id",
+                    new { Id = req.MessageId }
+                );
+
+                // جلب البيانات المحدثة
+                var msg = await conn.QueryFirstOrDefaultAsync<dynamic>(
+                    "SELECT ConversationId, LikeCount FROM ChatMessages WHERE Id = @Id",
+                    new { Id = req.MessageId }
+                );
+
+                if (msg != null)
+                {
+                    var groupName = $"chat_{(long)msg.ConversationId}";
+                    await chatHub.Clients.Group(groupName).SendAsync("MessageLiked", new
+                    {
+                        messageId = req.MessageId,
+                        likeCount = (int)(long)msg.LikeCount,
+                        likedBy = req.UserId
+                    });
+                }
+
+                return Results.Ok(new { success = true, likeCount = (int)(long)msg?.LikeCount });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Chat] Like message error: {ex.Message}");
+                return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+            }
+        });
+
+        // ═══════════════════════════════════════════
+        // إعادة جدولة مهمة (Reschedule)
+        // ═══════════════════════════════════════════
+        app.MapPut("/chat/tasks/{taskId:long}/reschedule", async (long taskId, HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub) =>
+        {
+            try
+            {
+                var req = await context.Request.ReadFromJsonAsync<RescheduleTaskRequest>();
+                if (req == null) return Results.BadRequest(new { success = false, message = "Invalid request" });
+
+                await InitChatTables(db);
+                using var conn = await db.GetOpenConnectionAsync();
+
+                var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+                await conn.ExecuteAsync(@"
+                    UPDATE ChatTasks 
+                    SET DueDate = @NewDueDate, 
+                        ReminderTime = @NewReminderTime, 
+                        UpdatedAt = @Now,
+                        IsReminderActive = 1
+                    WHERE Id = @Id",
+                    new { req.NewDueDate, req.NewReminderTime, Now = now, Id = taskId }
+                );
+
+                var task = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT * FROM ChatTasks WHERE Id = @Id", new { Id = taskId });
+                if (task != null)
+                {
+                    var updaterName = await conn.ExecuteScalarAsync<string>("SELECT Fullname FROM Users WHERE Id = @Id", new { Id = req.UpdatedById }) ?? "مستخدم";
+                    
+                    if (task.ConversationId != null)
+                    {
+                        await chatHub.Clients.Group($"chat_{(long)task.ConversationId}").SendAsync("TaskRescheduled", new
+                        {
+                            taskId,
+                            newDueDate = req.NewDueDate,
+                            newReminderTime = req.NewReminderTime,
+                            updatedAt = now,
+                            updatedBy = updaterName
+                        });
+                    }
+                }
+
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+            }
+        });
+
+        // ═══════════════════════════════════════════
+        // حذف مهمة
+        // ═══════════════════════════════════════════
+        app.MapDelete("/chat/tasks/{taskId:long}", async (long taskId, int userId, DatabaseService db, IHubContext<ChatHub> chatHub) =>
+        {
+            try
+            {
+                await InitChatTables(db);
+                using var conn = await db.GetOpenConnectionAsync();
+
+                var task = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT * FROM ChatTasks WHERE Id = @Id", new { Id = taskId });
+                if (task == null) return Results.NotFound();
+
+                await conn.ExecuteAsync("DELETE FROM ChatTasks WHERE Id = @Id", new { Id = taskId });
+
+                var deleterName = await conn.ExecuteScalarAsync<string>("SELECT Fullname FROM Users WHERE Id = @Id", new { Id = userId }) ?? "مستخدم";
+
+                if (task.ConversationId != null)
+                {
+                    await chatHub.Clients.Group($"chat_{(long)task.ConversationId}").SendAsync("TaskDeleted", new { taskId, deletedBy = deleterName });
+                }
+
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+            }
+        });
+
+        // ═══════════════════════════════════════════
+        // إيقاف التنبيه لمهمة (Deactivate Reminder)
+        // ═══════════════════════════════════════════
+        app.MapPut("/chat/tasks/{taskId:long}/deactivate-reminder", async (long taskId, DatabaseService db) =>
+        {
+            try
+            {
+                await InitChatTables(db);
+                using var conn = await db.GetOpenConnectionAsync();
+                await conn.ExecuteAsync("UPDATE ChatTasks SET IsReminderActive = 0 WHERE Id = @Id", new { Id = taskId });
+                return Results.Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
                 return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
             }
         });
@@ -311,6 +469,40 @@ public static class ChatEndpoints
         });
 
         // ═══════════════════════════════════════════
+        // رفع المرفقات الخاصة بالشات
+        // ═══════════════════════════════════════════
+        app.MapPost("/chat/upload", async (HttpContext context) =>
+        {
+            try
+            {
+                var form = await context.Request.ReadFormAsync();
+                var file = form.Files.GetFile("file");
+                if (file == null || file.Length == 0)
+                    return Results.BadRequest(new { success = false, message = "لم يتم اختيار ملف" });
+
+                // تحديد مجلد الحفظ في wwwroot
+                var uploadsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads", "chat");
+                if (!Directory.Exists(uploadsFolder)) Directory.CreateDirectory(uploadsFolder);
+
+                var fileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
+                var filePath = Path.Combine(uploadsFolder, fileName);
+
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                var relativeUrl = $"/uploads/chat/{fileName}";
+                return Results.Ok(new { success = true, url = relativeUrl, fileName = file.FileName });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Chat Upload] Error: {ex.Message}");
+                return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+            }
+        }).DisableAntiforgery();
+
+        // ═══════════════════════════════════════════
         // تحويل رسالة إلى مهمة
         // ═══════════════════════════════════════════
         app.MapPost("/chat/tasks", async (HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub) =>
@@ -327,8 +519,8 @@ public static class ChatEndpoints
 
                 // إنشاء المهمة
                 var taskId = await conn.ExecuteScalarAsync<long>(@"
-                    INSERT INTO ChatTasks (MessageId, ConversationId, Title, Description, DueDate, Priority, Status, AssignedToId, CreatedById, Attachments, CreatedAt, UpdatedAt)
-                    VALUES (@MessageId, @ConversationId, @Title, @Description, @DueDate, @Priority, 'New', @AssignedToId, @CreatedById, @Attachments, @Now, @Now);
+                    INSERT INTO ChatTasks (MessageId, ConversationId, Title, Description, DueDate, ReminderTime, AlertSound, IsReminderActive, Priority, Status, AssignedToId, CreatedById, Attachments, CreatedAt, UpdatedAt)
+                    VALUES (@MessageId, @ConversationId, @Title, @Description, @DueDate, @ReminderTime, @AlertSound, 1, @Priority, 'New', @AssignedToId, @CreatedById, @Attachments, @Now, @Now);
                     SELECT last_insert_rowid();
                 ", new
                 {
@@ -337,6 +529,8 @@ public static class ChatEndpoints
                     req.Title,
                     req.Description,
                     req.DueDate,
+                    req.ReminderTime,
+                    req.AlertSound,
                     req.Priority,
                     req.AssignedToId,
                     req.CreatedById,
@@ -370,6 +564,9 @@ public static class ChatEndpoints
                     title = req.Title,
                     description = req.Description,
                     dueDate = req.DueDate,
+                    reminderTime = req.ReminderTime,
+                    alertSound = req.AlertSound,
+                    isReminderActive = true,
                     priority = req.Priority,
                     status = "New",
                     assignedToId = req.AssignedToId,
@@ -428,6 +625,9 @@ public static class ChatEndpoints
                     title = (string)t.Title,
                     description = (string?)t.Description,
                     dueDate = (string?)t.DueDate,
+                    reminderTime = (string?)t.ReminderTime,
+                    alertSound = (string?)t.AlertSound,
+                    isReminderActive = t.IsReminderActive != null && (long)t.IsReminderActive == 1,
                     priority = (string)t.Priority,
                     status = (string)t.Status,
                     assignedToId = (int)(long)t.AssignedToId,
@@ -541,6 +741,9 @@ public static class ChatEndpoints
                     title = (string)t.Title,
                     description = (string?)t.Description,
                     dueDate = (string?)t.DueDate,
+                    reminderTime = (string?)t.ReminderTime,
+                    alertSound = (string?)t.AlertSound,
+                    isReminderActive = t.IsReminderActive != null && (long)t.IsReminderActive == 1,
                     priority = (string)t.Priority,
                     status = (string)t.Status,
                     assignedToId = (int)(long)t.AssignedToId,
@@ -597,6 +800,9 @@ public static class ChatEndpoints
                     SentAt TEXT DEFAULT (datetime('now','localtime')),
                     IsRead INTEGER DEFAULT 0,
                     IsTaskConverted INTEGER DEFAULT 0,
+                    AttachmentUrl TEXT,
+                    AttachmentType TEXT,
+                    LikeCount INTEGER DEFAULT 0,
                     FOREIGN KEY(ConversationId) REFERENCES ChatConversations(Id),
                     FOREIGN KEY(SenderId) REFERENCES Users(Id)
                 );
@@ -610,6 +816,9 @@ public static class ChatEndpoints
                     Title TEXT NOT NULL,
                     Description TEXT,
                     DueDate TEXT,
+                    ReminderTime TEXT,
+                    AlertSound TEXT,
+                    IsReminderActive INTEGER DEFAULT 1,
                     Priority TEXT DEFAULT 'Medium',
                     Status TEXT DEFAULT 'New',
                     AssignedToId INTEGER NOT NULL,
@@ -628,6 +837,36 @@ public static class ChatEndpoints
 
             _tablesInitialized = true;
             Console.WriteLine("[Chat] Tables initialized successfully");
+
+            // ═══════════════════════════════════════════
+            // تحديث هيكل الجداول (Schema Migration)
+            // ═══════════════════════════════════════════
+            try {
+                // إضافة أعمدة المرفقات والإعجابات لجدول الرسائل إذا لم تكن موجودة
+                await conn.ExecuteAsync(@"
+                    -- AttachmentUrl
+                    BEGIN TRY
+                        ALTER TABLE ChatMessages ADD COLUMN AttachmentUrl TEXT;
+                    END TRY BEGIN CATCH END CATCH;
+
+                    -- AttachmentType
+                    BEGIN TRY
+                        ALTER TABLE ChatMessages ADD COLUMN AttachmentType TEXT;
+                    END TRY BEGIN CATCH END CATCH;
+
+                    -- LikeCount
+                    BEGIN TRY
+                        ALTER TABLE ChatMessages ADD COLUMN LikeCount INTEGER DEFAULT 0;
+                    END TRY BEGIN CATCH END CATCH;
+                ");
+            } catch {
+                // SQLite doesn't support BEGIN TRY, so we'll do it one by one with individual catch
+                try { await conn.ExecuteAsync("ALTER TABLE ChatMessages ADD COLUMN AttachmentUrl TEXT;"); } catch {}
+                try { await conn.ExecuteAsync("ALTER TABLE ChatMessages ADD COLUMN AttachmentType TEXT;"); } catch {}
+                try { await conn.ExecuteAsync("ALTER TABLE ChatTasks ADD COLUMN ReminderTime TEXT;"); } catch {}
+                try { await conn.ExecuteAsync("ALTER TABLE ChatTasks ADD COLUMN AlertSound TEXT;"); } catch {}
+                try { await conn.ExecuteAsync("ALTER TABLE ChatTasks ADD COLUMN IsReminderActive INTEGER DEFAULT 1;"); } catch {}
+            }
         }
         catch (Exception ex)
         {

@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="css/enterprise.css">
     <link rel="stylesheet" href="css/fonts.css">
     <link rel="stylesheet" href="css/chat.css?v=1.0">
+    <link rel="stylesheet" href="css/advanced.css?v=1.1">
     <script src="lib/fontawesome-all.min.js" data-auto-replace-svg="overlay" defer></script>
     <style>
         /* Smart Payment Hierarchical View Styles */
@@ -67,6 +68,18 @@
                 <div class="loader-percentage">0%</div>
                 <div class="loader-status-text">جاري التحميل...</div>
             </div>
+        </div>
+    </div>
+
+    <!-- (NEW) Tasks Floating Panel -->
+    <div id="tasks-panel" class="tasks-panel hidden">
+        <div class="tasks-header">
+            <h3>📝 مهام اليوم</h3>
+            <button onclick="app.closeTasksPanel()">✕</button>
+        </div>
+        <div id="tasks-list" class="tasks-list">
+            <!-- Tasks will be loaded here -->
+            <div class="empty-tasks">لا توجد مهام حالياً</div>
         </div>
     </div>
 
@@ -201,6 +214,11 @@
                         <span class="nav-item-icon">💬</span>
                         <span class="nav-item-text">المراسلة</span>
                         <span id="chat-unread-badge" class="chat-unread-badge hidden">0</span>
+                    </div>
+                    <div class="nav-item" data-page="tasks" onclick="app.navigateTo('tasks')">
+                        <span class="nav-item-icon">📝</span>
+                        <span class="nav-item-text">مهام اليوم</span>
+                        <span id="tasks-count-badge" class="chat-unread-badge hidden" style="background: #f59e0b;">0</span>
                     </div>
                 </div>
 
@@ -658,14 +676,23 @@
                                 </div>
 
                                 <!-- Left Section: Actions -->
-                                <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                                    <div style="position: relative;">
-                                        <select id="smart-month-filter" onchange="app.runSmartPaymentMatch()" 
-                                                style="width: 100px; height: 34px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50px; color: #fff; padding: 0 12px; outline: none; font-size: 0.75rem; cursor: pointer; appearance: none;">
-                                            <option value="">كل الأشهر</option>
-                                        </select>
-                                        <i class="fas fa-chevron-down" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.6rem; color: #94a3b8; pointer-events: none;"></i>
-                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                                        <!-- New File Code Filter -->
+                                        <div style="position: relative;">
+                                            <select id="smart-file-code-filter" onchange="app.runSmartPaymentMatch()" 
+                                                    style="min-width: 280px; height: 34px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(0, 240, 255, 0.4); border-radius: 50px; color: #00f0ff; padding: 0 15px; outline: none; font-size: 0.75rem; cursor: pointer; appearance: none; font-weight: bold; box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);">
+                                                <option value="">-- كل أكواد الملفات --</option>
+                                            </select>
+                                            <i class="fas fa-file-code" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 0.7rem; color: #00f0ff; pointer-events: none;"></i>
+                                        </div>
+
+                                        <div style="position: relative;">
+                                            <select id="smart-month-filter" onchange="app.runSmartPaymentMatch()" 
+                                                    style="width: 100px; height: 34px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50px; color: #fff; padding: 0 12px; outline: none; font-size: 0.75rem; cursor: pointer; appearance: none;">
+                                                <option value="">كل الأشهر</option>
+                                            </select>
+                                            <i class="fas fa-chevron-down" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.6rem; color: #94a3b8; pointer-events: none;"></i>
+                                        </div>
                                     <button id="btn-smart-match" class="btn btn-info hidden" 
                                             style="height: 34px; border-radius: 50px; padding: 0 15px; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #00f0ff 0%, #00d0ff 100%); border: none; box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);" 
                                             onclick="app.runSmartPaymentMatch()">
@@ -709,6 +736,165 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- ========== Tasks Page ========== -->
+                <section id="page-tasks" class="page-content hidden">
+                    <!-- Stats Cards -->
+                    <div class="tasks-stats-grid">
+                        <div class="task-stat-card stat-total">
+                            <div class="task-stat-icon"><i class="fas fa-clipboard-list"></i></div>
+                            <div class="task-stat-info">
+                                <span class="task-stat-value" id="task-stat-total">0</span>
+                                <span class="task-stat-label">إجمالي المهام</span>
+                            </div>
+                        </div>
+                        <div class="task-stat-card stat-new">
+                            <div class="task-stat-icon"><i class="fas fa-star"></i></div>
+                            <div class="task-stat-info">
+                                <span class="task-stat-value" id="task-stat-new">0</span>
+                                <span class="task-stat-label">جديدة</span>
+                            </div>
+                        </div>
+                        <div class="task-stat-card stat-progress">
+                            <div class="task-stat-icon"><i class="fas fa-spinner"></i></div>
+                            <div class="task-stat-info">
+                                <span class="task-stat-value" id="task-stat-progress">0</span>
+                                <span class="task-stat-label">قيد التنفيذ</span>
+                            </div>
+                        </div>
+                        <div class="task-stat-card stat-done">
+                            <div class="task-stat-icon"><i class="fas fa-check-double"></i></div>
+                            <div class="task-stat-info">
+                                <span class="task-stat-value" id="task-stat-done">0</span>
+                                <span class="task-stat-label">مكتملة</span>
+                            </div>
+                        </div>
+                        <div class="task-stat-card stat-urgent">
+                            <div class="task-stat-icon"><i class="fas fa-fire"></i></div>
+                            <div class="task-stat-info">
+                                <span class="task-stat-value" id="task-stat-urgent">0</span>
+                                <span class="task-stat-label">عاجلة</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Toolbar -->
+                    <div class="tasks-toolbar">
+                        <div class="tasks-toolbar-right">
+                            <button class="btn-task-add" onclick="app.showCreateTaskModal()">
+                                <i class="fas fa-plus-circle"></i> مهمة جديدة
+                            </button>
+                            <button class="btn-task-refresh" onclick="app.loadTasksPage()">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                        <div class="tasks-toolbar-center">
+                            <div class="tasks-tab-bar">
+                                <button class="task-tab active" data-tab="my" onclick="app.switchTaskTab('my', this)">📥 مهامي</button>
+                                <button class="task-tab" data-tab="assigned" onclick="app.switchTaskTab('assigned', this)">📤 مهام أسندتها</button>
+                                <button class="task-tab" data-tab="all" onclick="app.switchTaskTab('all', this)">📋 الكل</button>
+                            </div>
+                        </div>
+                        <div class="tasks-toolbar-left">
+                            <div class="tasks-filter-chips">
+                                <button class="task-chip active" data-filter="all" onclick="app.filterTasks('all', this)">الكل</button>
+                                <button class="task-chip" data-filter="New" onclick="app.filterTasks('New', this)">🆕 جديدة</button>
+                                <button class="task-chip" data-filter="InProgress" onclick="app.filterTasks('InProgress', this)">🔄 قيد التنفيذ</button>
+                                <button class="task-chip" data-filter="Done" onclick="app.filterTasks('Done', this)">✅ مكتملة</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tasks Board -->
+                    <div class="tasks-board" id="tasks-board">
+                        <!-- Column: New -->
+                        <div class="task-column" data-status="New">
+                            <div class="task-column-header col-new">
+                                <span class="col-dot"></span>
+                                <h3>🆕 جديدة</h3>
+                                <span class="col-count" id="col-count-new">0</span>
+                            </div>
+                            <div class="task-column-body" id="col-body-new">
+                                <!-- Cards injected here -->
+                            </div>
+                        </div>
+                        <!-- Column: InProgress -->
+                        <div class="task-column" data-status="InProgress">
+                            <div class="task-column-header col-progress">
+                                <span class="col-dot"></span>
+                                <h3>🔄 قيد التنفيذ</h3>
+                                <span class="col-count" id="col-count-progress">0</span>
+                            </div>
+                            <div class="task-column-body" id="col-body-progress">
+                            </div>
+                        </div>
+                        <!-- Column: Done -->
+                        <div class="task-column" data-status="Done">
+                            <div class="task-column-header col-done">
+                                <span class="col-dot"></span>
+                                <h3>✅ مكتملة</h3>
+                                <span class="col-count" id="col-count-done">0</span>
+                            </div>
+                            <div class="task-column-body" id="col-body-done">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="tasks-empty-state" class="tasks-empty hidden">
+                        <div class="tasks-empty-icon">📝</div>
+                        <h3>لا توجد مهام حالياً</h3>
+                        <p>ابدأ بإضافة مهمة جديدة لتنظيم عملك</p>
+                        <button class="btn-task-add" onclick="app.showCreateTaskModal()">
+                            <i class="fas fa-plus-circle"></i> إنشاء مهمة
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Create Task Modal -->
+                <div id="create-task-modal" class="modal hidden" style="z-index: 999998; position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.85);">
+                    <div class="modal-content" style="max-width: 550px; width: 95%; background: #0d1623; border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 16px; overflow: hidden;">
+                        <div class="modal-header" style="padding: 18px 24px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0; font-size: 1.1rem; color: #fff;">📝 إنشاء مهمة جديدة</h3>
+                            <button class="modal-close" onclick="app.hideCreateTaskModal()" style="background: none; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer;">✕</button>
+                        </div>
+                        <div class="modal-body" style="padding: 24px;">
+                            <div style="display: flex; flex-direction: column; gap: 16px;">
+                                <div>
+                                    <label style="color: #94a3b8; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; display: block;">عنوان المهمة *</label>
+                                    <input type="text" id="task-title-input" placeholder="مثال: مراجعة ملف المرتبات" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 0.9rem; outline: none;">
+                                </div>
+                                <div>
+                                    <label style="color: #94a3b8; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; display: block;">الوصف</label>
+                                    <textarea id="task-desc-input" rows="3" placeholder="تفاصيل المهمة..." style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 0.85rem; outline: none; resize: vertical;"></textarea>
+                                </div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                                    <div>
+                                        <label style="color: #94a3b8; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; display: block;">الأولوية</label>
+                                        <select id="task-priority-input" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 0.85rem; outline: none;">
+                                            <option value="Low">🟢 منخفضة</option>
+                                            <option value="Medium" selected>🟡 متوسطة</option>
+                                            <option value="High">🔴 عالية</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="color: #94a3b8; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; display: block;">إسناد إلى</label>
+                                        <select id="task-assignee-input" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 0.85rem; outline: none;">
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label style="color: #94a3b8; font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; display: block;">الموعد النهائي (اختياري)</label>
+                                    <input type="date" id="task-due-input" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; font-size: 0.85rem; outline: none;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; gap: 10px;">
+                            <button onclick="app.hideCreateTaskModal()" style="padding: 10px 24px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.85rem;">إلغاء</button>
+                            <button onclick="app.createTask()" style="padding: 10px 28px; border-radius: 10px; border: none; background: linear-gradient(135deg, #00f0ff 0%, #6366f1 100%); color: #0f172a; cursor: pointer; font-weight: 800; font-size: 0.85rem;">إنشاء المهمة</button>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- ========== Salary Returns Page ========== -->
 
@@ -974,7 +1160,13 @@
                             
                             <div class="chat-messages-area" id="chat-messages-area"></div>
                             
+                            <div id="chat-attachment-preview-area" class="chat-attachment-preview-area"></div>
+
                             <div class="chat-input-area">
+                                <div class="chat-input-actions">
+                                    <button id="chat-attach-btn" class="chat-attach-btn" title="إرفاق ملف"><i class="fas fa-paperclip"></i></button>
+                                    <input type="file" id="chat-file-input" style="display: none;" accept="image/*,.pdf">
+                                </div>
                                 <div class="chat-input-wrapper">
                                     <textarea id="chat-message-input" class="chat-input" placeholder="اكتب رسالتك هنا..." rows="1"></textarea>
                                 </div>

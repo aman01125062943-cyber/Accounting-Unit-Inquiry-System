@@ -210,7 +210,7 @@ public class DatabaseService
 
         var sql = @"
             CREATE TABLE IF NOT EXISTS Users (Id INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT UNIQUE, Password TEXT, Fullname TEXT, Role TEXT, Active INTEGER, CreatedAt TEXT);
-            CREATE TABLE IF NOT EXISTS Archives (Id INTEGER PRIMARY KEY AUTOINCREMENT, Date TEXT, Filename TEXT, RecordCount INTEGER, Size TEXT, Headers TEXT);
+            CREATE TABLE IF NOT EXISTS Archives (Id INTEGER PRIMARY KEY AUTOINCREMENT, Date TEXT, Filename TEXT, RecordCount INTEGER, Size TEXT, Headers TEXT, ExclusiveUserId INTEGER);
             CREATE TABLE IF NOT EXISTS Returns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, FOREIGN KEY(ImportId) REFERENCES Archives(Id) ON DELETE CASCADE);
             CREATE INDEX IF NOT EXISTS TXT_Returns_ImportId ON Returns(ImportId);
             CREATE INDEX IF NOT EXISTS IDX_Returns_ReturnCode ON Returns(ReturnCode);
@@ -220,7 +220,7 @@ public class DatabaseService
             CREATE TABLE IF NOT EXISTS Filters (Id TEXT PRIMARY KEY, Name TEXT NOT NULL, Type TEXT NOT NULL, ValuesContent TEXT, MinValue REAL, MaxValue REAL, TargetPage TEXT, TargetColumn TEXT, Criteria TEXT, CreatedAt TEXT);
             CREATE TABLE IF NOT EXISTS FullReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, RawData TEXT, CreatedAt TEXT);
             CREATE TABLE IF NOT EXISTS FullReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES FullReturns(Id) ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS SalaryArchives (Id INTEGER PRIMARY KEY AUTOINCREMENT, Date TEXT, Filename TEXT, RecordCount INTEGER, Size TEXT, Headers TEXT);
+            CREATE TABLE IF NOT EXISTS SalaryArchives (Id INTEGER PRIMARY KEY AUTOINCREMENT, Date TEXT, Filename TEXT, RecordCount INTEGER, Size TEXT, Headers TEXT, ExclusiveUserId INTEGER);
             CREATE TABLE IF NOT EXISTS SalaryReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, FOREIGN KEY(ImportId) REFERENCES SalaryArchives(Id) ON DELETE CASCADE);
             CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_ImportId ON SalaryReturns(ImportId);
             CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_ReturnCode ON SalaryReturns(ReturnCode);
@@ -228,6 +228,43 @@ public class DatabaseService
             CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_IsDeleted ON SalaryReturns(IsDeleted);
             CREATE TABLE IF NOT EXISTS SalaryReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES SalaryReturns(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS NotificationEvents (Id INTEGER PRIMARY KEY AUTOINCREMENT, TableName TEXT, Operation TEXT, RowId INTEGER, CreatedBy TEXT, CreatedAt TEXT, Status TEXT DEFAULT 'Pending', Error TEXT);
+            
+            -- New Tables for Advanced Features
+            CREATE TABLE IF NOT EXISTS TableShares (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                TableId INTEGER,
+                TableType TEXT, -- 'incentive', 'salary'
+                SharedById INTEGER,
+                SharedWithId INTEGER,
+                Message TEXT,
+                Status TEXT DEFAULT 'Pending', -- 'Pending', 'Accepted', 'Rejected'
+                CreatedAt TEXT
+            );
+            
+            CREATE TABLE IF NOT EXISTS UserTasks (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ManagerId INTEGER,
+                TargetUserId INTEGER,
+                Title TEXT,
+                Description TEXT,
+                Priority TEXT DEFAULT 'Medium', -- 'High', 'Medium', 'Low'
+                Status TEXT DEFAULT 'New', -- 'New', 'InProgress', 'Done'
+                SourceTableId INTEGER,
+                SourceType TEXT,
+                CreatedAt TEXT,
+                FOREIGN KEY(ManagerId) REFERENCES Users(Id),
+                FOREIGN KEY(TargetUserId) REFERENCES Users(Id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS AuditLogs (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserId INTEGER,
+                Username TEXT,
+                Action TEXT,
+                Details TEXT,
+                IPAddress TEXT,
+                CreatedAt TEXT
+            );
         ";
         await conn.ExecuteAsync(sql);
 
@@ -299,6 +336,12 @@ public class DatabaseService
                 await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية التعلية] TEXT;");
             }
             try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية السداد] TEXT;"); } catch { }
+            
+            // --- Advanced Features Schema Patches ---
+            try { await conn.ExecuteAsync("ALTER TABLE Archives ADD COLUMN ExclusiveUserId INTEGER;"); } catch {}
+            try { await conn.ExecuteAsync("ALTER TABLE SalaryArchives ADD COLUMN ExclusiveUserId INTEGER;"); } catch {}
+            try { await conn.ExecuteAsync("ALTER TABLE UserTasks ADD COLUMN DueDate TEXT;"); } catch {}
+            try { await conn.ExecuteAsync("ALTER TABLE UserTasks ADD COLUMN CompletedAt TEXT;"); } catch {}
             
             // --- Remove Old Settlement Column ---
             try { await conn.ExecuteAsync("ALTER TABLE Returns DROP COLUMN [رقم التسوية];"); } catch { }
@@ -431,6 +474,19 @@ public class DatabaseService
                 new { TableName = tableName, Operation = operation, RowId = rowId, CreatedBy = user ?? "النظام" }
             );
         } catch {}
+    }
+
+    public async Task AddAuditLogAsync(int? userId, string username, string action, string details, string ip = "")
+    {
+        try {
+            using var conn = await GetOpenConnectionAsync();
+            await conn.ExecuteAsync(@"INSERT INTO AuditLogs (UserId, Username, Action, Details, IPAddress, CreatedAt) 
+                                    VALUES (@UserId, @Username, @Action, @Details, @IP, datetime('now','localtime'))",
+                new { UserId = userId, Username = username ?? "Unknown", Action = action, Details = details, IP = ip }
+            );
+        } catch (Exception ex) {
+            Console.WriteLine($"[Audit] Error: {ex.Message}");
+        }
     }
 
     public static string ExtractName(string json)

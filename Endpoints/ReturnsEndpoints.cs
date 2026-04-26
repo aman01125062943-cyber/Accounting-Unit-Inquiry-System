@@ -185,23 +185,38 @@ public static class ReturnsEndpoints
                     WHERE UploadDate IS NOT NULL AND UploadDate != ''
                     ORDER BY UploadDate DESC");
                 
-                // Process dates in C# to ensure correct format (YYYY-MM-DD)
+                // Process dates in C# to ensure correct format (YYYY-MM-DD) and strict deduplication
                 var formattedDates = rawDates
                     .Where(d => !string.IsNullOrWhiteSpace(d))
                     .Select(d => {
+                        // Attempt multiple parses for robustness
                         if (DateTime.TryParse(d, out var dt)) {
                             return dt.ToString("yyyy-MM-dd");
                         }
-                        // Fallback if parsing fails but string looks like a date prefix
+                        
+                        // Handle manual formats like DD/MM/YYYY or similar if TryParse fails
+                        var match = System.Text.RegularExpressions.Regex.Match(d, @"(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})");
+                        if (match.Success) {
+                            string p1 = match.Groups[1].Value;
+                            string p2 = match.Groups[2].Value.PadLeft(2, '0');
+                            string p3 = match.Groups[3].Value.PadLeft(2, '0');
+                            
+                            if (p1.Length == 4) return $"{p1}-{p2}-{p3}"; // YYYY-MM-DD
+                            if (p3.Length == 4) return $"{p3}-{p2}-{p1}"; // DD-MM-YYYY -> YYYY-MM-DD
+                        }
+
+                        // Absolute fallback: extract first 10 chars if they look like a date
                         return d.Length >= 10 ? d.Substring(0, 10) : d;
                     })
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
                     .Distinct()
+                    .OrderByDescending(d => d)
                     .ToList();
                     
                 return Results.Ok(formattedDates);
             } catch (Exception ex) {
                 Console.WriteLine($"[ERROR] Fetching upload dates: {ex.Message}");
-                return Results.Ok(new List<string>()); // Column might not exist yet
+                return Results.Ok(new List<string>()); 
             }
         });
 
@@ -354,14 +369,13 @@ public static class ReturnsEndpoints
              var systemTotalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Returns");
 
              // 2. Fetch Paged Data
-             // Using PRAGMA check directly in C# to build safe SQL
              bool hasUploadDateInDb = true;
              try { await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1"); }
              catch { hasUploadDateInDb = false; }
 
              string selectFields = hasUploadDateInDb 
-                 ? "Id, RawData, ReturnCode, UploadDate, [رقم تسوية التعلية], [رقم تسوية السداد]" 
-                 : "Id, RawData, ReturnCode, NULL as UploadDate, [رقم تسوية التعلية], [رقم تسوية السداد]";
+                 ? "Id, RawData, ReturnCode, UploadDate" 
+                 : "Id, RawData, ReturnCode, NULL as UploadDate";
 
              var sqlPaged = $@"
                 SELECT {selectFields}
@@ -391,16 +405,19 @@ public static class ReturnsEndpoints
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(r.RawData, jsonOptions);
                 if (obj != null) {
                     obj["id"] = (long)r.Id;
-                    if (r.UploadDate != null) {
-                        obj["تاريخ الرفع"] = (string)r.UploadDate;
+                    object uDateVal = r.UploadDate;
+                    if (uDateVal != null) {
+                        obj["تاريخ الرفع"] = uDateVal.ToString();
                     }
-                    // Map physical columns specifically using safe dictionary access
-                    var rowDict = (IDictionary<string, object>)r;
-                    obj["رقم تسوية التعلية"] = rowDict.ContainsKey("رقم تسوية التعلية") ? rowDict["رقم تسوية التعلية"] : "";
-                    obj["رقم تسوية السداد"] = rowDict.ContainsKey("رقم تسوية السداد") ? rowDict["رقم تسوية السداد"] : "";
                     
-                    obj.Remove("رقم التسوية");
-                    obj["AttachmentCount"] = attachmentCounts.ContainsKey((long)r.Id) ? attachmentCounts[(long)r.Id] : 0;
+                    // Ensure crucial status field is calculated for UI consistency
+                    var sVal = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
+                    string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
+                    bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
+                    obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
+
+                    long rIdVal = (long)r.Id;
+                    obj["AttachmentCount"] = attachmentCounts.ContainsKey(rIdVal) ? attachmentCounts[rIdVal] : 0;
                 }
                 return obj;
              }).ToList();
@@ -634,31 +651,51 @@ public static class ReturnsEndpoints
                 using var conn = await db.GetOpenConnectionAsync();
                 
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody);
+                string settlementNo = "";
+                string accrualNo = "";
+
                 if (obj != null) {
-                    // Settlement status based on رقم تسوية السداد (not تاريخ اعتماد التعديل)
-                    var settlementNo = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
-                    var hasSettlement = settlementNo != null && !string.IsNullOrWhiteSpace(settlementNo.ToString());
+                    // Settlement status based on رقم تسوية السداد
+                    var sVal = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
+                    string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
+                    bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
                     obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
+                    
                     rawBody = JsonSerializer.Serialize(obj, new JsonSerializerOptions {
                         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
                     });
+
+                    settlementNo = sStr;
+                    var aVal = obj.ContainsKey("رقم تسوية التعلية") ? obj["رقم تسوية التعلية"] : null;
+                    accrualNo = (aVal is JsonElement ae && (ae.ValueKind == JsonValueKind.Null || ae.ValueKind == JsonValueKind.Undefined)) ? "" : aVal?.ToString() ?? "";
                 }
 
                 string fCode = DatabaseService.ExtractFileCodeDirect(rawBody);
                 string rCode = DatabaseService.ExtractReturnCode(fCode);
 
-                var affected = await conn.ExecuteAsync(
-                    "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode WHERE Id = @Id", 
-                    new { RawData = rawBody, ReturnCode = rCode, Id = id }
-                );
-
-                if (affected > 0) {
-                    string user = context.Request.Query["user"].ToString();
-                    if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                    await db.AddNotificationEventAsync("Returns", "تعديل", id, user);
-                    return Results.Ok(new { success = true });
+                // Attempt to update physical columns if they exist
+                try {
+                    await conn.ExecuteAsync(@"
+                        UPDATE Returns 
+                        SET RawData = @RawData, 
+                            ReturnCode = @ReturnCode,
+                            [رقم تسوية السداد] = @SettlementNo,
+                            [رقم تسوية التعلية] = @AccrualNo
+                        WHERE Id = @Id", 
+                        new { RawData = rawBody, ReturnCode = rCode, SettlementNo = settlementNo, AccrualNo = accrualNo, Id = id }
+                    );
+                } catch {
+                    // Fallback if physical columns don't exist
+                    await conn.ExecuteAsync(
+                        "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode WHERE Id = @Id", 
+                        new { RawData = rawBody, ReturnCode = rCode, Id = id }
+                    );
                 }
-                else return Results.NotFound(new { success = false, message = "Record not found" });
+
+                string user = context.Request.Query["user"].ToString();
+                if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+                await db.AddNotificationEventAsync("Returns", "تعديل", id, user);
+                return Results.Ok(new { success = true });
 
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
