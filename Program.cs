@@ -149,6 +149,7 @@ app.MapSalaryReturnsEndpoints();
 app.MapSmartSettlementEndpoints();
 app.MapChatEndpoints();
 app.MapTaskEndpoints();
+app.MapAdabirEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");

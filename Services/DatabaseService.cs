@@ -229,6 +229,26 @@ public class DatabaseService
             CREATE TABLE IF NOT EXISTS SalaryReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES SalaryReturns(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS NotificationEvents (Id INTEGER PRIMARY KEY AUTOINCREMENT, TableName TEXT, Operation TEXT, RowId INTEGER, CreatedBy TEXT, CreatedAt TEXT, Status TEXT DEFAULT 'Pending', Error TEXT);
             
+            -- Archive System
+            CREATE TABLE IF NOT EXISTS ArchiveBatches (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ExcelNames TEXT,
+                RecordCount INTEGER,
+                DateFrom TEXT,
+                DateTo TEXT,
+                SourceTable TEXT,
+                Reason TEXT,
+                ArchivedAt TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS ArchiveDetails (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                BatchId INTEGER,
+                OriginalId INTEGER,
+                RawData TEXT,
+                FOREIGN KEY(BatchId) REFERENCES ArchiveBatches(Id) ON DELETE CASCADE
+            );
+            
             -- New Tables for Advanced Features
             CREATE TABLE IF NOT EXISTS TableShares (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,

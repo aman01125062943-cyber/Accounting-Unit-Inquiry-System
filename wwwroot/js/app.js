@@ -34,6 +34,7 @@ console.log('App JS Loaded Successfully version 7.1 - Dual Filter Logic Refined'
 // ========================================
 class DialogSystem {
     constructor() {
+
         this.resolvePromise = null;
         this.el = null;
     }
@@ -165,6 +166,11 @@ window.openAttachments = function (id, type) {
 
 class App {
     constructor() {
+        this.selectedReturnIds = new Set();
+        this.isAllReturnsSelected = false;
+
+        
+
         this.currentPage = 'returns';
         this.data = [];
         this.headers = [];
@@ -913,6 +919,15 @@ class App {
      * تحميل وعرض البيانات
      */
     async loadReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, append = false) {
+        if ((this.selectedReturnIds.size > 0 || this.isAllReturnsSelected) && 
+            (search !== null && search !== this.searchQuery || filter !== null && filter !== this.filterValue)) {
+            if (!confirm('لديك سجلات محددة، هل تريد مسح التحديد أم الإبقاء عليه؟\n(موافق لمسح التحديد، إلغاء للإبقاء عليه)')) {
+                // Keep selection
+            } else {
+                this.clearSelection();
+            }
+        }
+        
         console.log('[LOAD] loadReturns called:', { page, pageSize, search, filter, attachmentStatus, append });
         // تحديث الحالات المحلية لضمان التزامن
         if (search !== null) this.searchQuery = search;
@@ -1879,7 +1894,246 @@ class App {
         this.loadReturns(1, this.rowsPerPage, this.searchQuery, this.filterValue);
     }
 
-    renderTable(dataToRender = null, append = false) {
+    toggleSelectReturn(id) {
+        if (this.isAllReturnsSelected) {
+            alert("تم تحديد كافة سجلات الفلتر من خلال البانر. لإجراء تحديد يدوي، يرجى النقر على زر 'إلغاء التحديد' أولاً.");
+            const cb = document.querySelector(`.return-row-checkbox[value="${id}"]`);
+            if (cb) cb.checked = true;
+            return;
+        }
+
+        if (this.selectedReturnIds.has(String(id))) {
+            this.selectedReturnIds.delete(String(id));
+        } else {
+            this.selectedReturnIds.add(String(id));
+        }
+        this.updateBulkDeleteToolbar();
+        
+        const headerCheck = document.getElementById('select-all-returns');
+        const checkboxes = document.querySelectorAll('.return-row-checkbox');
+        const checkedBoxes = document.querySelectorAll('.return-row-checkbox:checked');
+        if (headerCheck) {
+             headerCheck.checked = (checkboxes.length > 0 && checkboxes.length === checkedBoxes.length);
+        }
+    }
+
+    toggleSelectAllReturns(checked) {
+        document.getElementById('select-all-filtered-banner')?.remove();
+
+        this.isAllReturnsSelected = false;
+        this.selectedReturnIds.clear();
+
+        const checkboxes = document.querySelectorAll('.return-row-checkbox');
+        checkboxes.forEach(cb => cb.checked = checked);
+
+        if (checked) {
+            checkboxes.forEach(cb => this.selectedReturnIds.add(String(cb.value)));
+            
+            const visibleCount = checkboxes.length;
+            const totalCount = this.totalFilteredCount || 0;
+
+            if (totalCount > visibleCount) {
+                this._showSelectAllFilteredBanner(visibleCount, totalCount);
+            } else {
+                this.isAllReturnsSelected = true;
+            }
+        }
+
+        this.updateBulkDeleteToolbar();
+        
+        const selectAllCb = document.getElementById('select-all-returns');
+        if (selectAllCb) selectAllCb.checked = checked;
+    }
+
+    updateBulkDeleteToolbar() {
+        const totalFiltered = this.totalFilteredCount || 0;
+        const count = this.isAllReturnsSelected
+            ? `كافة (${totalFiltered.toLocaleString()})`
+            : this.selectedReturnIds.size;
+
+        const btnDeleteSelected = document.getElementById('btn-delete-selected');
+        const countBadge = document.getElementById('selected-count-badge');
+        
+        let btnExportSelected = document.getElementById('btn-export-selected');
+        const exportExcelBtn = document.getElementById('export-excel-btn');
+
+        // إنشاء زر تصدير المحدد في الشريط العلوي إن لم يكن موجوداً
+        if (!btnExportSelected && exportExcelBtn) {
+            btnExportSelected = document.createElement('button');
+            btnExportSelected.className = 'btn-pro-action btn-export-pro';
+            btnExportSelected.id = 'btn-export-selected';
+            btnExportSelected.style.background = 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)';
+            btnExportSelected.style.borderColor = 'rgba(14, 165, 233, 0.5)';
+            btnExportSelected.innerHTML = '<i class="fas fa-file-export"></i> تصدير المحدد <span id="export-selected-badge" style="background:#0284c7; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span>';
+            btnExportSelected.onclick = () => window.app.exportSelectedReturns();
+            exportExcelBtn.parentNode.insertBefore(btnExportSelected, exportExcelBtn.nextSibling);
+        }
+
+        const exportBadge = document.getElementById('export-selected-badge');
+
+        if (this.isAllReturnsSelected || this.selectedReturnIds.size > 0) {
+            // إظهار أزرار الإجراءات على المحدد في الشريط العلوي
+            if (btnDeleteSelected) {
+                btnDeleteSelected.style.display = 'inline-flex';
+                btnDeleteSelected.onclick = () => window.app.bulkDeleteReturns(); 
+            }
+            if (countBadge) countBadge.innerText = count;
+
+            if (btnExportSelected) {
+                btnExportSelected.style.display = 'inline-flex';
+                if (exportBadge) exportBadge.innerText = count;
+            }
+            if (exportExcelBtn) exportExcelBtn.style.display = 'none'; // إخفاء زر التصدير العادي
+
+            // إزالة أي شريط سفلي عائم إن وجد
+            const oldToolbar = document.getElementById('bulk-delete-toolbar');
+            if (oldToolbar) oldToolbar.remove();
+
+        } else {
+            // إخفاء أزرار المحدد وإعادة الزر العادي
+            if (btnDeleteSelected) btnDeleteSelected.style.display = 'none';
+            if (btnExportSelected) btnExportSelected.style.display = 'none';
+            if (exportExcelBtn) exportExcelBtn.style.display = 'inline-flex';
+        }
+    }
+
+    exportSelectedReturns() {
+        if (!this.isAllReturnsSelected && this.selectedReturnIds.size === 0) {
+            this.showToast('لم يتم تحديد أي سجل للتصدير', 'warning');
+            return;
+        }
+
+        this.showToast('جاري تحضير ملف التصدير...', 'info');
+
+        // إذا كان التحديد للكل عبر الفلتر
+        if (this.isAllReturnsSelected) {
+            this.exportExcel();
+            return;
+        }
+
+        // إذا كان التحديد جزئياً
+        const selectedIdsArray = Array.from(this.selectedReturnIds).map(id => String(id));
+        const selectedData = this.data.filter(row => selectedIdsArray.includes(String(row.id || row.Id)));
+
+        if (selectedData.length === 0) {
+             this.showToast('تعذر العثور على بيانات العناصر المحددة محلياً، تأكد من عرضها في الصفحة الحالية', 'error');
+             return;
+        }
+
+        const worksheet = XLSX.utils.json_to_sheet(selectedData.map(row => {
+            const cleanRow = {};
+            this.headers.forEach(h => cleanRow[h] = row[h]);
+            return cleanRow;
+        }));
+
+        const workbook = XLSX.utils.book_new();
+        if (!worksheet['!views']) worksheet['!views'] = [];
+        worksheet['!views'].push({ RTL: true });
+
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'المحدد');
+
+        const filename = `المحدد_${new Date().toLocaleDateString('ar-EG').replace(/\//g, '-')}.xlsx`;
+        XLSX.writeFile(workbook, filename);
+
+        this.showToast('تم تصدير المحدد بنجاح', 'success');
+        this.clearSelection();
+    }
+
+    clearSelection() {
+        this.selectedReturnIds.clear();
+        this.isAllReturnsSelected = false;
+        document.getElementById('select-all-filtered-banner')?.remove();
+        const headerCheck = document.getElementById('select-all-returns');
+        if (headerCheck) headerCheck.checked = false;
+
+        const checkboxes = document.querySelectorAll('.return-row-checkbox');
+        checkboxes.forEach(cb => cb.checked = false);
+
+        this.updateBulkDeleteToolbar();
+    }
+
+    _showSelectAllFilteredBanner(visibleCount, totalCount) {
+        document.getElementById('select-all-filtered-banner')?.remove();
+
+        const banner = document.createElement('div');
+        banner.id = 'select-all-filtered-banner';
+        banner.className = 'select-all-filtered-banner';
+        banner.innerHTML = `
+            <div class="safb-content">
+                <span class="safb-icon">☑️</span>
+                <span class="safb-text">
+                    تم تحديد <strong>${visibleCount.toLocaleString()}</strong> سجل من الصفحة الحالية.
+                    يوجد <strong>${totalCount.toLocaleString()}</strong> سجل مطابق للفلتر.
+                </span>
+                <button class="safb-btn-select-all" onclick="window.app.selectAllFiltered()">
+                    ✅ تحديد كافة ${totalCount.toLocaleString()} سجل
+                </button>
+                <button class="safb-btn-close" onclick="document.getElementById('select-all-filtered-banner')?.remove()" title="إغلاق">✖</button>
+            </div>
+        `;
+
+        // إدراج البنر في body مباشرة بـ position fixed لضمان الظهور
+        document.body.appendChild(banner);
+    }
+
+    selectAllFiltered() {
+        this.isAllReturnsSelected = true;
+        this.selectedReturnIds.clear();
+        document.getElementById('select-all-filtered-banner')?.remove();
+
+        // تحديث checkboxes المرئية
+        document.querySelectorAll('.return-row-checkbox').forEach(cb => cb.checked = true);
+        const headerCheck = document.getElementById('select-all-returns');
+        if (headerCheck) headerCheck.checked = true;
+
+        this.updateBulkDeleteToolbar();
+        const total = (this.totalFilteredCount || 0).toLocaleString();
+        this.showToast(`✅ تم تحديد كافة ${total} سجل المطابقة للفلتر`, 'success');
+    }
+
+    async bulkDeleteReturns() {
+        const count = this.isAllReturnsSelected ? 'كافة السجلات المطابقة للفلاتر' : this.selectedReturnIds.size + ' سجل';
+        if (!confirm(`هل أنت متأكد من رغبتك في حذف ${count}؟ لا يمكن التراجع عن هذه العملية.`)) return;
+
+        try {
+            this.showLoading();
+            const payload = {
+                Ids: Array.from(this.selectedReturnIds).map(id => parseInt(id)),
+                DeleteAllFiltered: this.isAllReturnsSelected,
+                Search: this.searchQuery,
+                Filter: this.filterValue,
+                FilterId: this.currentFilterId,
+                AttachmentStatus: this.attachmentFilterValue,
+                Min: this.minAmount,
+                Max: this.maxAmount,
+                TargetColumn: this.targetColumn,
+                UploadDateFrom: document.getElementById('upload-date-from')?.value,
+                UploadDateTo: document.getElementById('upload-date-to')?.value
+            };
+
+            const res = await fetch('/returns/bulk-delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                const result = await res.json();
+                this.showToast(`تم حذف ${result.count} سجل بنجاح`, 'success');
+                this.clearSelection();
+                this.loadReturns(); // Refresh table
+            } else {
+                this.showToast('حدث خطأ أثناء الحذف المجمع', 'error');
+            }
+        } catch (error) {
+            console.error('Bulk Delete Error:', error);
+            this.showToast('فشل الاتصال بالخادم', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+renderTable(dataToRender = null, append = false) {
         const data = dataToRender || this.data;
         const tableHeaders = document.getElementById('table-headers');
         const tableBody = document.getElementById('table-body');
@@ -1896,6 +2150,7 @@ class App {
             
             // الترتيب الصارم والنهائي للأعمدة ليتطابق مع الصورة تماماً
             const finalOrder = [
+                'CHECKBOX',
                 '#',
                 'كود الملف',
                 'الشهر',
@@ -1922,7 +2177,12 @@ class App {
 
             this._displayHeaders = finalOrder; 
 
+            
             tableHeaders.innerHTML = finalOrder.map((h, idx) => {
+                if (h === 'CHECKBOX') {
+                    return `<th class="sticky-seq" style="text-align: center !important;"><input type="checkbox" id="select-all-returns" onclick="window.app.toggleSelectAllReturns(this.checked)"></th>`;
+                }
+
                 const hNorm = h.replace(/ـ/g, '').replace(/[أإآ]/g, 'ا').toLowerCase();
                 const isNameCol = hNorm.includes('الاسم') || hNorm.includes('name') || hNorm.includes('fullname');
 
@@ -1962,7 +2222,13 @@ class App {
         const previousRowCount = append ? (document.getElementById('table-body')?.querySelectorAll('tr').length || 0) : 0;
         const rowsHTML = data.map((row, rowIndex) => {
             const rowId = row.id || row.Id;
+            
             const cells = (this._displayHeaders || this.headers).map((h, i) => {
+                if (h === 'CHECKBOX') {
+                    const isChecked = this.isAllReturnsSelected || this.selectedReturnIds.has(String(rowId));
+                    return `<td class="sticky-seq col-checkbox" style="text-align: center !important;"><input type="checkbox" class="return-row-checkbox" value="${rowId}" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation(); window.app.toggleSelectReturn('${rowId}')"></td>`;
+                }
+
                 let val = row[h] ?? '';
 
                 // منطق استعادة القيم المسميات المزدوجة (لأن البيانات مخزنة بالمفتاح القديم)
@@ -1981,9 +2247,7 @@ class App {
                     val = row[h] || '';
                 }
 
-                if (h.includes('<input')) {
-                    val = `<input type="checkbox" class="return-row-checkbox" value="${rowId}" onchange="window.app.updateSelectAllReturns()" style="transform: scale(1.2); cursor: pointer;">`;
-                } else if (h === '#') {
+                if (h === '#') {
                     val = previousRowCount + rowIndex + 1;
                 } else if (h === 'كود الملف') {
                     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', ' FileCode', 'كود_الملف'];
@@ -2182,6 +2446,8 @@ class App {
 
     updateStats(serverStats = null) {
         if (!serverStats) return;
+        // حفظ العدد الكلي المطابق للفلتر لميزة "تحديد الكل"
+        this.totalFilteredCount = serverStats.filteredCount || serverStats.total || serverStats.systemTotalCount || 0;
 
         // Helper functions for formatting
         const formatNum = (val) => (val || 0).toLocaleString();
@@ -3892,28 +4158,8 @@ class App {
     // Multiple Selection and Deletion Logic
     // ==========================================
 
-    toggleSelectAllReturns(isChecked) {
-        const checkboxes = document.querySelectorAll('#table-body .return-row-checkbox');
-        checkboxes.forEach(cb => cb.checked = isChecked);
-        this.updateSelectAllReturns();
-    }
-
-    updateSelectAllReturns() {
-        const checkboxes = document.querySelectorAll('#table-body .return-row-checkbox');
-        const checkedBoxes = document.querySelectorAll('#table-body .return-row-checkbox:checked');
-        const selectAllCb = document.getElementById('selectAllCheckbox');
-        const deleteBtn = document.getElementById('btn-delete-selected');
-        const countBadge = document.getElementById('selected-count-badge');
-
-        if (selectAllCb) {
-            selectAllCb.checked = checkboxes.length > 0 && checkboxes.length === checkedBoxes.length;
-        }
-
-        if (deleteBtn && countBadge) {
-            countBadge.textContent = checkedBoxes.length;
-            deleteBtn.style.display = checkedBoxes.length > 0 ? 'inline-flex' : 'none';
-        }
-    }
+    // تم دمج ونقل منطق تحديد الكل (toggleSelectAllReturns و updateSelectAllReturns)
+    // إلى أعلى الملف لضمان التوافق مع البانر والـ Toolbar الجديد.
 
     async deleteSelectedReturns() {
         const checkedBoxes = document.querySelectorAll('#table-body .return-row-checkbox:checked');
@@ -8699,8 +8945,6 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
 
                 if (h === '#') {
                     val = previousRowCount + rowIndex + 1;
-                } else if (h.includes('<input')) {
-                    val = `<input type="checkbox" class="salary-row-checkbox" value="${rowId}" onchange="window.app.updateSelectAllSalaryReturns()" style="transform: scale(1.2); cursor: pointer;">`;
                 } else if (h === 'الاسم' || h === 'الاسم ') {
                     val = row['الاسم'] || row['الاسم '] || row['Name'] || '';
                 } else if (h === 'الرقم القومي' || h === 'الرقم_القومي') {
@@ -10689,3 +10933,53 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app = new App();
     window.app.init(); 
 });
+
+// --- Archive System Logic ---
+App.prototype.loadAdabir = async function() {
+    try {
+        const res = await fetch('/api/adabir');
+        const data = await res.json();
+        const tbody = document.getElementById('adabir-tbody');
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        data.forEach(batch => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${batch.id}</td>
+                <td>${batch.archivedAt}</td>
+                <td>${batch.reason}</td>
+                <td>${batch.dateFrom} - ${batch.dateTo}</td>
+                <td>${batch.recordCount}</td>
+                <td>${batch.sourceTable}</td>
+                <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${batch.excelNames}">${batch.excelNames}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="app.viewAdabirDetails(${batch.id})">التفاصيل</button>
+                    <button class="btn btn-sm btn-danger" onclick="app.restoreAdabir(${batch.id})">استعادة</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error('Error loading Adabir', e); }
+};
+
+App.prototype.viewAdabirDetails = async function(id) {
+    try {
+        const res = await fetch('/api/adabir/' + id + '/details');
+        const details = await res.json();
+        console.log("Details loaded:", details);
+        alert('تم تحميل ' + details.length + ' سجل. (الواجهة قيد التطوير)');
+    } catch(e) { console.error(e); }
+};
+
+App.prototype.restoreAdabir = async function(id) {
+    if(!confirm('هل أنت متأكد من رغبتك في استعادة هذه الدفعة للجدول الرئيسي؟')) return;
+    try {
+        const res = await fetch('/api/adabir/restore/' + id, { method: 'POST' });
+        if(res.ok) {
+            alert('تمت الاستعادة بنجاح');
+            this.loadAdabir();
+        } else {
+            alert('حدث خطأ أثناء الاستعادة');
+        }
+    } catch(e) { console.error(e); }
+};

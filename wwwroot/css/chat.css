@@ -427,7 +427,6 @@
 .chat-message-wrapper.sent .chat-bubble {
     background: linear-gradient(135deg, #1e3a5f 0%, #1a2f4d 100%);
     color: #e2e8f0;
-    border-bottom-left: 4px;
     border-top-right-radius: 16px;
     border-bottom-right-radius: 16px;
     border-top-left-radius: 16px;

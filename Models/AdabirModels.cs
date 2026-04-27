@@ -1,0 +1,29 @@
+namespace HKServer.Models;
+
+public class ArchiveBatch
+{
+    public long Id { get; set; }
+    public string ExcelNames { get; set; } = "";
+    public int RecordCount { get; set; }
+    public string DateFrom { get; set; } = "";
+    public string DateTo { get; set; } = "";
+    public string SourceTable { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public string ArchivedAt { get; set; } = "";
+}
+
+public class ArchiveDetail
+{
+    public long Id { get; set; }
+    public long BatchId { get; set; }
+    public long OriginalId { get; set; }
+    public string RawData { get; set; } = "";
+}
+
+public class ArchiveBatchRequest
+{
+    public string DateFrom { get; set; } = "";
+    public string DateTo { get; set; } = "";
+    public string SourceTable { get; set; } = "";
+    public string Reason { get; set; } = "";
+}
