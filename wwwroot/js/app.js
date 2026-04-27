@@ -1955,6 +1955,7 @@ class App {
         const countBadge = document.getElementById('selected-count-badge');
         
         let btnExportSelected = document.getElementById('btn-export-selected');
+        let btnClearSelection = document.getElementById('btn-clear-selection');
         const exportExcelBtn = document.getElementById('export-excel-btn');
 
         // إنشاء زر تصدير المحدد في الشريط العلوي إن لم يكن موجوداً
@@ -1967,6 +1968,19 @@ class App {
             btnExportSelected.innerHTML = '<i class="fas fa-file-export"></i> تصدير المحدد <span id="export-selected-badge" style="background:#0284c7; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span>';
             btnExportSelected.onclick = () => window.app.exportSelectedReturns();
             exportExcelBtn.parentNode.insertBefore(btnExportSelected, exportExcelBtn.nextSibling);
+        }
+
+        // إنشاء زر إلغاء التحديد في الشريط العلوي إن لم يكن موجوداً
+        if (!btnClearSelection && exportExcelBtn) {
+            btnClearSelection = document.createElement('button');
+            btnClearSelection.className = 'btn-pro-action';
+            btnClearSelection.id = 'btn-clear-selection';
+            btnClearSelection.style.background = 'linear-gradient(135deg, #475569 0%, #334155 100%)';
+            btnClearSelection.style.borderColor = 'rgba(71, 85, 105, 0.5)';
+            btnClearSelection.style.color = '#fff';
+            btnClearSelection.innerHTML = '<i class="fas fa-times-circle"></i> إلغاء التحديد';
+            btnClearSelection.onclick = () => window.app.clearSelection();
+            exportExcelBtn.parentNode.insertBefore(btnClearSelection, exportExcelBtn.nextSibling);
         }
 
         const exportBadge = document.getElementById('export-selected-badge');
@@ -1983,6 +1997,11 @@ class App {
                 btnExportSelected.style.display = 'inline-flex';
                 if (exportBadge) exportBadge.innerText = count;
             }
+            
+            if (btnClearSelection) {
+                btnClearSelection.style.display = 'inline-flex';
+            }
+            
             if (exportExcelBtn) exportExcelBtn.style.display = 'none'; // إخفاء زر التصدير العادي
 
             // إزالة أي شريط سفلي عائم إن وجد
@@ -1993,6 +2012,7 @@ class App {
             // إخفاء أزرار المحدد وإعادة الزر العادي
             if (btnDeleteSelected) btnDeleteSelected.style.display = 'none';
             if (btnExportSelected) btnExportSelected.style.display = 'none';
+            if (btnClearSelection) btnClearSelection.style.display = 'none';
             if (exportExcelBtn) exportExcelBtn.style.display = 'inline-flex';
         }
     }
