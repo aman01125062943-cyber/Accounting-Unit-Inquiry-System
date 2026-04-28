@@ -146,7 +146,7 @@ public static class ChatEndpoints
                 // إنشاء محادثة جديدة
                 var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 var id = await conn.ExecuteScalarAsync<long>(
-                    "INSERT INTO ChatConversations (User1Id, User2Id, CreatedAt) VALUES (@U1, @U2, @Now); SELECT last_insert_rowid();",
+                    "INSERT INTO ChatConversations (User1Id, User2Id, CreatedAt) VALUES (@U1, @U2, @Now) RETURNING Id;",
                     new { U1 = u1, U2 = u2, Now = now }
                 );
 
@@ -237,8 +237,7 @@ public static class ChatEndpoints
                 // إدراج الرسالة
                 var msgId = await conn.ExecuteScalarAsync<long>(@"
                     INSERT INTO ChatMessages (ConversationId, SenderId, Content, SentAt, IsRead, IsTaskConverted, AttachmentUrl, AttachmentType, LikeCount)
-                    VALUES (@ConvId, @SenderId, @Content, @Now, 0, 0, @AttachmentUrl, @AttachmentType, 0);
-                    SELECT last_insert_rowid();
+                    VALUES (@ConvId, @SenderId, @Content, @Now, 0, 0, @AttachmentUrl, @AttachmentType, 0) RETURNING Id;
                 ", new { 
                     ConvId = req.ConversationId, 
                     SenderId = req.SenderId, 
@@ -520,8 +519,7 @@ public static class ChatEndpoints
                 // إنشاء المهمة
                 var taskId = await conn.ExecuteScalarAsync<long>(@"
                     INSERT INTO ChatTasks (MessageId, ConversationId, Title, Description, DueDate, ReminderTime, AlertSound, IsReminderActive, Priority, Status, AssignedToId, CreatedById, Attachments, CreatedAt, UpdatedAt)
-                    VALUES (@MessageId, @ConversationId, @Title, @Description, @DueDate, @ReminderTime, @AlertSound, 1, @Priority, 'New', @AssignedToId, @CreatedById, @Attachments, @Now, @Now);
-                    SELECT last_insert_rowid();
+                    VALUES (@MessageId, @ConversationId, @Title, @Description, @DueDate, @ReminderTime, @AlertSound, 1, @Priority, 'New', @AssignedToId, @CreatedById, @Attachments, @Now, @Now) RETURNING Id;
                 ", new
                 {
                     req.MessageId,
@@ -784,20 +782,20 @@ public static class ChatEndpoints
             using var conn = await db.GetOpenConnectionAsync();
             await conn.ExecuteAsync(@"
                 CREATE TABLE IF NOT EXISTS ChatConversations (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Id SERIAL PRIMARY KEY,
                     User1Id INTEGER NOT NULL,
                     User2Id INTEGER NOT NULL,
                     LastMessageAt TEXT,
-                    CreatedAt TEXT DEFAULT (datetime('now','localtime')),
+                    CreatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(User1Id, User2Id)
                 );
 
                 CREATE TABLE IF NOT EXISTS ChatMessages (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Id SERIAL PRIMARY KEY,
                     ConversationId INTEGER NOT NULL,
                     SenderId INTEGER NOT NULL,
                     Content TEXT NOT NULL,
-                    SentAt TEXT DEFAULT (datetime('now','localtime')),
+                    SentAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     IsRead INTEGER DEFAULT 0,
                     IsTaskConverted INTEGER DEFAULT 0,
                     AttachmentUrl TEXT,
@@ -810,7 +808,7 @@ public static class ChatEndpoints
                 CREATE INDEX IF NOT EXISTS IDX_ChatMessages_SenderId ON ChatMessages(SenderId);
 
                 CREATE TABLE IF NOT EXISTS ChatTasks (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Id SERIAL PRIMARY KEY,
                     MessageId INTEGER,
                     ConversationId INTEGER,
                     Title TEXT NOT NULL,
@@ -824,7 +822,7 @@ public static class ChatEndpoints
                     AssignedToId INTEGER NOT NULL,
                     CreatedById INTEGER NOT NULL,
                     Attachments TEXT,
-                    CreatedAt TEXT DEFAULT (datetime('now','localtime')),
+                    CreatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
                     UpdatedAt TEXT,
                     FOREIGN KEY(MessageId) REFERENCES ChatMessages(Id),
                     FOREIGN KEY(ConversationId) REFERENCES ChatConversations(Id),

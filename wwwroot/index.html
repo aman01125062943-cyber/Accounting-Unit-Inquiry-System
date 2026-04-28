@@ -229,6 +229,10 @@
                         <span class="nav-item-icon">🗄️</span>
                         <span class="nav-item-text">الأرشيف</span>
                     </div>
+                    <div class="nav-item" data-page="adabir" onclick="app.navigateTo('adabir')">
+                        <span class="nav-item-icon">📁</span>
+                        <span class="nav-item-text">نظام الإضابير</span>
+                    </div>
                     <div class="nav-item" data-page="settings" id="nav-settings"
                         onclick="app.navigateTo('settings'); app.loadArchivePath();">
                         <span class="nav-item-icon">⚙️</span>
@@ -361,7 +365,9 @@
                         <button class="btn-pro-action btn-check-pro" onclick="app.runValidationOnCurrentData()"><i class="fas fa-check-circle"></i> فحص</button>
                         <button class="btn-pro-action btn-delete-pro" onclick="app.confirmDeleteAll()"><i class="fas fa-trash-alt"></i> حذف الكل</button>
                         <button class="btn-pro-action btn-delete-pro" onclick="app.deleteSelectedReturns()" id="btn-delete-selected" style="display:none; background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.2) 100%); border-color: rgba(239, 68, 68, 0.5);"><i class="fas fa-trash" style="color: #f87171;"></i> حذف المحدد <span id="selected-count-badge" style="background:#ef4444; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span></button>
-                        <button class="btn-pro-action btn-export-pro" id="export-excel-btn" onclick="app.exportToExcel()"><i class="fas fa-file-export"></i> تصدير</button>
+                        <button class="btn-pro-action btn-export-pro" onclick="app.exportSelectedReturns()" id="btn-export-selected" style="display:none; background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(29, 78, 216, 0.2) 100%); border-color: rgba(59, 130, 246, 0.5);"><i class="fas fa-file-export" style="color: #60a5fa;"></i> تصدير المحدد <span id="export-selected-badge" style="background:#0284c7; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span></button>
+                        <button class="btn-pro-action" onclick="app.clearSelection()" id="btn-clear-selection" style="display:none; background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.2); color: #94a3b8;"><i class="fas fa-times-circle"></i> إلغاء التحديد</button>
+                        <button class="btn-pro-action btn-export-pro" id="export-excel-btn" onclick="app.exportToExcel()"><i class="fas fa-file-export"></i> تصدير الكل</button>
                     </div>
 
                     <!-- Controls Row (Search Beside Filters - Professional Layout) -->
@@ -397,25 +403,50 @@
                                     </select>
                                 </div>
                                 <div class="pro-filter-item">
+                                    <label>الشهر</label>
+                                    <select id="month-filter" onchange="app.handleMonthFilterChange(this.value)">
+                                        <option value="all">الكل</option>
+                                    </select>
+                                </div>
+                                <div class="pro-filter-item">
                                     <label>تاريخ الرفع</label>
                                     <select id="upload-date-filter" onchange="app.handleUploadDateSelectChange(this.value)">
                                         <option value="all">الكل</option>
                                     </select>
                                 </div>
                                 <div class="pro-filter-item">
-                                    <label>الشهر</label>
-                                    <select id="month-filter" onchange="app.handleMonthFilterChange(this.value)">
+                                    <label>تاريخ السداد</label>
+                                    <select id="payment-date-filter" onchange="app.handlePaymentDateFilterChange(this.value)">
                                         <option value="all">الكل</option>
-                                        <option value="فارغ">فارغ</option>
-                                        <option value="12-2025">12-2025</option>
-                                        <option value="01-2026">01-2026</option>
-                                        <option value="02-2026">02-2026</option>
-                                        <option value="03-2026">03-2026</option>
-                                        <option value="04-2026">04-2026</option>
-                                        <option value="05-2026">05-2026</option>
-                                        <option value="06-2026">06-2026</option>
                                     </select>
                                 </div>
+                                <div class="pro-filter-item" style="margin-right: auto; padding-right: 15px; border-right: 1px solid #e2e8f0;">
+                                    <button class="btn btn-sm archive-transfer-toggle" id="btn-show-adabir-filter" onclick="app.toggleAdabirInlineFilter()">
+                                        <i class="fas fa-archive"></i>
+                                        <span>نقل سجلات جديد</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Inline Archive Filter Bar -->
+                        <div id="adabir-inline-filter" class="inline-filter-bar adabir-transfer-panel hidden">
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <label>تاريخ من (تاريخ الرفع):</label>
+                                <input type="date" id="adabir-date-from" class="form-input adabir-transfer-input" onchange="app.handleAdabirDateRangeChange()" oninput="app.handleAdabirDateRangeChange()">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <label>تاريخ إلى (تاريخ الرفع):</label>
+                                <input type="date" id="adabir-date-to" class="form-input adabir-transfer-input" onchange="app.handleAdabirDateRangeChange()" oninput="app.handleAdabirDateRangeChange()">
+                            </div>
+                            <div id="adabir-date-range-count" class="adabir-date-range-count" style="display:flex; align-items:flex-end; min-width:220px; color:#93c5fd; font-weight:700;">
+                                عدد السجلات داخل الفترة: 0
+                            </div>
+                            <div style="flex: 1; display: flex; align-items: flex-end; justify-content: flex-end; gap: 12px;">
+                                <button class="btn btn-primary adabir-transfer-primary" onclick="app.showAdabirReasonModal()">
+                                    <i class="fas fa-arrow-alt-circle-right"></i> تنفيذ أرشفة الفترة المختارة
+                                </button>
+                                <button class="btn btn-secondary adabir-transfer-secondary" onclick="app.toggleAdabirInlineFilter()">إلغاء</button>
                             </div>
                         </div>
                     </div>
@@ -668,9 +699,9 @@
                                     <div style="display: flex; align-items: center; gap: 12px;">
                                         <span style="color: #94a3b8; font-size: 0.75rem; font-weight: 600;">الحالة:</span>
                                         <div class="smart-status-chips-row" style="display: flex; gap: 4px; background: rgba(255,255,255,0.02); padding: 4px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.05);">
-                                            <div class="smart-filter-card" data-value="الكل" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 15px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 600;">الكل</div>
+                                            <div class="smart-filter-card active" data-value="الكل" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 15px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 800;">الكل</div>
                                             <div class="smart-filter-card" data-value="تم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 15px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 600;">تم التسوية</div>
-                                            <div class="smart-filter-card active" data-value="لم يتم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 18px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 800;">لم يتم التسوية</div>
+                                            <div class="smart-filter-card" data-value="لم يتم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 18px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 600;">لم يتم التسوية</div>
                                         </div>
                                     </div>
                                 </div>
@@ -957,9 +988,11 @@
                         <button class="btn-pro-action btn-extract-pro" onclick="app.showSalaryExtractionModal()"><i class="fas fa-search"></i> استخراج</button>
                         <button class="btn-pro-action btn-check-pro" onclick="app.runSalaryValidationOnCurrentData()"><i class="fas fa-check-circle"></i> فحص</button>
                         <button class="btn-pro-action btn-delete-pro" onclick="app.confirmDeleteAllSalary()"><i class="fas fa-trash-alt"></i> حذف الكل</button>
-                        <button class="btn-pro-action btn-delete-pro" onclick="app.deleteSelectedSalaryReturns()" id="btn-salary-delete-selected" style="display:none; background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.2) 100%); border-color: rgba(239, 68, 68, 0.5);"><i class="fas fa-trash" style="color: #f87171;"></i> حذف المحدد <span id="salary-selected-count-badge" style="background:#ef4444; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span></button>
+                        <button class="btn-pro-action btn-delete-pro" onclick="app.confirmBulkDeleteSalary()" id="btn-salary-delete-selected" style="display:none; background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.2) 100%); border-color: rgba(239, 68, 68, 0.5);"><i class="fas fa-trash" style="color: #f87171;"></i> حذف المحدد <span id="salary-selected-count-badge" style="background:#ef4444; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span></button>
                         <button class="btn-pro-action btn-settled-pro" onclick="app.settleSelectedSalaryReturns()" id="btn-salary-settle-selected" style="display:none; background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.2) 100%); border-color: rgba(16, 185, 129, 0.5);"><i class="fas fa-check-double" style="color: #34d399;"></i> تسوية المحدد <span id="salary-settle-selected-count-badge" style="background:#10b981; color:white; border-radius:10px; padding:2px 6px; font-size:12px; margin-right:5px;">0</span></button>
-                        <button class="btn-pro-action btn-export-pro" onclick="app.exportSalaryToExcel()"><i class="fas fa-file-export"></i> تصدير</button>
+                        <button class="btn-pro-action btn-export-pro" onclick="app.exportSelectedSalaryReturns()" id="btn-salary-export-selected" style="display:none; background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(29, 78, 216, 0.2) 100%); border-color: rgba(59, 130, 246, 0.5);"><i class="fas fa-file-export" style="color: #60a5fa;"></i> تصدير المحدد</button>
+                        <button class="btn-pro-action" onclick="app.clearSalarySelection()" id="btn-salary-clear-selection" style="display:none; background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.2); color: #94a3b8;"><i class="fas fa-times-circle"></i> إلغاء التحديد</button>
+                        <button class="btn-pro-action btn-export-pro" onclick="app.exportSalaryToExcel()"><i class="fas fa-file-export"></i> تصدير الكل</button>
                     </div>
 
                     <!-- Controls Row (Search Beside Filters - Professional Layout) -->
@@ -1014,6 +1047,37 @@
                                         <option value="06-2026">06-2026</option>
                                     </select>
                                 </div>
+                                <div class="pro-filter-item">
+                                    <label>تاريخ السداد</label>
+                                    <select id="salary-payment-date-filter" onchange="app.handleSalaryPaymentDateFilterChange(this.value)">
+                                        <option value="all">الكل</option>
+                                    </select>
+                                </div>
+                                <div class="pro-filter-item" style="margin-right: auto; padding-right: 15px; border-right: 1px solid rgba(255,255,255,0.08);">
+                                    <button class="btn btn-sm archive-transfer-toggle" id="btn-show-salary-adabir-filter" onclick="app.toggleAdabirInlineFilter()">
+                                        <i class="fas fa-archive"></i>
+                                        <span>نقل سجلات جديدة</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="salary-adabir-inline-filter" class="inline-filter-bar adabir-transfer-panel hidden">
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <label>تاريخ من (تاريخ الرفع):</label>
+                                <input type="date" id="salary-adabir-date-from" class="form-input adabir-transfer-input" onchange="app.handleSalaryAdabirDateRangeChange()" oninput="app.handleSalaryAdabirDateRangeChange()">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <label>تاريخ إلى (تاريخ الرفع):</label>
+                                <input type="date" id="salary-adabir-date-to" class="form-input adabir-transfer-input" onchange="app.handleSalaryAdabirDateRangeChange()" oninput="app.handleSalaryAdabirDateRangeChange()">
+                            </div>
+                            <div id="salary-adabir-date-range-count" class="adabir-date-range-count" style="display:flex; align-items:flex-end; min-width:220px; color:#93c5fd; font-weight:700;">
+                                عدد السجلات داخل الفترة: 0
+                            </div>
+                            <div style="flex: 1; display: flex; align-items: flex-end; justify-content: flex-end; gap: 12px;">
+                                <button class="btn btn-primary adabir-transfer-primary" onclick="app.showAdabirReasonModal()">
+                                    <i class="fas fa-arrow-alt-circle-right"></i> تنفيذ أرشفة الفترة المختارة
+                                </button>
+                                <button class="btn btn-secondary adabir-transfer-secondary" onclick="app.toggleAdabirInlineFilter()">إلغاء</button>
                             </div>
                         </div>
                     </div>
@@ -1300,6 +1364,75 @@
 
 
                 </section>
+
+                <!-- ========== Adabir Page (Archives System 014) ========== -->
+                <section id="page-adabir" class="page-content hidden no-padding full-height-page">
+                    <div class="table-container">
+                        <div class="table-header">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div class="u-v2-icon" style="background: rgba(37, 99, 235, 0.1); color: #2563eb; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px;">
+                                    <i class="fas fa-archive"></i>
+                                </div>
+                                <h3 class="table-title">نظام الإضابير البنكية</h3>
+                            </div>
+                            <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
+                                <button class="btn btn-secondary" onclick="app.loadAdabir()" style="height: 38px;">
+                                    <i class="fas fa-sync-alt"></i> تحديث
+                                </button>
+                            </div>
+                        </div>
+                        <div class="adabir-toolbar">
+                            <div class="adabir-search-box">
+                                <i class="fas fa-search"></i>
+                                <input type="text" id="adabir-search" class="form-input" placeholder="بحث برقم الدفعة أو المصدر أو السبب..." oninput="app.filterAdabir()">
+                            </div>
+                            <div class="adabir-toolbar-field">
+                                <label>من فترة الأرشفة</label>
+                                <input type="date" id="adabir-period-from" class="form-input" onchange="app.filterAdabir()">
+                            </div>
+                            <div class="adabir-toolbar-field">
+                                <label>إلى فترة الأرشفة</label>
+                                <input type="date" id="adabir-period-to" class="form-input" onchange="app.filterAdabir()">
+                            </div>
+                            <div class="adabir-toolbar-field">
+                                <label>المصدر</label>
+                                <select id="adabir-source-filter" class="form-input" onchange="app.filterAdabir()">
+                                    <option value="all">الكل</option>
+                                    <option value="Returns">مرتدات الحوافز</option>
+                                    <option value="SalaryReturns">مرتدات المرتبات</option>
+                                </select>
+                            </div>
+                            <div class="adabir-toolbar-field">
+                                <label>الحالة</label>
+                                <select id="adabir-status-filter" class="form-input" onchange="app.filterAdabir()">
+                                    <option value="all">الكل</option>
+                                    <option value="active">نشط</option>
+                                    <option value="restored">مسترجع</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-secondary adabir-clear-btn" onclick="app.clearAdabirFilters()">
+                                <i class="fas fa-times"></i> مسح الفلاتر
+                            </button>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>تاريخ الأرشفة</th>
+                                        <th>السبب / الوصف</th>
+                                        <th>الفترة (من - إلى)</th>
+                                        <th>العدد</th>
+                                        <th>المصدر</th>
+                                        <th>ملفات الإكسيل</th>
+                                        <th style="text-align: center;">الإجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adabir-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
                 <!-- ========== Settings Page ========== -->
                 <section id="page-settings" class="page-content hidden">
 
@@ -1501,7 +1634,7 @@
     </div>
 
     <!-- ========================================
-       Import Modal
+       Import Modal (مرتدات الحوافز)
        ======================================== -->
     <div id="import-modal" class="modal hidden">
         <div class="modal-content">
@@ -1523,6 +1656,33 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="app.hideImportModal()">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================
+       Salary Import Modal (مرتادات المرتبات) — منفصل تماماً
+       ======================================== -->
+    <div id="salary-import-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>💰 استيراد ملف مرتادات المرتبات</h3>
+                <button class="btn-close" onclick="app.hideSalaryImportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">1️⃣ اختيار ملف Excel (.xlsx, .xls)</label>
+                    <div class="file-drop-area" id="salary-drop-zone" onclick="document.getElementById('salary-file-input').click()">
+                        <div class="drop-icon">💰</div>
+                        <div class="drop-text" id="salary-import-file-name">انقر هنا أو اسحب ملف المرتبات لاختياره...
+                        </div>
+                        <input type="file" id="salary-file-input" accept=".xlsx,.xls,.csv" class="hidden"
+                            onchange="app.handleSalaryFileSelect(event)">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="app.hideSalaryImportModal()">إلغاء</button>
             </div>
         </div>
     </div>
@@ -2303,6 +2463,76 @@
         </div>
     </div>
 
+    <!-- ========== Adabir Reason Modal ========== -->
+    <div id="adabir-reason-modal" class="modal-overlay hidden">
+        <div class="modal modal-mini adabir-reason-dialog">
+            <div class="modal-header">
+                <div class="modal-title-wrapper">
+                    <h3 class="modal-title">سبب الأرشفة</h3>
+                    <span class="modal-accent-bar"></span>
+                </div>
+                <button class="modal-close" onclick="app.hideAdabirReasonModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">يرجى إدخال وصف أو سبب لهذه الدفعة:</label>
+                    <textarea id="adabir-reason-input" class="form-input" rows="3" placeholder="مثال: أرشفة شهر يناير 2024..." style="resize: none; font-size: 0.95em;"></textarea>
+                    <small class="adabir-dialog-hint">سيتم استخدام هذا الوصف لتمييز الدفعة في سجل الإضابير.</small>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: flex-start; gap: 10px;">
+                <button class="btn btn-primary adabir-confirm-btn" onclick="app.confirmExecutionArchive()">
+                    <i class="fas fa-check-circle"></i> تأكيد النقل للأرشيف
+                </button>
+                <button class="btn btn-secondary" onclick="app.hideAdabirReasonModal()">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== Adabir Batch Details Modal ========== -->
+    <div id="adabir-details-modal" class="modal-overlay hidden">
+        <div class="modal adabir-details-dialog">
+            <div class="modal-header">
+                <div class="modal-title-wrapper">
+                    <h3 class="modal-title">تفاصيل الإضبارة #<span id="adabir-details-id"></span></h3>
+                    <div id="adabir-details-meta" class="adabir-details-meta"></div>
+                    <span class="modal-accent-bar"></span>
+                </div>
+                <div class="adabir-details-actions">
+                    <div class="adabir-details-search">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="adabir-details-search" class="form-input" placeholder="بحث داخل السجلات..." oninput="app.filterAdabirDetails()">
+                    </div>
+                    <button class="modal-close" onclick="app.hideAdabirDetailsModal()">✕</button>
+                </div>
+            </div>
+            <div class="modal-body adabir-details-body">
+                <div class="adabir-details-table-wrap">
+                    <table class="data-table adabir-details-table">
+                        <thead id="adabir-details-thead"></thead>
+                        <tbody id="adabir-details-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer adabir-details-footer">
+                <div id="adabir-details-count"></div>
+                <button class="btn btn-secondary" onclick="app.hideAdabirDetailsModal()">إغلاق النافذة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== Progress Modal ========== -->
+    <div id="progress-modal" class="modal-overlay hidden" style="z-index: 10000;">
+        <div class="modal" style="max-width: 400px; text-align: center; padding: 40px 30px; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
+            <div class="loading-spinner-premium" style="margin: 0 auto 25px; width: 50px; height: 50px; border-width: 4px;"></div>
+            <h3 id="progress-title" style="margin-bottom: 12px; color: #1e293b; font-weight: 700;">جاري المعالجة...</h3>
+            <p id="progress-status" style="color: #64748b; font-size: 0.95em; margin-bottom: 25px; line-height: 1.5;">يرجى عدم إغلاق المتصفح، يتم نقل البيانات للأرشيف الآن.</p>
+            <div class="progress-bar-container" style="height: 10px; background: #f1f5f9; border-radius: 10px; overflow: hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
+                <div id="progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Unified Toast Notifications (Premium V2) -->
     <div id="unified-toast-container" class="unified-toast-container"></div>
 
@@ -2312,7 +2542,7 @@
     <script src="js/database.js"></script>
     <script src="js/validation-service.js"></script>
     <script src="js/chat.js?v=1.0"></script>
-    <script src="js/app.js?v=6.8"></script>
+    <script src="js/app.js?v=7.2"></script>
 </body>
 
 </html>

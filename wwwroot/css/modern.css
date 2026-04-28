@@ -5225,6 +5225,262 @@ select:focus {
 .pending-box .value { color: var(--neon-amber); }
 .settled-box .value { color: #4ade80; }
 .total-box .value { color: white; }
+
+/* ============ ADABIR UX REFINEMENT ============ */
+.archive-transfer-toggle {
+    height: 42px;
+    padding: 0 18px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(8, 47, 73, 0.55);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    color: #dff8ff;
+    border-radius: 10px;
+    font-weight: 700;
+    box-shadow: 0 8px 24px rgba(2, 8, 23, 0.22);
+}
+
+.archive-transfer-toggle:hover {
+    background: rgba(14, 116, 144, 0.34);
+    border-color: rgba(103, 232, 249, 0.55);
+    color: #ffffff;
+}
+
+.adabir-transfer-panel {
+    margin-top: 15px;
+    padding: 18px 20px;
+    background: linear-gradient(135deg, rgba(2, 6, 23, 0.92), rgba(15, 23, 42, 0.86));
+    border: 1px solid rgba(56, 189, 248, 0.18);
+    border-radius: 14px;
+    display: flex;
+    align-items: flex-end;
+    gap: 18px;
+    flex-wrap: wrap;
+    box-shadow: 0 18px 40px rgba(2, 8, 23, 0.22);
+}
+
+.adabir-transfer-panel label,
+.adabir-toolbar-field label {
+    font-size: 0.78rem;
+    color: rgba(226, 232, 240, 0.72);
+    font-weight: 800;
+    margin: 0 4px 6px 0;
+}
+
+.adabir-transfer-input,
+.adabir-toolbar .form-input,
+.adabir-details-search .form-input {
+    background: rgba(2, 6, 23, 0.66);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    color: #e2e8f0;
+    border-radius: 9px;
+    height: 38px;
+}
+
+.adabir-transfer-input {
+    width: 180px;
+}
+
+.adabir-transfer-input:focus,
+.adabir-toolbar .form-input:focus,
+.adabir-details-search .form-input:focus {
+    border-color: rgba(56, 189, 248, 0.75);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.10);
+    outline: none;
+}
+
+.adabir-transfer-primary,
+.adabir-confirm-btn {
+    height: 40px;
+    padding: 0 22px;
+    background: linear-gradient(135deg, #0e7490, #2563eb) !important;
+    border: 1px solid rgba(125, 211, 252, 0.25) !important;
+    color: white;
+    border-radius: 10px;
+    font-weight: 800;
+    box-shadow: 0 10px 24px rgba(14, 116, 144, 0.20);
+}
+
+.adabir-transfer-secondary {
+    height: 40px;
+    padding: 0 15px;
+    background: rgba(15, 23, 42, 0.74) !important;
+    border: 1px solid rgba(148, 163, 184, 0.22) !important;
+    color: #cbd5e1 !important;
+    border-radius: 10px;
+    font-weight: 700;
+}
+
+.adabir-toolbar {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) repeat(4, minmax(145px, auto)) auto;
+    gap: 12px;
+    align-items: end;
+    padding: 16px 18px;
+    background: rgba(15, 23, 42, 0.28);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    direction: rtl;
+}
+
+.adabir-search-box,
+.adabir-details-search {
+    position: relative;
+}
+
+.adabir-search-box i,
+.adabir-details-search i {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #38bdf8;
+    pointer-events: none;
+}
+
+.adabir-search-box input,
+.adabir-details-search input {
+    width: 100%;
+    padding-right: 36px;
+}
+
+.adabir-toolbar-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 145px;
+}
+
+.adabir-clear-btn {
+    height: 38px;
+    white-space: nowrap;
+    border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+.adabir-reason-dialog {
+    max-width: 460px;
+    width: 95%;
+    border-color: rgba(56, 189, 248, 0.22);
+}
+
+.adabir-reason-dialog .modal-accent-bar,
+.adabir-details-dialog .modal-accent-bar {
+    background: linear-gradient(90deg, #06b6d4, #3b82f6);
+}
+
+.adabir-dialog-hint {
+    color: #94a3b8;
+    margin-top: 8px;
+    display: block;
+}
+
+.adabir-details-dialog {
+    max-width: 94vw;
+    width: 1240px !important;
+    height: 86vh !important;
+    display: flex !important;
+    flex-direction: column;
+    background: rgba(8, 13, 26, 0.98);
+    border: 1px solid rgba(56, 189, 248, 0.20);
+}
+
+.adabir-details-dialog .modal-header {
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.adabir-details-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 340px;
+}
+
+.adabir-details-meta {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: #94a3b8;
+    font-size: 0.82rem;
+}
+
+.adabir-meta-pill {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.72);
+    color: #cbd5e1;
+    border-radius: 999px;
+    padding: 4px 10px;
+}
+
+.adabir-details-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 14px 16px 0;
+}
+
+.adabir-details-table-wrap {
+    height: 100%;
+    overflow: auto;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 10px;
+    background: rgba(2, 6, 23, 0.36);
+}
+
+.adabir-details-table {
+    font-size: 0.84rem;
+    min-width: 980px;
+}
+
+.adabir-details-table th {
+    position: sticky;
+    top: 0;
+    z-index: 11;
+    background: linear-gradient(180deg, #111827, #0f172a);
+    color: #7dd3fc;
+    white-space: nowrap;
+}
+
+.adabir-details-table td {
+    max-width: 240px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.adabir-details-footer {
+    padding: 14px 20px;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.adabir-details-footer #adabir-details-count {
+    color: #cbd5e1;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+    .adabir-toolbar {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .adabir-details-dialog {
+        width: 96vw !important;
+        height: 90vh !important;
+    }
+}
+
+@media (max-width: 720px) {
+    .adabir-toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .adabir-details-dialog .modal-header,
+    .adabir-details-actions {
+        flex-direction: column;
+        width: 100%;
+        align-items: stretch;
+    }
+}
 /* ============ USER MANAGEMENT MODAL (Final Precision Design) ============ */
 .user-management-modal {
     background: #0a1120 !important; /* Deep Dark Navy */
@@ -5965,7 +6221,9 @@ select:focus {
     text-align: center !important;
 }
 
-.return-row-checkbox, #select-all-returns {
+.return-row-checkbox, #select-all-returns, 
+.salary-row-checkbox, #select-all-salary-returns,
+.custom-checkbox-pro {
     width: 18px;
     height: 18px;
     cursor: pointer;

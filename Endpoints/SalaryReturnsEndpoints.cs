@@ -1,4 +1,4 @@
-using HKServer.Services;
+﻿using HKServer.Services;
 using HKServer.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using Dapper;
@@ -8,10 +8,165 @@ using System.Text.Json;
 
 namespace HKServer.Endpoints;
 
+public class BulkSalaryDeleteRequest {
+    public List<int>? Ids { get; set; }
+    public bool DeleteAllFiltered { get; set; }
+    public string? Search { get; set; }
+    public string? AttachmentStatus { get; set; }
+    public string? UploadFrom { get; set; }
+    public string? UploadTo { get; set; }
+    public string? SettlementFilter { get; set; }
+    public string? ReturnStatus { get; set; }
+    public string? MonthFilter { get; set; }
+    public string? PaymentDateFilter { get; set; }
+}
+
 public static class SalaryReturnsEndpoints
 {
+    private static (string Display, string Iso) BuildDateFilterPatterns(string value) {
+        var raw = (value ?? string.Empty).Trim();
+        var display = $"{raw}%";
+        var iso = display;
+        var parts = raw.Contains('/') ? raw.Split('/') : raw.Split('-');
+        if (parts.Length == 3 && parts[2].Length == 4) {
+            iso = $"{parts[2]}-{parts[1].PadLeft(2, '0')}-{parts[0].PadLeft(2, '0')}%";
+        }
+        return (display, iso);
+    }
     public static void MapSalaryReturnsEndpoints(this WebApplication app)
     {
+        app.MapPost("/salary-returns/bulk-delete", async (HttpContext context, DatabaseService db) => {
+            try {
+                var request = await context.Request.ReadFromJsonAsync<BulkSalaryDeleteRequest>();
+                if (request == null) return Results.BadRequest("Invalid request");
+
+                using var conn = await db.GetOpenConnectionAsync();
+                var config = DatabaseService.LoadServerConfig();
+                
+                string user = context.Request.Query["user"].ToString();
+                if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+
+                if (request.DeleteAllFiltered) {
+                    string sqlWhere = "WHERE 1=1";
+                    var parameters = new Dapper.DynamicParameters();
+
+                    if (config.ActiveSalaryImportId > 0) {
+                        sqlWhere += " AND ImportId = @ActiveImportId";
+                        parameters.Add("ActiveImportId", config.ActiveSalaryImportId);
+                    }
+                    sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
+                    
+                    if (!string.IsNullOrWhiteSpace(request.Search)) {
+                        var words = request.Search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        for (int i = 0; i < words.Length; i++) {
+                            // Sanitize for FTS5
+                            string sanitized = words[i].Replace("\"", "").Replace("\\", "").Replace("*", "").Replace(":", "").Trim();
+                            if (string.IsNullOrEmpty(sanitized)) continue;
+
+                            string spLike = $"SL{i}";
+                            string spMatch = $"SM{i}";
+                            sqlWhere += $@" AND (
+                                ReturnCode LIKE @{spLike} 
+                                OR RawData LIKE @{spLike} 
+                                OR Id IN (SELECT rowid FROM SalaryReturns_FTS WHERE SalaryReturns_FTS MATCH @{spMatch})
+                            )";
+                            parameters.Add(spLike, $"%{sanitized}%");
+                            parameters.Add(spMatch, sanitized + "*"); 
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(request.UploadFrom)) {
+                        sqlWhere += " AND UploadDate >= @UploadFrom";
+                        parameters.Add("UploadFrom", request.UploadFrom);
+                    }
+                    if (!string.IsNullOrEmpty(request.UploadTo)) {
+                        string to = request.UploadTo;
+                        if (to.Length == 10) to += " 23:59:59";
+                        sqlWhere += " AND UploadDate <= @UploadTo";
+                        parameters.Add("UploadTo", to);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.SettlementFilter) && request.SettlementFilter != "all") {
+                        if (request.SettlementFilter == "تم التسوية" || request.SettlementFilter == "تمت التسوية") {
+                            sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NOT NULL AND json_extract(RawData, '$.\"رقم تسوية السداد\"') != '')";
+                        } else if (request.SettlementFilter == "لم يتم التسوية") {
+                            sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NULL OR json_extract(RawData, '$.\"رقم تسوية السداد\"') = '')";
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.ReturnStatus) && request.ReturnStatus != "all") {
+                        sqlWhere += @" AND (
+                            json_extract(RawData, '$.""الحالة""') LIKE @RetStatus
+                            OR json_extract(RawData, '$.""حالة الارتداد""') LIKE @RetStatus
+                            OR json_extract(RawData, '$.status') LIKE @RetStatus
+                        )";
+                        parameters.Add("RetStatus", $"%{request.ReturnStatus}%");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.MonthFilter) && request.MonthFilter != "all") {
+                        if (request.MonthFilter == "فارغ") {
+                            sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '')";
+                        } else {
+                            sqlWhere += @" AND (
+                                json_extract(RawData, '$.""الشهر""') = @MonthFilter 
+                                OR RawData LIKE @MonthFilterLike
+                                OR ReturnCode = @MonthFilter
+                                OR ReturnCode LIKE '%-' || @MonthFilter
+                                OR ReturnCode LIKE '%/' || @MonthFilter
+                                OR ReturnCode LIKE '% ' || @MonthFilter
+                                OR ReturnCode LIKE @MonthFilter || '-%'
+                                OR ReturnCode LIKE @MonthFilter || '/%'
+                                OR ReturnCode LIKE @MonthFilter || ' %'
+                                OR (ReturnCode LIKE '%-' || @MonthFilter || '-%' AND ReturnCode NOT LIKE '%-%-%' || @MonthFilter || '%')
+                            )";
+                            parameters.Add("MonthFilter", request.MonthFilter);
+                            parameters.Add("MonthFilterLike", $"%{request.MonthFilter}%");
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.PaymentDateFilter) && request.PaymentDateFilter != "all") {
+                        var paymentPatterns = BuildDateFilterPatterns(request.PaymentDateFilter);
+                        sqlWhere += @" AND (
+                            json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter
+                            OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter
+                            OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilter
+                            OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilter
+                            OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilter
+                            OR json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilterAlt
+                            OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilterAlt
+                            OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilterAlt
+                            OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilterAlt
+                            OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilterAlt
+                        )";
+                        parameters.Add("PaymentDateFilter", paymentPatterns.Display);
+                        parameters.Add("PaymentDateFilterAlt", paymentPatterns.Iso);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(request.AttachmentStatus) && request.AttachmentStatus != "all") {
+                        if (request.AttachmentStatus == "yes") {
+                            sqlWhere += " AND EXISTS (SELECT 1 FROM SalaryReturnsImages WHERE ReturnId = SalaryReturns.Id)";
+                        } else if (request.AttachmentStatus == "no") {
+                            sqlWhere += " AND NOT EXISTS (SELECT 1 FROM SalaryReturnsImages WHERE ReturnId = SalaryReturns.Id)";
+                        }
+                    }
+
+                    int count = await conn.ExecuteAsync($"UPDATE SalaryReturns SET IsDeleted = 1 {sqlWhere}", parameters);
+                    await db.AddNotificationEventAsync("SalaryReturns", "حذف مجمع", 0, user);
+                    return Results.Ok(new { success = true, count = count });
+
+                } else if (request.Ids != null && request.Ids.Any()) {
+                    var ids = request.Ids;
+                    int count = await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE Id IN @Ids AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids });
+                    await db.AddNotificationEventAsync("SalaryReturns", "حذف مجمع", 0, user);
+                    return Results.Ok(new { success = true, count = count });
+                }
+
+                return Results.BadRequest("No ids or all-selected flag provided");
+            } catch (Exception ex) {
+                return Results.Json(new { success = false, message = ex.Message });
+            }
+        });
+
         // ==========================================
         // Upload Date Filter Options
         // ==========================================
@@ -23,7 +178,7 @@ public static class SalaryReturnsEndpoints
                 var rawDates = await conn.QueryAsync<string>(@"
                     SELECT DISTINCT UploadDate 
                     FROM SalaryReturns 
-                    WHERE UploadDate IS NOT NULL AND UploadDate != ''
+                    WHERE UploadDate IS NOT NULL AND UploadDate != '' AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
                     ORDER BY UploadDate DESC");
                 
                 // Process dates in C# for strict deduplication (YYYY-MM-DD)
@@ -70,7 +225,7 @@ public static class SalaryReturnsEndpoints
                     json_extract(RawData, '$.ReturnStatus')
                   ) as Status 
                   FROM SalaryReturns 
-                  WHERE IsDeleted = 0 
+                  WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
                   AND Status IS NOT NULL 
                   AND TRIM(Status) != ''");
             return Results.Ok(statuses.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList());
@@ -79,7 +234,7 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // GET /salary-returns — Paged data with search/filter
         // ==========================================
-        app.MapGet("/salary-returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo, string? settlementStatus, string? returnStatus, string? month) => {
+        app.MapGet("/salary-returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo, string? settlementStatus, string? returnStatus, string? month, string? paymentDateFilter) => {
              using var conn = await db.GetOpenConnectionAsync();
              
              try {
@@ -106,12 +261,16 @@ public static class SalaryReturnsEndpoints
                  sqlWhere += " AND ImportId = @ActiveImportId";
                  parameters.Add("ActiveImportId", config.ActiveSalaryImportId);
              }
-             sqlWhere += " AND IsDeleted = 0";
+             sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
 
              try {
                   if (!string.IsNullOrWhiteSpace(search)) {
                       var words = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                       for (int i = 0; i < words.Length; i++) {
+                          // Sanitize for FTS5 (escape/remove special chars that break syntax)
+                          string sanitized = words[i].Replace("\"", "").Replace("\\", "").Replace("*", "").Replace(":", "").Trim();
+                          if (string.IsNullOrEmpty(sanitized)) continue;
+
                           string spLike = $"SL{i}";
                           string spMatch = $"SM{i}";
                           sqlWhere += $@" AND (
@@ -119,8 +278,8 @@ public static class SalaryReturnsEndpoints
                               OR RawData LIKE @{spLike} 
                               OR Id IN (SELECT rowid FROM SalaryReturns_FTS WHERE SalaryReturns_FTS MATCH @{spMatch})
                           )";
-                          parameters.Add(spLike, $"%{words[i]}%");
-                          parameters.Add(spMatch, words[i] + "*");
+                          parameters.Add(spLike, $"%{sanitized}%");
+                          parameters.Add(spMatch, sanitized + "*");
                       }
                   }
 
@@ -158,10 +317,39 @@ public static class SalaryReturnsEndpoints
                       if (month == "فارغ") {
                           sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '')";
                       } else {
-                          sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') = @MonthFilter OR RawData LIKE @MonthPattern OR ReturnCode LIKE @MonthPattern)";
+                          sqlWhere += @" AND (
+                              json_extract(RawData, '$.""الشهر""') = @MonthFilter 
+                              OR RawData LIKE @MonthFilterLike
+                              OR ReturnCode = @MonthFilter
+                              OR ReturnCode LIKE '%-' || @MonthFilter
+                              OR ReturnCode LIKE '%/' || @MonthFilter
+                              OR ReturnCode LIKE '% ' || @MonthFilter
+                              OR ReturnCode LIKE @MonthFilter || '-%'
+                              OR ReturnCode LIKE @MonthFilter || '/%'
+                              OR ReturnCode LIKE @MonthFilter || ' %'
+                              OR (ReturnCode LIKE '%-' || @MonthFilter || '-%' AND ReturnCode NOT LIKE '%-%-%' || @MonthFilter || '%')
+                          )";
                           parameters.Add("MonthFilter", month);
-                          parameters.Add("MonthPattern", $"%{month}%");
+                          parameters.Add("MonthFilterLike", $"%{month}%");
                       }
+                  }
+
+                  if (!string.IsNullOrWhiteSpace(paymentDateFilter) && paymentDateFilter != "all") {
+                      var paymentPatterns = BuildDateFilterPatterns(paymentDateFilter);
+                      sqlWhere += @" AND (
+                          json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilterAlt
+                          OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilterAlt
+                          OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilterAlt
+                          OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilterAlt
+                          OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilterAlt
+                      )";
+                      parameters.Add("PaymentDateFilter", paymentPatterns.Display);
+                      parameters.Add("PaymentDateFilterAlt", paymentPatterns.Iso);
                   }
 
              } catch (Exception ex) {
@@ -217,7 +405,7 @@ public static class SalaryReturnsEndpoints
              int pendingCount = (int)(stats?.PendingCount ?? 0);
              int filteredCount = (int)(stats?.FilteredCount ?? 0);
              
-             var systemTotalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM SalaryReturns");
+             var systemTotalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
 
              bool hasUploadDateInDb = true;
              try { await conn.ExecuteScalarAsync("SELECT UploadDate FROM SalaryReturns LIMIT 1"); }
@@ -300,7 +488,7 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // GET /salary-returns/all — All data (for cache)
         // ==========================================
-        app.MapGet("/salary-returns/all", async (DatabaseService db, string? search) => {
+        app.MapGet("/salary-returns/all", async (DatabaseService db, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo, string? settlementStatus, string? returnStatus, string? month, string? paymentDateFilter) => {
              using var conn = await db.GetOpenConnectionAsync();
              
              bool hasUploadDate = true;
@@ -315,13 +503,81 @@ public static class SalaryReturnsEndpoints
                      sqlWhere += " AND Id IN (SELECT rowid FROM SalaryReturns_FTS WHERE SalaryReturns_FTS MATCH @Search)";
                      parameters.Add("Search", search);
                  }
+
+                 if (!string.IsNullOrEmpty(uploadDateFrom)) {
+                     sqlWhere += " AND UploadDate >= @UploadDateFrom";
+                     parameters.Add("UploadDateFrom", uploadDateFrom);
+                 }
+                 if (!string.IsNullOrEmpty(uploadDateTo)) {
+                     if (uploadDateTo.Length == 10) uploadDateTo += " 23:59:59";
+                     sqlWhere += " AND UploadDate <= @UploadDateTo";
+                     parameters.Add("UploadDateTo", uploadDateTo);
+                 }
+
+                 if (!string.IsNullOrWhiteSpace(settlementStatus) && settlementStatus != "all") {
+                     if (settlementStatus == "تم التسوية" || settlementStatus == "تمت التسوية") {
+                         sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NOT NULL AND json_extract(RawData, '$.\"رقم تسوية السداد\"') != '')";
+                     } else if (settlementStatus == "لم يتم التسوية") {
+                         sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NULL OR json_extract(RawData, '$.\"رقم تسوية السداد\"') = '')";
+                     }
+                 }
+
+                 if (!string.IsNullOrWhiteSpace(returnStatus) && returnStatus != "all") {
+                     sqlWhere += @" AND (
+                         json_extract(RawData, '$.""الحالة""') LIKE @RetStatus
+                         OR json_extract(RawData, '$.""حالة الارتداد""') LIKE @RetStatus
+                         OR json_extract(RawData, '$.status') LIKE @RetStatus
+                     )";
+                     parameters.Add("RetStatus", $"%{returnStatus}%");
+                 }
+
+                 if (!string.IsNullOrWhiteSpace(month) && month != "all") {
+                     if (month == "فارغ") {
+                         sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '')";
+                     } else {
+                         sqlWhere += @" AND (
+                             json_extract(RawData, '$.""الشهر""') = @MonthFilter
+                             OR RawData LIKE @MonthFilterLike
+                             OR ReturnCode = @MonthFilter
+                             OR ReturnCode LIKE '%-' || @MonthFilter
+                         )";
+                         parameters.Add("MonthFilter", month);
+                         parameters.Add("MonthFilterLike", $"%{month}%");
+                     }
+                 }
+
+                 if (!string.IsNullOrWhiteSpace(paymentDateFilter) && paymentDateFilter != "all") {
+                     var paymentPatterns = BuildDateFilterPatterns(paymentDateFilter);
+                     sqlWhere += @" AND (
+                         json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter
+                         OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter
+                         OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilter
+                         OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilter
+                         OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilter
+                         OR json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilterAlt
+                         OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilterAlt
+                         OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilterAlt
+                         OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilterAlt
+                         OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilterAlt
+                     )";
+                     parameters.Add("PaymentDateFilter", paymentPatterns.Display);
+                     parameters.Add("PaymentDateFilterAlt", paymentPatterns.Iso);
+                 }
+
+                 if (!string.IsNullOrWhiteSpace(attachmentStatus) && attachmentStatus != "all") {
+                     if (attachmentStatus == "yes") {
+                         sqlWhere += " AND EXISTS (SELECT 1 FROM SalaryReturnsImages WHERE ReturnId = SalaryReturns.Id)";
+                     } else if (attachmentStatus == "no") {
+                         sqlWhere += " AND NOT EXISTS (SELECT 1 FROM SalaryReturnsImages WHERE ReturnId = SalaryReturns.Id)";
+                     }
+                 }
                  
                  var config = DatabaseService.LoadServerConfig();
                  if (config.ActiveSalaryImportId > 0) {
                      sqlWhere += " AND ImportId = @ActiveImportId";
                      parameters.Add("ActiveImportId", config.ActiveSalaryImportId);
                  }
-                 sqlWhere += " AND IsDeleted = 0";
+                 sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
              } catch (Exception ex) {
                  Console.WriteLine($"[SALARY FILTER ALL ERROR] {ex.Message}");
              }
@@ -424,9 +680,9 @@ public static class SalaryReturnsEndpoints
                 var config = DatabaseService.LoadServerConfig();
                 
                 if (config.ActiveSalaryImportId > 0) {
-                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE ImportId = @ImportId AND IsDeleted = 0", new { ImportId = config.ActiveSalaryImportId });
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { ImportId = config.ActiveSalaryImportId });
                 } else {
-                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE IsDeleted = 0");
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -680,3 +936,4 @@ public static class SalaryReturnsEndpoints
     public record ImportData(string filename, string size, List<string> headers, List<object> data);
     public record SettleRequest(List<int> Ids, string SettlementDate);
 }
+

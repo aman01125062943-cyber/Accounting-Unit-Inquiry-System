@@ -1,6 +1,7 @@
 namespace HKServer.Models;
 
 public class ServerConfig {
+    public string PostgresConnectionString { get; set; } = "";
     public string BasePath { get; set; } = @"\\128.30.200.225\esth_share\فرع الاعمال الحسابية\قسم البنوك\منظومة الجديدة";
     public string ArchivePath { get; set; } = @"\\128.30.200.225\esth_share\فرع الاعمال الحسابية\قسم البنوك\منظومة الجديدة\بيانات الارشيف";
     public string AutoSyncPath { get; set; } = ""; // Default empty, user must configure

@@ -5,8 +5,12 @@ obj/
 # Database files
 *.db
 *.db.bak
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite.bak
+*.sqlite-shm
+*.sqlite-wal
 
 # IDE settings
 .vs/
@@ -19,9 +23,18 @@ node_modules/
 
 # Publish output
 publish/
+publish_output/
+publish_portable/
+publish_portable_new/
 
 # Logs
 *.log
+logs/
+
+# Temporary files
+temp/
+tmp/
+artifacts/
 
 # OS files
 Thumbs.db
@@ -29,4 +42,18 @@ Thumbs.db
 
 # Dotnet publish
 **/publish/
-publish_portable/
+
+# Local/private configuration
+appsettings.Development.json
+appsettings.Local.json
+server_config.json
+server_config.local.json
+
+# Uploaded/private data
+uploads/
+uploaded/
+attachments/
+archive/
+*.xlsx
+*.xls
+*.csv

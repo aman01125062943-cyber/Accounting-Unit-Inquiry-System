@@ -1,4 +1,4 @@
-using HKServer.Services;
+﻿using HKServer.Services;
 using HKServer.Models;
 using HKServer.Hubs;
 using Microsoft.AspNetCore.SignalR;
@@ -20,6 +20,9 @@ public class BulkDeleteRequest {
     public string? Filter { get; set; }
     public string? FilterId { get; set; }
     public string? AttachmentStatus { get; set; }
+    public string? ReturnStatus { get; set; }
+    public string? Settlement { get; set; }
+    public string? MonthFilter { get; set; }
     public double? Min { get; set; }
     public double? Max { get; set; }
     public string? TargetColumn { get; set; }
@@ -43,7 +46,7 @@ public static class ReturnsEndpoints
                     json_extract(RawData, '$.ReturnStatus')
                   ) as Status 
                   FROM Returns 
-                  WHERE IsDeleted = 0 
+                  WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
                   AND COALESCE(
                     json_extract(RawData, '$.""الحالة""'),
                     json_extract(RawData, '$.""حالة الارتداد""'),
@@ -105,9 +108,25 @@ public static class ReturnsEndpoints
             return Results.Ok(new { success = true, updatedCount = count, totalProcessed = allReturns.Count() });
         });
 
-        // ==========================================
-        // Schema Repair Endpoint (Self-Healing)
-        // ==========================================
+        app.MapGet("/test-extract", async (DatabaseService db) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var row = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
+                SELECT 
+                    Id,
+                    json_extract(RawData, '$.""تاريخ اعتماد التعديل""') as d1,
+                    json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') as d2,
+                    json_extract(RawData, '$.""الشهر""') as m1,
+                    RawData
+                FROM Returns 
+                WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
+                AND (
+                    (json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') IS NOT NULL AND json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') != '')
+                    OR (json_extract(RawData, '$.""الشهر""') IS NOT NULL AND json_extract(RawData, '$.""الشهر""') != '')
+                )
+                LIMIT 1");
+            return Results.Ok(row);
+        });
+
         app.MapPost("/maintenance/repair-schema", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             var logs = new List<string>();
@@ -185,45 +204,23 @@ public static class ReturnsEndpoints
         app.MapGet("/returns/upload-dates", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             
-            // Ensure schema (Create column if missing)
+            // Fetch from BOTH the column and the JSON for maximum reliability
             try {
-                await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1");
-            } catch {
-                try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN UploadDate TEXT;"); } catch {}
-            }
-
-            try {
-                // Fetch raw distinct dates to avoid SQLite strftime issues with custom formats
                 var rawDates = await conn.QueryAsync<string>(@"
-                    SELECT DISTINCT UploadDate 
-                    FROM Returns 
-                    WHERE UploadDate IS NOT NULL AND UploadDate != ''
-                    ORDER BY UploadDate DESC");
+                    SELECT DISTINCT UploadDateVal FROM (
+                        SELECT UploadDate as UploadDateVal FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
+                        UNION
+                        SELECT json_extract(RawData, '$.""تاريخ الرفع""') as UploadDateVal FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
+                    )
+                    WHERE UploadDateVal IS NOT NULL AND UploadDateVal != ''
+                    ORDER BY UploadDateVal DESC");
                 
-                // Process dates in C# to ensure correct format (YYYY-MM-DD) and strict deduplication
                 var formattedDates = rawDates
                     .Where(d => !string.IsNullOrWhiteSpace(d))
                     .Select(d => {
-                        // Attempt multiple parses for robustness
-                        if (DateTime.TryParse(d, out var dt)) {
-                            return dt.ToString("yyyy-MM-dd");
-                        }
-                        
-                        // Handle manual formats like DD/MM/YYYY or similar if TryParse fails
-                        var match = System.Text.RegularExpressions.Regex.Match(d, @"(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})");
-                        if (match.Success) {
-                            string p1 = match.Groups[1].Value;
-                            string p2 = match.Groups[2].Value.PadLeft(2, '0');
-                            string p3 = match.Groups[3].Value.PadLeft(2, '0');
-                            
-                            if (p1.Length == 4) return $"{p1}-{p2}-{p3}"; // YYYY-MM-DD
-                            if (p3.Length == 4) return $"{p3}-{p2}-{p1}"; // DD-MM-YYYY -> YYYY-MM-DD
-                        }
-
-                        // Absolute fallback: extract first 10 chars if they look like a date
+                        if (DateTime.TryParse(d, out var dt)) return dt.ToString("yyyy-MM-dd");
                         return d.Length >= 10 ? d.Substring(0, 10) : d;
                     })
-                    .Where(d => !string.IsNullOrWhiteSpace(d))
                     .Distinct()
                     .OrderByDescending(d => d)
                     .ToList();
@@ -235,7 +232,72 @@ public static class ReturnsEndpoints
             }
         });
 
-        app.MapGet("/returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? filter, string? filterId, string? attachmentStatus, double? min, double? max, string? targetColumn, string? uploadDateFrom, string? uploadDateTo) => {
+        // ==========================================
+        // Payment Date Filter Options
+        // ==========================================
+        app.MapGet("/returns/payment-dates", async (DatabaseService db) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            try {
+                var rawDates = await conn.QueryAsync<string>(@"
+                    SELECT DISTINCT PaymentDate FROM (
+                        SELECT trim(json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""')) as PaymentDate 
+                        FROM Returns 
+                        WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
+                        UNION
+                        SELECT trim(json_extract(RawData, '$.""تاريخ السداد""')) as PaymentDate 
+                        FROM Returns 
+                        WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
+                    )
+                    WHERE PaymentDate IS NOT NULL AND PaymentDate != ''
+                    ORDER BY PaymentDate DESC");
+                
+                var formattedDates = rawDates
+                    .Where(d => !string.IsNullOrWhiteSpace(d))
+                    .Select(d => d.Length >= 10 ? d.Substring(0, 10) : d)
+                    .Distinct()
+                    .OrderByDescending(d => d)
+                    .ToList();
+                    
+                return Results.Ok(formattedDates);
+            } catch (Exception ex) {
+                Console.WriteLine($"[ERROR] Fetching payment dates: {ex.Message}");
+                return Results.Ok(new List<string>()); 
+            }
+        });
+
+        // ==========================================
+        // Month Filter Options
+        // ==========================================
+        app.MapGet("/returns/months", async (DatabaseService db) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            try {
+                var rawMonths = await conn.QueryAsync<string>(@"
+                    SELECT DISTINCT MonthValue FROM (
+                        SELECT json_extract(RawData, '$.""الشهر""') as MonthValue 
+                        FROM Returns 
+                        WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
+                        UNION
+                        SELECT json_extract(RawData, '$.""شهر""') as MonthValue 
+                        FROM Returns 
+                        WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
+                    )
+                    WHERE MonthValue IS NOT NULL AND TRIM(MonthValue) != ''
+                    ORDER BY MonthValue DESC");
+                
+                var formattedMonths = rawMonths
+                    .Where(m => !string.IsNullOrWhiteSpace(m))
+                    .Select(m => m.Trim())
+                    .Distinct()
+                    .ToList();
+                    
+                return Results.Ok(formattedMonths);
+            } catch (Exception ex) {
+                Console.WriteLine($"[ERROR] Fetching return months: {ex.Message}");
+                return Results.Ok(new List<string>()); 
+            }
+        });
+
+        app.MapGet("/returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? filter, string? filterId, string? attachmentStatus, double? min, double? max, string? targetColumn, string? uploadDateFrom, string? uploadDateTo, string? settlementFilter, string? statusFilter, string? monthFilter, string? paymentDateFilter) => {
              using var conn = await db.GetOpenConnectionAsync();
              
              // Ensure UploadDate column exists to prevent runtime errors if migration hasn't completed yet
@@ -264,12 +326,16 @@ public static class ReturnsEndpoints
                  sqlWhere += " AND ImportId = @ActiveImportId";
                  parameters.Add("ActiveImportId", config.ActiveImportId);
              }
-             sqlWhere += " AND IsDeleted = 0";
+             sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
              
              try {
                   if (!string.IsNullOrWhiteSpace(search)) {
                       var words = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                       for (int i = 0; i < words.Length; i++) {
+                          // Sanitize for FTS5
+                          string sanitized = words[i].Replace("\"", "").Replace("\\", "").Replace("*", "").Replace(":", "").Trim();
+                          if (string.IsNullOrEmpty(sanitized)) continue;
+
                           string spLike = $"SL{i}";
                           string spMatch = $"SM{i}";
                           // AI Fix: Combined search logic for maximum reliability
@@ -279,9 +345,46 @@ public static class ReturnsEndpoints
                               OR RawData LIKE @{spLike} 
                               OR Id IN (SELECT rowid FROM Returns_FTS WHERE Returns_FTS MATCH @{spMatch})
                           )";
-                          parameters.Add(spLike, $"%{words[i]}%");
-                          parameters.Add(spMatch, words[i] + "*"); // Added wildcard for partial matching in FTS
+                          parameters.Add(spLike, $"%{sanitized}%");
+                          parameters.Add(spMatch, sanitized + "*"); // Added wildcard for partial matching in FTS
                       }
+                  }
+
+                  // 1. Settlement Filter
+                  if (!string.IsNullOrWhiteSpace(settlementFilter) && settlementFilter != "all") {
+                      if (settlementFilter == "تم التسوية" || settlementFilter == "تمت التسوية") {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NOT NULL AND json_extract(RawData, '$.\"رقم تسوية السداد\"') != '')";
+                      } else if (settlementFilter == "لم يتم التسوية") {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NULL OR json_extract(RawData, '$.\"رقم تسوية السداد\"') = '')";
+                      }
+                  }
+
+                  // 2. Return Status Filter
+                  if (!string.IsNullOrWhiteSpace(statusFilter) && statusFilter != "all") {
+                      string rsParam = $"RS_{Guid.NewGuid().ToString("N").Substring(0, 6)}";
+                      sqlWhere += $@" AND (
+                          json_extract(RawData, '$.""الحالة""') LIKE @{rsParam}
+                          OR json_extract(RawData, '$.""حالة الارتداد""') LIKE @{rsParam}
+                          OR json_extract(RawData, '$.status') LIKE @{rsParam}
+                          OR json_extract(RawData, '$.ReturnStatus') LIKE @{rsParam}
+                      )";
+                      parameters.Add(rsParam, $"%{statusFilter}%");
+                  }
+
+                  // 3. Month Filter (Literal Match only as requested)
+                  if (!string.IsNullOrWhiteSpace(monthFilter) && monthFilter != "all") {
+                      if (monthFilter == "فارغ") {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '') AND (json_extract(RawData, '$.\"شهر\"') IS NULL OR json_extract(RawData, '$.\"شهر\"') = '')";
+                      } else {
+                          sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') = @MonthFilter OR json_extract(RawData, '$.\"شهر\"') = @MonthFilter)";
+                          parameters.Add("MonthFilter", monthFilter);
+                      }
+                  }
+
+                  // 4. Payment Date Filter (Strict Match as requested)
+                  if (!string.IsNullOrWhiteSpace(paymentDateFilter) && paymentDateFilter != "all") {
+                      sqlWhere += @" AND (json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter)";
+                      parameters.Add("PaymentDateFilter", $"{paymentDateFilter}%");
                   }
 
                   // Upload Date Filter
@@ -381,7 +484,7 @@ public static class ReturnsEndpoints
              int filteredCount = (int)(stats?.FilteredCount ?? 0);
              
              // 0. Get Global System Total (Unfiltered)
-             var systemTotalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Returns");
+             var systemTotalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
 
              // 2. Fetch Paged Data
              bool hasUploadDateInDb = true;
@@ -416,26 +519,41 @@ public static class ReturnsEndpoints
                  attachmentCounts = counts.ToDictionary(c => c.ReturnId, c => c.Count);
              }
 
-             var data = pagedRows.Select(r => {
-                var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(r.RawData, jsonOptions);
-                if (obj != null) {
-                    obj["id"] = (long)r.Id;
-                    object uDateVal = r.UploadDate;
-                    if (uDateVal != null) {
-                        obj["تاريخ الرفع"] = uDateVal.ToString();
-                    }
-                    
-                    // Ensure crucial status field is calculated for UI consistency
-                    var sVal = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
-                    string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
-                    bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
-                    obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
+var data = pagedRows.Select(r => {
+                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(r.RawData, jsonOptions);
+                 if (obj != null) {
+                     obj["id"] = (long)r.Id;
+                     object uDateVal = r.UploadDate;
+                     if (uDateVal != null) {
+                         obj["تاريخ الرفع"] = uDateVal.ToString();
+                     }
+                     
+                     // Normalize payment date field for frontend compatibility
+                     // Check for "تاريخ السداد" and copy to "تاريخ اعتماد التعديل / تاريخ السداد" if preferred field is missing
+                     string paymentDateKey1 = "تاريخ اعتماد التعديل / تاريخ السداد";
+                     string paymentDateKey2 = "تاريخ السداد";
+                     var paymentDateVal1 = obj.ContainsKey(paymentDateKey1) ? obj[paymentDateKey1] : null;
+                     var paymentDateVal2 = obj.ContainsKey(paymentDateKey2) ? obj[paymentDateKey2] : null;
+                     string paymentDateStr1 = (paymentDateVal1 is JsonElement p1 && (p1.ValueKind == JsonValueKind.Null || p1.ValueKind == JsonValueKind.Undefined)) ? "" : paymentDateVal1?.ToString() ?? "";
+                     string paymentDateStr2 = (paymentDateVal2 is JsonElement p2 && (p2.ValueKind == JsonValueKind.Null || p2.ValueKind == JsonValueKind.Undefined)) ? "" : paymentDateVal2?.ToString() ?? "";
+                     bool hasPaymentDate1 = !string.IsNullOrWhiteSpace(paymentDateStr1);
+                     bool hasPaymentDate2 = !string.IsNullOrWhiteSpace(paymentDateStr2);
+                     
+                     if (!hasPaymentDate1 && hasPaymentDate2) {
+                         obj[paymentDateKey1] = obj[paymentDateKey2];
+                     }
+                     
+                     // Ensure crucial status field is calculated for UI consistency
+                     var sVal = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
+                     string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
+                     bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
+                     obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
 
-                    long rIdVal = (long)r.Id;
-                    obj["AttachmentCount"] = attachmentCounts.ContainsKey(rIdVal) ? attachmentCounts[rIdVal] : 0;
-                }
-                return obj;
-             }).ToList();
+                     long rIdVal = (long)r.Id;
+                     obj["AttachmentCount"] = attachmentCounts.ContainsKey(rIdVal) ? attachmentCounts[rIdVal] : 0;
+                 }
+                 return obj;
+              }).ToList();
              
              var totalPages = (int)Math.Ceiling((double)filteredCount / s);
              
@@ -475,7 +593,7 @@ public static class ReturnsEndpoints
              string sqlWhere = "WHERE 1=1";
              var parameters = new DynamicParameters();
 
-             sqlWhere += " AND IsDeleted = 0";
+             sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
              
              try {
                 if (!string.IsNullOrWhiteSpace(search)) {
@@ -524,20 +642,24 @@ public static class ReturnsEndpoints
                   } else if (attachmentStatus == "no") {
                       sqlWhere += " AND NOT EXISTS (SELECT 1 FROM ReturnsImages WHERE ReturnId = Returns.Id)";
                   }
-             }
-
-             // Speed Optimization: Improved JSON injection for reliability
-             string uploadDateSelect = hasUploadDate ? "COALESCE(UploadDate, '')" : "''";
-             var allRawRows = await conn.QueryAsync<string>(
-                 $@"SELECT json_insert(RawData, 
-                        '$.id', Id, 
-                        '$.تاريخ الرفع', {uploadDateSelect}, 
-                        '$.AttachmentCount', COALESCE((SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = Returns.Id), 0)
-                    )
-                    FROM Returns {sqlWhere}", parameters);
-             
-             var finalJson = "[" + string.Join(",", allRawRows) + "]";
-             return Results.Text(finalJson, "application/json");
+              }
+ 
+              // Speed Optimization: Improved JSON injection for reliability
+              string uploadDateSelect = hasUploadDate ? "COALESCE(UploadDate, '')" : "''";
+              var allRawRows = await conn.QueryAsync<string>(
+                  $@"SELECT json_insert(RawData, 
+                         '$.id', Id, 
+                         '$.تاريخ الرفع', {uploadDateSelect}, 
+                         '$.AttachmentCount', COALESCE((SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = Returns.Id), 0),
+                         '$.تاريخ اعتماد التعديل / تاريخ السداد', COALESCE(
+                             json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""'),
+                             json_extract(RawData, '$.""تاريخ السداد""')
+                         )
+                     )
+                     FROM Returns {sqlWhere}", parameters);
+              
+              var finalJson = "[" + string.Join(",", allRawRows) + "]";
+              return Results.Text(finalJson, "application/json");
         });
 
         app.MapPost("/returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
@@ -636,12 +758,16 @@ public static class ReturnsEndpoints
                         sqlWhere += " AND ImportId = @ActiveImportId";
                         parameters.Add("ActiveImportId", config.ActiveImportId);
                     }
-                    sqlWhere += " AND IsDeleted = 0";
+                    sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
                     
                     try {
                         if (!string.IsNullOrWhiteSpace(request.Search)) {
                             var words = request.Search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                             for (int i = 0; i < words.Length; i++) {
+                                // Sanitize for FTS5
+                                string sanitized = words[i].Replace("\"", "").Replace("\\", "").Replace("*", "").Replace(":", "").Trim();
+                                if (string.IsNullOrEmpty(sanitized)) continue;
+
                                 string spLike = $"SL{i}";
                                 string spMatch = $"SM{i}";
                                 sqlWhere += $@" AND (
@@ -649,8 +775,8 @@ public static class ReturnsEndpoints
                                     OR RawData LIKE @{spLike} 
                                     OR Id IN (SELECT rowid FROM Returns_FTS WHERE Returns_FTS MATCH @{spMatch})
                                 )";
-                                parameters.Add(spLike, $"%{words[i]}%");
-                                parameters.Add(spMatch, words[i] + "*"); 
+                                parameters.Add(spLike, $"%{sanitized}%");
+                                parameters.Add(spMatch, sanitized + "*"); 
                             }
                         }
 
@@ -696,6 +822,18 @@ public static class ReturnsEndpoints
                         }
                     }
 
+                    // Return Status Filter
+                    if (!string.IsNullOrWhiteSpace(request.ReturnStatus) && request.ReturnStatus != "all" && request.ReturnStatus != "الكل") {
+                        string rsParam = $"RS_{Guid.NewGuid().ToString("N").Substring(0, 6)}";
+                        sqlWhere += $@" AND (
+                            json_extract(RawData, '$.""الحالة""') LIKE @{rsParam}
+                            OR json_extract(RawData, '$.""حالة الارتداد""') LIKE @{rsParam}
+                            OR json_extract(RawData, '$.""Status""') LIKE @{rsParam}
+                            OR json_extract(RawData, '$.""ReturnStatus""') LIKE @{rsParam}
+                        )";
+                        parameters.Add(rsParam, $"%{request.ReturnStatus}%");
+                    }
+
                     int count = await conn.ExecuteAsync($"UPDATE Returns SET IsDeleted = 1 {sqlWhere}", parameters);
                     await db.AddNotificationEventAsync("Returns", "حذف مجمع", 0, user);
                     return Results.Ok(new { success = true, count = count });
@@ -703,11 +841,11 @@ public static class ReturnsEndpoints
                 } else if (request.Ids != null && request.Ids.Any()) {
                     var ids = request.Ids;
                     if (config.ActiveImportId > 0) {
-                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id IN @Ids AND ImportId = @ImportId AND IsDeleted = 0", new { Ids = ids, ImportId = config.ActiveImportId });
+                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id IN @Ids AND ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids, ImportId = config.ActiveImportId });
                         await db.AddNotificationEventAsync("Returns", "حذف مجمع", 0, user);
                         return Results.Ok(new { success = true, count = count });
                     } else {
-                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id IN @Ids AND IsDeleted = 0", new { Ids = ids });
+                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id IN @Ids AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids });
                         await db.AddNotificationEventAsync("Returns", "حذف مجمع", 0, user);
                         return Results.Ok(new { success = true, count = count });
                     }
@@ -726,9 +864,9 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 
                 if (config.ActiveImportId > 0) {
                     // إذا كان في وضع عرض أرشيف محدد، نؤرشف السجلات المرتبطة بهذا الأرشيف فقط
-                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE ImportId = @ImportId AND IsDeleted = 0", new { ImportId = config.ActiveImportId });
+                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { ImportId = config.ActiveImportId });
                 } else {
-                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE IsDeleted = 0");
+                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -1231,3 +1369,4 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
         }
     }
 }
+

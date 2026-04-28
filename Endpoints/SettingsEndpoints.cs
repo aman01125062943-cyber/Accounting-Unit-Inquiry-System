@@ -1,6 +1,5 @@
 using HKServer.Services;
 using HKServer.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HKServer.Endpoints;

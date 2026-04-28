@@ -17,6 +17,11 @@ public class ArchiveDetail
     public long Id { get; set; }
     public long BatchId { get; set; }
     public long OriginalId { get; set; }
+    public string SourceTable { get; set; } = "";
+    public string ReturnCode { get; set; } = "";
+    public string UploadDate { get; set; } = "";
+    public string InquirySettlementNo { get; set; } = "";
+    public string PaymentSettlementNo { get; set; } = "";
     public string RawData { get; set; } = "";
 }
 

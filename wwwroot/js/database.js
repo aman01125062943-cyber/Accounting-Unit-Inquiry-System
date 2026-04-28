@@ -178,11 +178,15 @@ class Database {
         }
     }
 
+    async getAvailableMonths() {
+        return await this.fetchApi('/api/smart-settlement/months');
+    }
+
     // ========================================
     // المرتدات (Returns)
     // ========================================
 
-    async getReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, min = null, max = null, targetColumn = null, statusFilter = null, monthFilter = null, settlementFilter = null, uploadDateFrom = null, uploadDateTo = null) {
+    async getReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, min = null, max = null, targetColumn = null, statusFilter = null, monthFilter = null, settlementFilter = null, uploadDateFrom = null, uploadDateTo = null, paymentDateFilter = null) {
         const params = new URLSearchParams({
             page: page.toString(),
             pageSize: pageSize.toString()
@@ -207,6 +211,7 @@ class Database {
         if (settlementFilter && settlementFilter !== 'all') params.append('settlementFilter', settlementFilter);
         if (uploadDateFrom) params.append('uploadDateFrom', uploadDateFrom);
         if (uploadDateTo) params.append('uploadDateTo', uploadDateTo);
+        if (paymentDateFilter && paymentDateFilter !== 'all') params.append('paymentDateFilter', paymentDateFilter);
 
         return await this.fetchApi(`/returns?${params}`, { timeout: 30000 });
     }
@@ -272,6 +277,14 @@ class Database {
         return await this.fetchApi('/returns/upload-dates');
     }
 
+    async getPaymentDates() {
+        return await this.fetchApi('/returns/payment-dates');
+    }
+
+    async getReturnMonths() {
+        return await this.fetchApi('/returns/months');
+    }
+
     async repairSchema() {
         try {
             const response = await this.fetchApi('/maintenance/repair-schema', { method: 'POST' });
@@ -287,7 +300,7 @@ class Database {
     // مرتبات (Salary Returns)
     // ========================================
 
-    async getSalaryReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, uploadDateFrom = null, uploadDateTo = null, settlementFilter = null, statusFilter = null, monthFilter = null) {
+    async getSalaryReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, uploadDateFrom = null, uploadDateTo = null, settlementFilter = null, statusFilter = null, monthFilter = null, paymentDateFilter = null) {
         const params = new URLSearchParams({
             page: page.toString(),
             pageSize: pageSize.toString()
@@ -309,11 +322,12 @@ class Database {
         if (settlementFilter && settlementFilter !== 'all') params.append('settlementStatus', settlementFilter);
         if (statusFilter && statusFilter !== 'all') params.append('returnStatus', statusFilter);
         if (monthFilter && monthFilter !== 'all') params.append('month', monthFilter);
+        if (paymentDateFilter && paymentDateFilter !== 'all') params.append('paymentDateFilter', paymentDateFilter);
 
         return await this.fetchApi(`/salary-returns?${params}`, { timeout: 30000 });
     }
 
-    async getAllSalaryReturns(search = null, filter = null, attachmentStatus = null) {
+    async getAllSalaryReturns(search = null, filter = null, attachmentStatus = null, uploadDateFrom = null, uploadDateTo = null, settlementFilter = null, statusFilter = null, monthFilter = null, paymentDateFilter = null) {
         const params = new URLSearchParams();
         if (search) params.append('search', search);
         if (filter) {
@@ -326,6 +340,12 @@ class Database {
             }
         }
         if (attachmentStatus && attachmentStatus !== 'all') params.append('attachmentStatus', attachmentStatus);
+        if (uploadDateFrom) params.append('uploadDateFrom', uploadDateFrom);
+        if (uploadDateTo) params.append('uploadDateTo', uploadDateTo);
+        if (settlementFilter && settlementFilter !== 'all') params.append('settlementStatus', settlementFilter);
+        if (statusFilter && statusFilter !== 'all') params.append('returnStatus', statusFilter);
+        if (monthFilter && monthFilter !== 'all') params.append('month', monthFilter);
+        if (paymentDateFilter && paymentDateFilter !== 'all') params.append('paymentDateFilter', paymentDateFilter);
 
         return await this.fetchApi(`/salary-returns/all?${params}`);
     }

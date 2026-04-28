@@ -21,7 +21,7 @@ if exist "HKServer.exe" (
 )
 
 echo [1/3] Building System...
-dotnet build
+dotnet build HKServer.csproj
 IF %ERRORLEVEL% NEQ 0 (
     COLOR 4F
     echo.
@@ -39,7 +39,7 @@ echo [2/3] Launching Server on Port 5001 (Network Accessible)...
 if exist "HKServer.exe" (
     start /B HKServer.exe --urls "http://0.0.0.0:5001" >nul 2>&1
 ) else (
-    start /B dotnet run --urls "http://0.0.0.0:5001" >nul 2>&1
+    start /B dotnet run --project HKServer.csproj --urls "http://0.0.0.0:5001" >nul 2>&1
 )
 
 :: Wait for server

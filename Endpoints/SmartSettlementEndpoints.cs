@@ -1,5 +1,4 @@
 using Dapper;
-using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Mvc;
 using HKServer.Services;
 using HKServer.Hubs;
@@ -33,8 +32,8 @@ public static class SmartSettlementEndpoints
                 var dbIncentives = new List<SettlementDBRecord>();
                 if (dataType == "الكل" || dataType == "incentive") {
                     string incSql = string.IsNullOrEmpty(monthFilter) 
-                        ? "SELECT Id, ReturnCode, RawData FROM Returns WHERE IsDeleted = 0" 
-                        : "SELECT Id, ReturnCode, RawData FROM Returns WHERE IsDeleted = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
+                        ? "SELECT Id, ReturnCode, RawData FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0" 
+                        : "SELECT Id, ReturnCode, RawData FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
                     
                     string likeParam = $"%-{monthFilter}%";
                     string rawParam = $"%{monthFilter}%";
@@ -46,8 +45,8 @@ public static class SmartSettlementEndpoints
                 var dbSalaries = new List<SettlementDBRecord>();
                 if (dataType == "الكل" || dataType == "salary") {
                     string salSql = string.IsNullOrEmpty(monthFilter) 
-                        ? "SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE IsDeleted = 0" 
-                        : "SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE IsDeleted = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
+                        ? "SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0" 
+                        : "SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
 
                     string likeParam = $"%-{monthFilter}%";
                     string rawParam = $"%{monthFilter}%";
@@ -94,37 +93,35 @@ public static class SmartSettlementEndpoints
                 int updatedCount = 0;
                 int notUpdatedCount = 0;
 
-                string incUpdateSql = @"UPDATE Returns 
+                string incUpdateSql = @"UPDATE Returns
                                SET ReturnCode = COALESCE(@BatchCode, ReturnCode),
-                                   RawData = json_set(RawData, 
-                                   '$.""رقم الحساب بعد التعديل""', @NewAccount, 
-                                   '$.""البنك بعد التعديل""', @NewBank,
-                                   '$.""تاريخ المرتدات""', @ReturnDate,
-                                   '$.""تاريخ اعتماد المرتدات""', @ReturnApprovalDate,
-                                   '$.""تاريخ التعديل""', @ModDate,
-                                   '$.""تاريخ اعتماد التعديل""', @ModApprovalDate,
-                                   '$.""رقم تسوية السداد""', @SettlementNo,
-                                   '$.""تاريخ تسوية السداد""', @SettlementDate,
-                                   '$.""حالة التسوية""', @StatusVal
-                               )
-                               WHERE Id = @DbRecordId";
+                                   RawData = json_set(COALESCE(NULLIF(RawData, ''), '{}'),
+                                       '$.""رقم الحساب بعد التعديل""', @NewAccount,
+                                       '$.""البنك بعد التعديل""', @NewBank,
+                                       '$.""تاريخ المرتدات""', @ReturnDate,
+                                       '$.""تاريخ اعتماد المرتدات""', @ReturnApprovalDate,
+                                       '$.""تاريخ التعديل""', @ModDate,
+                                       '$.""تاريخ اعتماد التعديل""', @ModApprovalDate,
+                                       '$.""رقم تسوية السداد""', @SettlementNo,
+                                       '$.""تاريخ تسوية السداد""', @SettlementDate,
+                                       '$.""تاريخ اعتماد التعديل / تاريخ السداد""', @SettlementDate,
+                                       '$.""حالة التسوية""', @StatusVal)
+                               WHERE Id = @DbRecordId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
 
-                string salUpdateSql = @"UPDATE SalaryReturns 
+                string salUpdateSql = @"UPDATE SalaryReturns
                                SET ReturnCode = COALESCE(@BatchCode, ReturnCode),
-                                   RawData = json_set(RawData, 
-                                   '$.""رقم الحساب بعد التعديل""', @NewAccount, 
-                                   '$.""البنك بعد التعديل""', @NewBank,
-                                   '$.""تاريخ المرتدات""', @ReturnDate,
-                                   '$.""تاريخ اعتماد المرتدات""', @ReturnApprovalDate,
-                                   '$.""تاريخ التعديل""', @ModDate,
-                                   '$.""تاريخ اعتماد التعديل""', @ModApprovalDate,
-                                   '$.""رقم تسوية السداد""', @SettlementNo,
-                                   '$.""تاريخ تسوية السداد""', @SettlementDate,
-                                   '$.""حالة التسوية""', @StatusVal
-                               )
-                               WHERE Id = @DbRecordId";
-
-                string today = DateTime.Now.ToString("yyyy-MM-dd");
+                                   RawData = json_set(COALESCE(NULLIF(RawData, ''), '{}'),
+                                       '$.""رقم الحساب بعد التعديل""', @NewAccount,
+                                       '$.""البنك بعد التعديل""', @NewBank,
+                                       '$.""تاريخ المرتدات""', @ReturnDate,
+                                       '$.""تاريخ اعتماد المرتدات""', @ReturnApprovalDate,
+                                       '$.""تاريخ التعديل""', @ModDate,
+                                       '$.""تاريخ اعتماد التعديل""', @ModApprovalDate,
+                                       '$.""رقم تسوية السداد""', @SettlementNo,
+                                       '$.""تاريخ تسوية السداد""', @SettlementDate,
+                                       '$.""تاريخ اعتماد التعديل / تاريخ السداد""', @SettlementDate,
+                                       '$.""حالة التسوية""', @StatusVal)
+                               WHERE Id = @DbRecordId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
 
                 foreach(var upd in request.Updates) {
                     if(upd.DbRecordId > 0) {
@@ -177,7 +174,7 @@ public static class SmartSettlementEndpoints
         group.MapGet("/months", async (DatabaseService db) =>
         {
             using var conn = await db.GetOpenConnectionAsync();
-            var sql = "SELECT ReturnCode as FileCode, RawData FROM Returns WHERE IsDeleted = 0 UNION SELECT ReturnCode as FileCode, RawData FROM SalaryReturns WHERE IsDeleted = 0";
+            var sql = "SELECT ReturnCode as FileCode, RawData FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 UNION SELECT ReturnCode as FileCode, RawData FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
             var rows = await conn.QueryAsync<dynamic>(sql);
 
             var monthSet = new HashSet<string>();
@@ -187,7 +184,7 @@ public static class SmartSettlementEndpoints
                 string fc = (string?)row.FileCode ?? "";
                 string raw = (string?)row.RawData ?? "";
                 string m = ExtractRecordMonth(fc, raw);
-                if (!string.IsNullOrEmpty(m)) monthSet.Add(m);
+                if (!string.IsNullOrEmpty(m) && m != "فارغ") monthSet.Add(m);
             }
 
             var months = monthSet.OrderByDescending(x => x).ToList();
@@ -199,13 +196,11 @@ public static class SmartSettlementEndpoints
     private static string ExtractRecordMonth(string batchCode, string rawData) {
         if (!string.IsNullOrEmpty(batchCode))
         {
-            // Case 1: MM-YYYY (Lenient)
-            var match = System.Text.RegularExpressions.Regex.Match(batchCode, @"(?:^|[ \-/_\s])(0?[1-9]|1[0-2])([ \-/])(20\d{2})");
-            if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[3].Value}";
-            
-            // Case 2: YYYY-MM (Lenient)
-            var matchInv = System.Text.RegularExpressions.Regex.Match(batchCode, @"(?:^|[ \-/_\s])(20\d{2})([ \-/])(0?[1-9]|1[0-2])");
-            if (matchInv.Success) return $"{matchInv.Groups[3].Value.PadLeft(2, '0')}-{matchInv.Groups[1].Value}";
+            var matches = System.Text.RegularExpressions.Regex.Matches(batchCode, @"(?:^|[^\d])(0?[1-9]|1[0-2])[-/](20\d{2})(?=$|[^\d])");
+            if (matches.Count > 0) {
+                var last = matches[matches.Count - 1];
+                return $"{last.Groups[1].Value.PadLeft(2, '0')}-{last.Groups[2].Value}";
+            }
         }
         if (!string.IsNullOrEmpty(rawData))
         {
@@ -217,43 +212,41 @@ public static class SmartSettlementEndpoints
                 // 1. Try explicit month keys first
                 string[] monthKeys = { "الشهر", "شهر", "حافز شهر", "الدفعة", "Month", "MonthCode" };
                 foreach (var k in monthKeys) {
-                    if (root.TryGetProperty(k, out var p)) {
+                    if (root.TryGetProperty(k, out JsonElement p)) {
                         var val = p.ToString();
-                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
+                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(?<!\d[-/])\b(0?[1-9]|1[0-2])[-/](20\d{2})\b(?![-/]\d)");
                         if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+                        
+                        var matchInv = System.Text.RegularExpressions.Regex.Match(val, @"\b(20\d{2})[-/](0?[1-9]|1[0-2])\b(?![-/]\d)");
+                        if (matchInv.Success) return $"{matchInv.Groups[2].Value.PadLeft(2, '0')}-{matchInv.Groups[1].Value}";
+
+                        // Fallback, return as is if short enough (e.g. "04-2024")
+                        if (val.Length > 0 && val.Length <= 10) return val.Trim();
                     }
                 }
 
                 // 2. Try the original File Code from RawData
                 string[] fileCodeKeys = { "كود الملف", "كـود الملف", "كــود الملف", "كـــود الملف", "Batch ID", "Code", "FileCode" };
                 foreach (var k in fileCodeKeys) {
-                    if (root.TryGetProperty(k, out var p)) {
+                    if (root.TryGetProperty(k, out JsonElement p)) {
                         var val = p.ToString();
-                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
+                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(?<!\d[-/])\b(0?[1-9]|1[0-2])[-/](20\d{2})\b(?![-/]\d)");
                         if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
-                    }
-                }
-
-                // 3. Fallback: Generic scan
-                foreach (var prop in root.EnumerateObject())
-                {
-                    if (prop.Name.Contains("حافز") || prop.Name.Contains("شهر") || prop.Name.Contains("تاريخ"))
-                    {
-                        var val = prop.Value.ToString();
-                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(\d{1,2})[/-](\d{4})");
-                        if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
+                        
+                        var matchInv = System.Text.RegularExpressions.Regex.Match(val, @"\b(20\d{2})[-/](0?[1-9]|1[0-2])\b(?![-/]\d)");
+                        if (matchInv.Success) return $"{matchInv.Groups[2].Value.PadLeft(2, '0')}-{matchInv.Groups[1].Value}";
                     }
                 }
             }
             catch { }
         }
-        return "";
+        return "فارغ";
     }
 
     private static List<SettlementDBRecord> ProcessRows(IEnumerable<dynamic> rows, string monthFilter, string fileCodeFilter, string statusFilter, string source) {
         var list = new List<SettlementDBRecord>();
         foreach(var row in rows) {
-            var rawData = (string)row.RawData;
+            var rawData = row.RawData?.ToString() ?? "{}";
             var record = new SettlementDBRecord {
                 Id = row.Id,
                 BatchCode = DatabaseService.ExtractFileCodeDirect(rawData),
@@ -277,7 +270,7 @@ public static class SmartSettlementEndpoints
             
             string GetJsonVal(params string[] keys) {
                 foreach(var k in keys) {
-                    if (root.TryGetProperty(k, out var p)) 
+                    if (root.TryGetProperty(k, out JsonElement p)) 
                         return p.ValueKind == JsonValueKind.String ? (p.GetString() ?? "") : p.GetRawText();
                     
                     var ck = DatabaseService.CleanArabic(k);

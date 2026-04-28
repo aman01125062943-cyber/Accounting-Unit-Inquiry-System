@@ -158,7 +158,7 @@ app.MapHub<ChatHub>("/chatHub");
 app.MapPost("/api/test/dbchange", async (DatabaseService db) => {
     using var conn = await db.GetOpenConnectionAsync();
     var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-    var id = await conn.ExecuteScalarAsync<long>("INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate, IsDeleted) VALUES (NULL, '{\"اختبار\":\"نظام\"}', NULL, @Now, 0); SELECT last_insert_rowid();", new { Now = now });
+    var id = await conn.ExecuteScalarAsync<long>("INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate, IsDeleted) VALUES (NULL, '{\"اختبار\":\"نظام\"}', NULL, @Now, 0) RETURNING Id;", new { Now = now });
     await conn.ExecuteAsync("UPDATE Returns SET UploadDate = @Now2 WHERE Id = @Id", new { Now2 = now, Id = id });
     await conn.ExecuteAsync("DELETE FROM Returns WHERE Id = @Id", new { Id = id });
     return Results.Ok(new { success = true });
@@ -166,13 +166,11 @@ app.MapPost("/api/test/dbchange", async (DatabaseService db) => {
 
 // Legacy compatibility for Tables info
 app.MapGet("/hk/config/tables", (DatabaseService db) => {
-    // This was providing info about json files. 
-    // Now we can provide info about DB tables 'Count'
     return Results.Ok(new {
-        basePath = db.GetDbPath(),
+        basePath = "PostgreSQL (Neon Cloud)",
         tables = new [] {
-            new { name = "Returns (SQLite)", description = "المرتدات (Database)", exists = true, recordCount = "Dynamic" },
-            new { name = "Archive (SQLite)", description = "الأرشيف (Database)", exists = true, recordCount = "Dynamic" }
+            new { name = "Returns (PostgreSQL)", description = "المرتدات (Database)", exists = true, recordCount = "Dynamic" },
+            new { name = "Archive (PostgreSQL)", description = "الأرشيف (Database)", exists = true, recordCount = "Dynamic" }
         }
     });
 });

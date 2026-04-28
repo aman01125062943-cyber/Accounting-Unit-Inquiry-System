@@ -39,7 +39,7 @@
 
 - **FR-001 (Incentives)**: Import Excel with 17 fixed columns (in order): `كود الملف`, `الاسم`, `رقم الحساب`, `البنك`, `قيمة العملية`, `الحالة`, `السبب`, `رقم الحساب بعد التعديل`, `البنك بعد التعديل`, `كود الفرع بعد التعديل`, `تاريخ الرفع`, `رقم تسوية التعلية`, `تاريخ المرتد / تاريخ التعلية`, `تاريخ التعديل`, `تاريخ اعتماد التعديل`, `رقم تسوية السداد`, `تاريخ اعتماد التعديل / تاريخ السداد`. 
 - **FR-001 (Salaries)**: Import Excel with 18 fixed columns: Same as Incentives list but includes `الرقم القومي` immediately after `الاسم`.
-- **FR-001 (Common)**: Plus 2 computed columns for both: `الشهر` (extracted from كود الملف), `حالة التسوية` (calculated from رقم تسوية السداد).
+- **FR-001 (Common)**: Plus 2 computed columns for both: `الشهر` (extracted from the last two parts of `كود الملف` e.g., MM-YYYY, or retrieved from explicit field), `حالة التسوية` (calculated from رقم تسوية السداد).
 - **FR-002**: Display post-import statistics (عدد الملفات، عدد السجلات).
 - **FR-003**: Filters: Status (الكل / تم التسوية / لم يتم التسوية), Match By (الاسم / الرقم القومي), Month.
 - **FR-004**: Settlement status (`حالة التسوية`) calculated dynamically: `تم التسوية` = `رقم تسوية السداد` has value; `لم يتم التسوية` = `رقم تسوية السداد` is empty.
