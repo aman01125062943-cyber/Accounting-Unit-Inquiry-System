@@ -1,4 +1,4 @@
-using HKServer.Services;
+﻿using HKServer.Services;
 using HKServer.Models;
 using HKServer.Hubs;
 using Microsoft.AspNetCore.SignalR;
@@ -8,6 +8,13 @@ namespace HKServer.Endpoints;
 
 public static class TaskEndpoints
 {
+    private static int GetActorUserId(HttpContext context)
+    {
+        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
+        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
+        return 0;
+    }
+
     public static void MapTaskEndpoints(this WebApplication app)
     {
         // --- User Tasks ---
@@ -72,14 +79,16 @@ public static class TaskEndpoints
             var manager = await conn.QueryFirstOrDefaultAsync<User>("SELECT * FROM Users WHERE Id = @Id", new { Id = task.ManagerId });
             await db.AddAuditLogAsync(task.ManagerId, manager?.fullname ?? "Manager", "إسناد مهمة", $"تم إسناد مهمة '{task.Title}' إلى المستخدم ID: {task.TargetUserId}");
 
-            // SignalR Notification
-            await hub.Clients.Group(task.TargetUserId.ToString()).SendAsync("ReceiveNotification", new { 
-                title = "مهمة جديدة من المدير", 
-                message = task.Title, 
-                type = "task", 
-                priority = task.Priority,
-                time = DateTime.Now.ToString("HH:mm") 
-            });
+            await db.AddUserNotificationAsync(
+                task.TargetUserId,
+                task.ManagerId,
+                "task",
+                "مهمة جديدة من المدير",
+                task.Title,
+                id,
+                "UserTasks");
+
+            await hub.Clients.Group(task.TargetUserId.ToString()).SendAsync("NotificationsChanged", new { userId = task.TargetUserId });
 
             return Results.Ok(new { success = true, id });
         });
@@ -98,19 +107,18 @@ public static class TaskEndpoints
             var task = await conn.QueryFirstOrDefaultAsync<UserTask>("SELECT * FROM UserTasks WHERE Id = @Id", new { Id = req.TaskId });
             if (task != null) {
                 var user = await conn.QueryFirstOrDefaultAsync<User>("SELECT * FROM Users WHERE Id = @Id", new { Id = task.TargetUserId });
-                string statusText = req.Status == "Done" ? "مكتملة ✅" : req.Status == "InProgress" ? "قيد التنفيذ 🔄" : "جديدة 🆕";
-                await hub.Clients.Group(task.ManagerId.ToString()).SendAsync("ReceiveNotification", new {
-                    title = "تحديث مهمة",
-                    message = $"قام {user?.fullname} بتغيير حالة '{task.Title}' إلى: {statusText}",
-                    type = "task",
-                    time = DateTime.Now.ToString("HH:mm")
-                });
+                string statusText = req.Status == "Done" ? "مكتملة" : req.Status == "InProgress" ? "قيد التنفيذ" : "جديدة";
+                var message = $"قام {user?.fullname} بتغيير حالة '{task.Title}' إلى: {statusText}";
+                await db.AddUserNotificationAsync(task.ManagerId, task.TargetUserId, "task", "تحديث مهمة", message, task.Id, "UserTasks");
+                await hub.Clients.Group(task.ManagerId.ToString()).SendAsync("NotificationsChanged", new { userId = task.ManagerId });
             }
 
             return Results.Ok(new { success = true });
         });
 
-        app.MapDelete("/tasks/{id}", async (int id, DatabaseService db) => {
+        app.MapDelete("/tasks/{id}", async (int id, HttpContext context, DatabaseService db) => {
+            if (!await db.UserHasPermissionAsync(GetActorUserId(context), "action.delete"))
+                return Results.Json(new { success = false, message = "غير مصرح بتنفيذ الحذف" }, statusCode: 403);
             using var conn = await db.GetOpenConnectionAsync();
             await conn.ExecuteAsync("DELETE FROM UserTasks WHERE Id = @Id", new { Id = id });
             return Results.Ok(new { success = true });
@@ -132,14 +140,16 @@ public static class TaskEndpoints
             var sender = await conn.QueryFirstOrDefaultAsync<User>("SELECT * FROM Users WHERE Id = @Id", new { Id = share.SharedById });
             await db.AddAuditLogAsync(share.SharedById, sender?.fullname ?? "User", "مشاركة جدول", $"مشاركة جدول ID: {share.TableId} مع المستخدم ID: {share.SharedWithId}");
 
-            // SignalR Notification
-            await hub.Clients.Group(share.SharedWithId.ToString()).SendAsync("ReceiveNotification", new { 
-                title = "طلب مشاركة جدول", 
-                message = $"قام {sender?.fullname} بمشاركة جدول معك", 
-                type = "share",
-                shareId = id,
-                time = DateTime.Now.ToString("HH:mm") 
-            });
+            await db.AddUserNotificationAsync(
+                share.SharedWithId,
+                share.SharedById,
+                "share",
+                "طلب مشاركة جدول",
+                $"قام {sender?.fullname} بمشاركة جدول معك",
+                id,
+                "TableShares");
+
+            await hub.Clients.Group(share.SharedWithId.ToString()).SendAsync("NotificationsChanged", new { userId = share.SharedWithId });
 
             return Results.Ok(new { success = true, id });
         });
@@ -167,7 +177,7 @@ public static class TaskEndpoints
 
             // Log response
             var user = await conn.QueryFirstOrDefaultAsync<User>("SELECT * FROM Users WHERE Id = @Id", new { Id = userId });
-            await db.AddAuditLogAsync(userId, user?.fullname ?? "User", $"رد على مشاركة", $"تم { (status == "Accepted" ? "قبول" : "رفض") } المشاركة ID: {shareId}");
+            await db.AddAuditLogAsync(userId, user?.fullname ?? "User", "رد على مشاركة", $"تم { (status == "Accepted" ? "قبول" : "رفض") } المشاركة ID: {shareId}");
 
             return Results.Ok(new { success = true });
         });
@@ -195,3 +205,4 @@ public static class TaskEndpoints
         });
     }
 }
+

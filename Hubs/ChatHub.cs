@@ -24,6 +24,7 @@ public class ChatHub : Hub
             _onlineUsers[userId] = new HashSet<string>();
 
         _onlineUsers[userId].Add(Context.ConnectionId);
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"user_{userId}");
 
         Console.WriteLine($"[Chat] User {userId} connected: {Context.ConnectionId}");
 
@@ -66,6 +67,51 @@ public class ChatHub : Hub
     {
         var groupName = $"chat_{conversationId}";
         await Clients.OthersInGroup(groupName).SendAsync("UserStoppedTyping", conversationId, userId);
+    }
+
+    public async Task SendCallInvite(int targetUserId, long conversationId, int callerId, string callerName, string ringTone)
+    {
+        if (targetUserId <= 0 || callerId <= 0 || targetUserId == callerId || conversationId <= 0)
+            return;
+
+        await Clients.Group($"user_{targetUserId}").SendAsync("IncomingChatCall", new
+        {
+            conversationId,
+            callerId,
+            callerName,
+            ringTone = string.IsNullOrWhiteSpace(ringTone) ? "classic" : ringTone,
+            sentAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+        });
+
+        await Clients.Caller.SendAsync("ChatCallSent", new { targetUserId, conversationId });
+    }
+
+    public async Task AnswerCall(int callerId, long conversationId, int responderId, string responderName)
+    {
+        if (callerId <= 0 || responderId <= 0 || conversationId <= 0)
+            return;
+
+        await Clients.Group($"user_{callerId}").SendAsync("ChatCallAnswered", new
+        {
+            conversationId,
+            responderId,
+            responderName,
+            answeredAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+        });
+    }
+
+    public async Task RejectCall(int callerId, long conversationId, int responderId, string responderName)
+    {
+        if (callerId <= 0 || responderId <= 0 || conversationId <= 0)
+            return;
+
+        await Clients.Group($"user_{callerId}").SendAsync("ChatCallRejected", new
+        {
+            conversationId,
+            responderId,
+            responderName,
+            rejectedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+        });
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)

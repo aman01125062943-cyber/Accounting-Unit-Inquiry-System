@@ -1,4 +1,4 @@
-using HKServer.Services;
+﻿using HKServer.Services;
 using HKServer.Models;
 using Dapper;
 
@@ -6,6 +6,12 @@ namespace HKServer.Endpoints;
 
 public static class AuthEndpoints
 {
+    private static int GetActorUserId(HttpContext context)
+    {
+        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
+        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
+        return 0;
+    }
 
     private static string HashPassword(string password)
     {
@@ -42,7 +48,8 @@ public static class AuthEndpoints
 
             if (user != null) {
                 if (!user.active) return Results.Json(new { success = false, message = "الحساب معطل" }, statusCode: 403);
-                return Results.Ok(new { success = true, user = new { user.id, user.username, user.fullname, user.role } });
+                var permissions = await db.GetUserPermissionsAsync(user.id);
+                return Results.Ok(new { success = true, user = new { user.id, user.username, user.fullname, user.role, permissions } });
             }
             return Results.Json(new { success = false, message = "بيانات الدخول غير صحيحة" }, statusCode: 401);
         });
@@ -51,6 +58,25 @@ public static class AuthEndpoints
             using var conn = db.GetConnection();
             var users = await conn.QueryAsync<User>("SELECT Id, Username, Fullname, Role, Active FROM Users");
             return Results.Ok(users);
+        });
+
+        app.MapGet("/permissions/keys", () => Results.Ok(DatabaseService.DefaultPermissionKeys()));
+
+        app.MapGet("/permissions/{userId:int}", async (int userId, DatabaseService db) => {
+            var permissions = await db.GetUserPermissionsAsync(userId);
+            return Results.Ok(new { userId, permissions });
+        });
+
+        app.MapPost("/permissions/save", async (HttpContext context, DatabaseService db) => {
+            var req = await context.Request.ReadFromJsonAsync<SaveUserPermissionsRequest>();
+            if (req == null || req.UserId <= 0) return Results.BadRequest(new { success = false, message = "Invalid permissions request" });
+
+            var actorId = req.AdminUserId > 0 ? req.AdminUserId : GetActorUserId(context);
+            if (!await db.UserHasPermissionAsync(actorId, "page.settings"))
+                return Results.Json(new { success = false, message = "غير مصرح بتعديل الصلاحيات" }, statusCode: 403);
+
+            await db.SaveUserPermissionsAsync(req.UserId, req.Permissions);
+            return Results.Ok(new { success = true });
         });
 
         app.MapPost("/users", async (HttpContext context, DatabaseService db) => {
@@ -111,3 +137,4 @@ public static class AuthEndpoints
         });
     }
 }
+

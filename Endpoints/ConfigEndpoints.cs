@@ -9,7 +9,43 @@ public static class ConfigEndpoints
     {
         app.MapGet("/config", () => DatabaseService.LoadServerConfig());
 
-        app.MapGet("/config/path", (DatabaseService db) => Results.Ok(new { path = Path.GetDirectoryName(db.GetDbPath()) }));
+        app.MapGet("/config/path", (DatabaseService db) => {
+            var config = DatabaseService.LoadServerConfig();
+            var status = db.GetCachedConnectionStatus();
+            return Results.Ok(new {
+                path = db.GetDbPath(),
+                activePath = db.GetDbPath(),
+                selectedPath = config.DatabasePath,
+                lastSuccessfulConnection = config.LastSuccessfulDatabaseConnection,
+                lastSuccessfulPath = config.LastSuccessfulDatabasePath,
+                status = new {
+                    success = status.Success,
+                    code = status.Code,
+                    message = ToArabicDatabasePathMessage(status.Code, status.Message)
+                },
+                recommended = "folder_or_full_file_path",
+                message = "يمكن إدخال مجلد أو ملف hk.db كامل، محليًا أو على مشاركة شبكة."
+            });
+        });
+
+        app.MapPost("/config/test-connection", async (HttpContext context, DatabaseService db) => {
+            var req = await context.Request.ReadFromJsonAsync<DatabasePathRequest>();
+            DatabasePathResolution? resolved = null;
+            var validation = string.IsNullOrWhiteSpace(req?.path)
+                ? db.TestCurrentConnection()
+                : ValidateSelectedPath(req.path, allowCreateMissing: false, out resolved);
+            return Results.Ok(new {
+                success = validation.Success,
+                code = validation.Code,
+                message = ToArabicDatabasePathMessage(validation.Code, validation.Message),
+                path = validation.DatabasePath ?? resolved?.DatabasePath ?? db.GetDbPath(),
+                inputWasFolder = resolved?.InputWasFolder ?? false,
+                requiresCreateConfirmation = validation.Code == "folder_db_missing",
+                activePath = db.GetDbPath(),
+                isNetworkPath = db.IsNetworkDatabase(),
+                sqliteNetworkWarning = "SQLite on a LAN share can be limited by file locking and concurrent writes. busy_timeout is enabled. WAL and synchronous=NORMAL are not enabled automatically for UNC paths."
+            });
+        });
 
         app.MapGet("/config/filters", async (DatabaseService db) => {
              // Retrieve from Database instead of obsolete Config property
@@ -24,20 +60,41 @@ public static class ConfigEndpoints
         });
 
         app.MapPost("/config/path", async (HttpContext context, DatabaseService db) => {
-            var req = await context.Request.ReadFromJsonAsync<PathRequest>();
+            var req = await context.Request.ReadFromJsonAsync<DatabasePathRequest>();
             if (string.IsNullOrWhiteSpace(req?.path)) return Results.BadRequest();
 
             try {
-                if (!Directory.Exists(req.path)) Directory.CreateDirectory(req.path);
+                var validation = ValidateSelectedPath(req.path, req.createIfMissing, out var resolved);
+
+                if (!validation.Success)
+                {
+                    return Results.Json(new {
+                        success = false,
+                        code = validation.Code,
+                        message = ToArabicDatabasePathMessage(validation.Code, validation.Message),
+                        path = resolved.DatabasePath,
+                        inputWasFolder = resolved.InputWasFolder,
+                        requiresCreateConfirmation = validation.Code == "folder_db_missing"
+                    });
+                }
                 
                 var config = DatabaseService.LoadServerConfig();
-                config.BasePath = req.path;
+                config.DatabasePath = resolved.DatabasePath;
+                config.BasePath = Path.GetDirectoryName(resolved.DatabasePath) ?? config.BasePath;
+                config.LastSuccessfulDatabasePath = resolved.DatabasePath;
+                config.LastSuccessfulDatabaseConnection = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 DatabaseService.SaveServerConfig(config);
                 
-                db.SetBasePath(req.path);
-                await db.InitDatabase(); // Re-init DB in new path
+                db.SetDatabasePath(resolved.DatabasePath, createIfMissing: req.createIfMissing);
+                await db.InitDatabase();
 
-                return Results.Ok(new { success = true, message = "تم تغيير المسار والاتصال بنجاح" });
+                return Results.Ok(new {
+                    success = true,
+                    message = "تم الاتصال وحفظ مسار قاعدة البيانات بنجاح.",
+                    path = resolved.DatabasePath,
+                    activePath = db.GetDbPath(),
+                    lastSuccessfulConnection = config.LastSuccessfulDatabaseConnection
+                });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
             }
@@ -256,4 +313,44 @@ public static class ConfigEndpoints
     );
 
     public record AttachmentLinkModeRequest(string Mode);
+    public record DatabasePathRequest(string path, bool createIfMissing = false);
+
+    private static DatabasePathValidationResult ValidateSelectedPath(string inputPath, bool allowCreateMissing, out DatabasePathResolution resolved)
+    {
+        resolved = DatabaseService.NormalizeDatabasePath(inputPath);
+        var fileExists = File.Exists(resolved.DatabasePath);
+
+        if (resolved.InputWasFolder && !fileExists && !allowCreateMissing)
+        {
+            return DatabasePathValidationResult.Fail(
+                "folder_db_missing",
+                "لم يتم العثور على hk.db داخل هذا المجلد. هل تريد إنشاء قاعدة جديدة");
+        }
+
+        if (!resolved.InputWasFolder && !fileExists)
+        {
+            return DatabasePathValidationResult.Fail(
+                "file_not_found",
+                "ملف قاعدة البيانات غير موجود. لن يتم إنشاء قاعدة فارغة تلقائيا.");
+        }
+
+        return DatabaseService.ValidateDatabasePath(
+            resolved.DatabasePath,
+            requireExistingFile: !allowCreateMissing);
+    }
+
+    private static string ToArabicDatabasePathMessage(string code, string fallback) => code switch
+    {
+        "connected" => "تم الاتصال بنجاح.",
+        "invalid_path" => "مسار قاعدة البيانات غير صحيح. اختر ملفا بامتداد .db أو .sqlite أو مجلدا يحتوي hk.db.",
+        "folder_not_found" => "المجلد غير موجود.",
+        "shared_folder_unavailable" => "المجلد المشترك غير متاح. تأكد من الشبكة ومسار المشاركة.",
+        "folder_db_missing" => "لم يتم العثور على hk.db داخل هذا المجلد. هل تريد إنشاء قاعدة جديدة",
+        "file_not_found" => "ملف قاعدة البيانات غير موجود. لن يتم إنشاء قاعدة فارغة تلقائيا.",
+        "permission_denied" => "لا توجد صلاحيات كافية للقراءة/الكتابة/إنشاء ملفات القفل في هذا المسار.",
+        "sqlite_locked" => "قاعدة البيانات مقفلة حاليا من عملية أخرى.",
+        "invalid_sqlite" => "الملف المحدد ليس قاعدة SQLite صالحة أو لا يمكن فتحه.",
+        "not_tested" => "لم يتم اختبار الاتصال بعد.",
+        _ => fallback
+    };
 }

@@ -31,7 +31,7 @@ public class NotificationDispatcherService : BackgroundService
         }
         catch (Exception ex)
         {
-            Console.WriteLine("[RealTime] Startup cleanup error: " + ex.Message);
+            SafeLog("[RealTime] Startup cleanup error: " + ex.Message);
         }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -71,17 +71,40 @@ public class NotificationDispatcherService : BackgroundService
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[RealTime] Error broadcasting/deleting event {r.Id}: " + ex.Message);
+                            SafeLog($"[RealTime] Error broadcasting/deleting event {r.Id}: " + ex.Message);
                         }
                     }
                 }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
             catch (Exception ex)
             {
-                Console.WriteLine("[RealTime] Dispatcher error: " + ex.Message);
+                SafeLog("[RealTime] Dispatcher error: " + ex.Message);
             }
-            
-            await Task.Delay(2000, stoppingToken);
+
+            try
+            {
+                await Task.Delay(2000, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+    }
+
+    private static void SafeLog(string message)
+    {
+        try
+        {
+            Console.WriteLine(message);
+        }
+        catch
+        {
+            // Logging must never crash the background service.
         }
     }
 }

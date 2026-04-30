@@ -119,3 +119,23 @@ public class MarkMessagesAsReadRequest
 {
     public int ReaderId { get; set; }
 }
+
+public class SendChatCallRequest
+{
+    public long ConversationId { get; set; }
+    public int CurrentUserId { get; set; }
+    public int TargetUserId { get; set; }
+    public string? RingTone { get; set; }
+}
+
+public class RespondChatCallRequest
+{
+    public long RingId { get; set; }
+    public int UserId { get; set; }
+}
+
+public class TimeoutChatCallRequest
+{
+    public long RingId { get; set; }
+    public int CallerId { get; set; }
+}

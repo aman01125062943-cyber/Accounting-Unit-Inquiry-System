@@ -31,4 +31,14 @@ public class ArchiveBatchRequest
     public string DateTo { get; set; } = "";
     public string SourceTable { get; set; } = "";
     public string Reason { get; set; } = "";
+    public List<long>? Ids { get; set; }
+    public bool ArchiveAllFiltered { get; set; }
+    public string? Search { get; set; }
+    public string? AttachmentStatus { get; set; }
+    public string? ReturnStatus { get; set; }
+    public string? Settlement { get; set; }
+    public string? MonthFilter { get; set; }
+    public string? PaymentDateFilter { get; set; }
+    public string? UploadDateFrom { get; set; }
+    public string? UploadDateTo { get; set; }
 }

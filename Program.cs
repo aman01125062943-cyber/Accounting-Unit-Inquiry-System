@@ -39,6 +39,10 @@ SetConsoleIcon();
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 // 1. Services
 builder.Services.AddCors(options =>
 {
@@ -106,6 +110,8 @@ app.Use(async (context, next) => {
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.MapGet("/api/ping", () => Results.Ok(new { success = true, status = "ok", timestamp = DateTime.UtcNow }));
+
 // Serve uploaded files from wwwroot/uploads (for chat attachments etc.)
 var uploadsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads");
 if (Directory.Exists(uploadsPath))
@@ -137,8 +143,6 @@ app.MapGet("/api/debug/counts", async (DatabaseService db) => {
     return Results.Ok(new { returns, salaryReturns, archives, salaryArchives });
 });
 
-app.MapGet("/api/ping", () => Results.Ok(new { message = "pong", time = DateTime.Now }));
-
 // 4. Endpoints
 app.MapConfigEndpoints();
 app.MapAuthEndpoints();
@@ -149,7 +153,11 @@ app.MapSalaryReturnsEndpoints();
 app.MapSmartSettlementEndpoints();
 app.MapChatEndpoints();
 app.MapTaskEndpoints();
+app.MapNotificationEndpoints();
+app.MapDashboardEndpoints();
+app.MapAccountStatementEndpoints();
 app.MapAdabirEndpoints();
+app.MapSearchIndexEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");
@@ -167,10 +175,10 @@ app.MapPost("/api/test/dbchange", async (DatabaseService db) => {
 // Legacy compatibility for Tables info
 app.MapGet("/hk/config/tables", (DatabaseService db) => {
     return Results.Ok(new {
-        basePath = "PostgreSQL (Neon Cloud)",
+        basePath = "Local SQLite (hk.db)",
         tables = new [] {
-            new { name = "Returns (PostgreSQL)", description = "المرتدات (Database)", exists = true, recordCount = "Dynamic" },
-            new { name = "Archive (PostgreSQL)", description = "الأرشيف (Database)", exists = true, recordCount = "Dynamic" }
+            new { name = "Returns (SQLite)", description = "المرتدات (Local Database)", exists = true, recordCount = "Dynamic" },
+            new { name = "Archive (SQLite)", description = "الأرشيف (Local Database)", exists = true, recordCount = "Dynamic" }
         }
     });
 });

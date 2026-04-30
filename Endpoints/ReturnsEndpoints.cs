@@ -32,6 +32,25 @@ public class BulkDeleteRequest {
 
 public static class ReturnsEndpoints
 {
+    private static int GetActorUserId(HttpContext context)
+    {
+        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
+        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
+        return 0;
+    }
+
+    private static async Task<IResult?> RequireDeletePermission(HttpContext context, DatabaseService db)
+    {
+        if (await db.UserHasPermissionAsync(GetActorUserId(context), "action.delete")) return null;
+        return Results.Json(new { success = false, message = "غير مصرح بتنفيذ الحذف" }, statusCode: 403);
+    }
+
+    private static async Task<IResult?> RequirePermission(HttpContext context, DatabaseService db, string permissionKey, string message)
+    {
+        if (await db.UserHasPermissionAsync(GetActorUserId(context), permissionKey)) return null;
+        return Results.Json(new { success = false, message }, statusCode: 403);
+    }
+
     public static void MapReturnsEndpoints(this WebApplication app)
     {
         // Lightweight endpoint: Get distinct return statuses for filter dropdown (instant)
@@ -271,23 +290,21 @@ public static class ReturnsEndpoints
         app.MapGet("/returns/months", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             try {
-                var rawMonths = await conn.QueryAsync<string>(@"
-                    SELECT DISTINCT MonthValue FROM (
-                        SELECT json_extract(RawData, '$.""الشهر""') as MonthValue 
-                        FROM Returns 
-                        WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
-                        UNION
-                        SELECT json_extract(RawData, '$.""شهر""') as MonthValue 
-                        FROM Returns 
-                        WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
-                    )
-                    WHERE MonthValue IS NOT NULL AND TRIM(MonthValue) != ''
-                    ORDER BY MonthValue DESC");
-                
-                var formattedMonths = rawMonths
-                    .Where(m => !string.IsNullOrWhiteSpace(m))
-                    .Select(m => m.Trim())
+                var rows = await conn.QueryAsync<dynamic>(@"
+                    SELECT RawData, ReturnCode
+                    FROM Returns
+                    WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
+
+                var formattedMonths = rows
+                    .Select(r => {
+                        var raw = (string?)r.RawData ?? "";
+                        var code = DatabaseService.ExtractFileCodeDirect(raw);
+                        if (string.IsNullOrWhiteSpace(code)) code = (string?)r.ReturnCode ?? "";
+                        return DatabaseService.ExtractMonthFromFileCode(code);
+                    })
+                    .Where(m => !string.IsNullOrWhiteSpace(m) && m != "فارغ")
                     .Distinct()
+                    .OrderByDescending(m => m)
                     .ToList();
                     
                 return Results.Ok(formattedMonths);
@@ -344,6 +361,7 @@ public static class ReturnsEndpoints
                               ReturnCode LIKE @{spLike} 
                               OR RawData LIKE @{spLike} 
                               OR Id IN (SELECT rowid FROM Returns_FTS WHERE Returns_FTS MATCH @{spMatch})
+                              OR Id IN (SELECT RecordId FROM SearchFilterIndex WHERE SourceType = 'returns' AND IsDeleted = 0 AND IsArchived = 0 AND SearchText LIKE @{spLike})
                           )";
                           parameters.Add(spLike, $"%{sanitized}%");
                           parameters.Add(spMatch, sanitized + "*"); // Added wildcard for partial matching in FTS
@@ -376,15 +394,50 @@ public static class ReturnsEndpoints
                       if (monthFilter == "فارغ") {
                           sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '') AND (json_extract(RawData, '$.\"شهر\"') IS NULL OR json_extract(RawData, '$.\"شهر\"') = '')";
                       } else {
-                          sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') = @MonthFilter OR json_extract(RawData, '$.\"شهر\"') = @MonthFilter)";
+                          var normalizedMonth = DatabaseService.NormalizeMonthText(monthFilter);
+                          var parts = normalizedMonth.Split('-', StringSplitOptions.RemoveEmptyEntries);
+                          var invertedMonth = parts.Length == 2 ? $"{parts[1]}-{parts[0]}" : normalizedMonth;
+                          var slashMonth = normalizedMonth.Replace('-', '/');
+                          var invertedSlashMonth = invertedMonth.Replace('-', '/');
+                          sqlWhere += @" AND (
+                              json_extract(RawData, '$.""الشهر""') = @MonthFilter 
+                              OR json_extract(RawData, '$.""شهر""') = @MonthFilter
+                              OR ReturnCode LIKE @MonthFilterLike
+                              OR ReturnCode LIKE @MonthFilterInvertedLike
+                              OR ReturnCode LIKE @MonthFilterSlashLike
+                              OR ReturnCode LIKE @MonthFilterInvertedSlashLike
+                              OR RawData LIKE @MonthFilterLike
+                              OR RawData LIKE @MonthFilterInvertedLike
+                              OR RawData LIKE @MonthFilterSlashLike
+                              OR RawData LIKE @MonthFilterInvertedSlashLike
+                          )";
                           parameters.Add("MonthFilter", monthFilter);
+                          parameters.Add("MonthFilterLike", $"%{normalizedMonth}%");
+                          parameters.Add("MonthFilterInvertedLike", $"%{invertedMonth}%");
+                          parameters.Add("MonthFilterSlashLike", $"%{slashMonth}%");
+                          parameters.Add("MonthFilterInvertedSlashLike", $"%{invertedSlashMonth}%");
                       }
                   }
 
                   // 4. Payment Date Filter (Strict Match as requested)
                   if (!string.IsNullOrWhiteSpace(paymentDateFilter) && paymentDateFilter != "all") {
-                      sqlWhere += @" AND (json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter)";
+                      sqlWhere += @" AND (
+                          json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilter
+                          OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilter
+                          OR Id IN (
+                              SELECT RecordId
+                              FROM SearchFilterIndex
+                              WHERE SourceType = 'returns'
+                                AND IsDeleted = 0
+                                AND IsArchived = 0
+                                AND PaymentDate = @PaymentDateExact
+                          )
+                      )";
                       parameters.Add("PaymentDateFilter", $"{paymentDateFilter}%");
+                      parameters.Add("PaymentDateExact", paymentDateFilter);
                   }
 
                   // Upload Date Filter
@@ -549,6 +602,10 @@ var data = pagedRows.Select(r => {
                      bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
                      obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
 
+                     var fileCode = DatabaseService.ExtractFileCodeDirect(r.RawData);
+                     if (string.IsNullOrWhiteSpace(fileCode)) fileCode = r.ReturnCode;
+                     obj["الشهر"] = DatabaseService.ExtractMonthFromFileCode(fileCode ?? "");
+
                      long rIdVal = (long)r.Id;
                      obj["AttachmentCount"] = attachmentCounts.ContainsKey(rIdVal) ? attachmentCounts[rIdVal] : 0;
                  }
@@ -663,7 +720,9 @@ var data = pagedRows.Select(r => {
         });
 
         app.MapPost("/returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
-             try {
+            try {
+                 var forbidden = await RequirePermission(context, db, "action.import", "غير مصرح بتنفيذ الاستيراد");
+                 if (forbidden != null) return forbidden;
                  var importData = await context.Request.ReadFromJsonAsync<ImportData>();
                  if (importData == null) return Results.BadRequest();
                  
@@ -741,6 +800,8 @@ var data = pagedRows.Select(r => {
         
         app.MapPost("/returns/bulk-delete", async (HttpContext context, DatabaseService db) => {
             try {
+                var forbidden = await RequireDeletePermission(context, db);
+                if (forbidden != null) return forbidden;
                 var request = await context.Request.ReadFromJsonAsync<BulkDeleteRequest>();
                 if (request == null) return Results.BadRequest("Invalid request");
 
@@ -859,6 +920,8 @@ var data = pagedRows.Select(r => {
 
 app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
             try {
+                var forbidden = await RequireDeletePermission(context, db);
+                if (forbidden != null) return forbidden;
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
                 
@@ -879,6 +942,8 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
 
         app.MapDelete("/returns/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
             try {
+                var forbidden = await RequireDeletePermission(context, db);
+                if (forbidden != null) return forbidden;
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
                 
@@ -1139,6 +1204,8 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
         }).DisableAntiforgery();
 
         app.MapDelete("/returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+            var forbidden = await RequireDeletePermission(context, db);
+            if (forbidden != null) return forbidden;
             using var conn = await db.GetOpenConnectionAsync();
             var config = DatabaseService.LoadServerConfig();
             
@@ -1221,6 +1288,9 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
         });
 
         app.MapPost("/returns/sync/start", async (HttpContext context, AutoSyncService syncService, IHubContext<NotificationHub> hub) => {
+            var db = context.RequestServices.GetRequiredService<DatabaseService>();
+            var forbidden = await RequirePermission(context, db, "action.sync", "غير مصرح بتنفيذ المزامنة");
+            if (forbidden != null) return forbidden;
             if (syncService.IsRunning) return Results.Conflict(new { message = "المزامنة تعمل بالفعل" });
             var config = DatabaseService.LoadServerConfig();
             if (string.IsNullOrWhiteSpace(config.AutoSyncPath)) return Results.BadRequest(new { message = "لم يتم تحديد مسار المزامنة في الإعدادات" });

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المراتبات</title>
+    <link rel="stylesheet" href="../css/main.css">
+    <link rel="stylesheet" href="../lib/all.min.css">
+    <script src="../lib/xlsx.full.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>المراتبات</h1>
+
+        <!-- أزرار التحكم -->
+        <div class="controls">
+            <button id="importBtn" class="btn btn-primary">
+                <i class="fas fa-file-import"></i> استيراد ملف Excel
+            </button>
+            <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
+
+            <button id="searchBtn" class="btn btn-secondary">
+                <i class="fas fa-search"></i> بحث سريع
+            </button>
+            <input type="text" id="searchInput" placeholder="ابحث برقم الحساب أو الرقم القومي..."
+                style="display: none;">
+
+            <button id="archiveBtn" class="btn btn-success">
+                <i class="fas fa-archive"></i> عرض الأرشيف
+            </button>
+        </div>
+
+        <!-- رسائل التنبيه -->
+        <div id="alertContainer" class="alert-container"></div>
+
+        <!-- قسم الإدخال -->
+        <div id="inputSection" class="section">
+            <h2>استيراد البيانات</h2>
+            <div class="table-container">
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th>رقم الحساب</th>
+                            <th>الاسم</th>
+                            <th>الرقم القومي</th>
+                            <th>الإجراءات</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- قسم ملخصات الأخطاء -->
+        <div id="errorsSection" class="section" style="display: none;">
+            <h2>ملخصات الأخطاء</h2>
+            <div id="nationalIdErrors" class="error-summary">
+                <h3><i class="fas fa-exclamation-triangle"></i> تكرار الرقم القومي</h3>
+                <div id="nationalIdErrorList"></div>
+                <button id="downloadNationalIdErrors" class="btn btn-warning">
+                    <i class="fas fa-download"></i> تنزيل ملخص الأخطاء
+                </button>
+            </div>
+            <div id="accountErrors" class="error-summary">
+                <h3><i class="fas fa-exclamation-triangle"></i> تكرار رقم الحساب</h3>
+                <div id="accountErrorList"></div>
+                <button id="downloadAccountErrors" class="btn btn-warning">
+                    <i class="fas fa-download"></i> تنزيل ملخص الأخطاء
+                </button>
+            </div>
+        </div>
+
+        <!-- قسم الأرشيف -->
+        <div id="archiveSection" class="section" style="display: none;">
+            <h2>الأرشيف</h2>
+            <div class="table-container">
+                <table id="archiveTable">
+                    <thead>
+                        <tr>
+                            <th>رقم الحساب</th>
+                            <th>الاسم</th>
+                            <th>الرقم القومي</th>
+                            <th>تاريخ الإضافة</th>
+                        </tr>
+                    </thead>
+                    <tbody id="archiveBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/pages/rates.js"></script>
+</body>
+
+</html>

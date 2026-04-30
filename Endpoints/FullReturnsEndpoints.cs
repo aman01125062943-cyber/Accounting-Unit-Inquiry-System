@@ -12,6 +12,13 @@ namespace HKServer.Endpoints;
 
 public static class FullReturnsEndpoints
 {
+    private static int GetActorUserId(HttpContext context)
+    {
+        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
+        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
+        return 0;
+    }
+
     public static void MapFullReturnsEndpoints(this WebApplication app)
     {
         app.MapGet("/full-returns", async (DatabaseService db, int? page, int? pageSize, string? search) => {
@@ -146,6 +153,8 @@ public static class FullReturnsEndpoints
 
         app.MapPost("/full-returns/import", async (HttpContext context, DatabaseService db) => {
             try {
+                if (!await db.UserHasPermissionAsync(GetActorUserId(context), "action.import"))
+                    return Results.Json(new { success = false, message = "غير مصرح بتنفيذ الاستيراد" }, statusCode: 403);
                 var importData = await context.Request.ReadFromJsonAsync<ImportData>();
                 if (importData == null) return Results.BadRequest();
                 

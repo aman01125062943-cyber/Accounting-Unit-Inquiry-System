@@ -91,13 +91,30 @@ public static class AdabirEndpoints
                     FROM {tableName}
                     WHERE IsDeleted = 0
                       AND COALESCE(IsArchived, 0) = 0
-                      AND ArchivedBatchId IS NULL
-                      AND UploadDate >= @DateFrom
-                      AND UploadDate <= @DateTo";
+                      AND ArchivedBatchId IS NULL";
+
+                var selectParams = new DynamicParameters();
+                if (request.Ids?.Any() == true)
+                {
+                    sqlSelect += " AND Id IN @Ids";
+                    selectParams.Add("Ids", request.Ids.Distinct().ToList());
+                }
+                else if (request.ArchiveAllFiltered)
+                {
+                    ApplyArchiveFilters(sqlSelect: ref sqlSelect, parameters: selectParams, request, tableName);
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(request.DateFrom) || string.IsNullOrWhiteSpace(request.DateTo))
+                        return Results.BadRequest(new { success = false, message = "اختر فترة أو سجلات محددة للنقل إلى الأضابير." });
+                    sqlSelect += " AND UploadDate >= @DateFrom AND UploadDate <= @DateTo";
+                    selectParams.Add("DateFrom", request.DateFrom);
+                    selectParams.Add("DateTo", dateToFull);
+                }
 
                 var matches = (await conn.QueryAsync<dynamic>(
                     sqlSelect,
-                    new { DateFrom = request.DateFrom, DateTo = dateToFull },
+                    selectParams,
                     trans)).ToList();
 
                 if (!matches.Any())
@@ -184,6 +201,7 @@ public static class AdabirEndpoints
                     trans);
 
                 trans.Commit();
+                await db.MarkSearchFilterIndexStaleAsync();
                 return Results.Ok(new { success = true, batchId, count = matches.Count });
             }
             catch (Exception ex)
@@ -256,6 +274,7 @@ public static class AdabirEndpoints
                 await conn.ExecuteAsync("DELETE FROM ArchiveBatches WHERE Id = @Id", new { Id = id }, trans);
 
                 trans.Commit();
+                await db.MarkSearchFilterIndexStaleAsync();
                 return Results.Ok(new { success = true, count = details.Count });
             }
             catch (Exception ex)
@@ -267,6 +286,116 @@ public static class AdabirEndpoints
 
     private static string NormalizeSourceTable(string? sourceTable)
         => string.Equals(sourceTable, "SalaryReturns", StringComparison.OrdinalIgnoreCase) ? "SalaryReturns" : "Returns";
+
+    private static void ApplyArchiveFilters(ref string sqlSelect, DynamicParameters parameters, ArchiveBatchRequest request, string tableName)
+    {
+        var sourceType = tableName == "SalaryReturns" ? "salary" : "returns";
+        var imagesTable = tableName == "SalaryReturns" ? "SalaryReturnsImages" : "ReturnsImages";
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var words = request.Search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < words.Length; i++)
+            {
+                var sanitized = words[i].Replace("\"", "").Replace("\\", "").Replace("*", "").Replace(":", "").Trim();
+                if (string.IsNullOrWhiteSpace(sanitized)) continue;
+                var p = $"Search{i}";
+                sqlSelect += $@" AND (
+                    ReturnCode LIKE @{p}
+                    OR RawData LIKE @{p}
+                    OR Id IN (
+                        SELECT RecordId FROM SearchFilterIndex
+                        WHERE SourceType = @SourceType
+                          AND IsDeleted = 0
+                          AND IsArchived = 0
+                          AND SearchText LIKE @{p}
+                    )
+                )";
+                parameters.Add(p, $"%{sanitized}%");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.UploadDateFrom))
+        {
+            sqlSelect += " AND UploadDate >= @UploadDateFrom";
+            parameters.Add("UploadDateFrom", request.UploadDateFrom);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.UploadDateTo))
+        {
+            var to = request.UploadDateTo;
+            if (to.Length == 10) to += " 23:59:59";
+            sqlSelect += " AND UploadDate <= @UploadDateTo";
+            parameters.Add("UploadDateTo", to);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Settlement) && request.Settlement != "all")
+        {
+            if (request.Settlement is "تم التسوية" or "تمت التسوية")
+                sqlSelect += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NOT NULL AND json_extract(RawData, '$.\"رقم تسوية السداد\"') != '')";
+            else if (request.Settlement == "لم يتم التسوية")
+                sqlSelect += " AND (json_extract(RawData, '$.\"رقم تسوية السداد\"') IS NULL OR json_extract(RawData, '$.\"رقم تسوية السداد\"') = '')";
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ReturnStatus) && request.ReturnStatus != "all")
+        {
+            sqlSelect += @" AND (
+                json_extract(RawData, '$.""الحالة""') LIKE @ReturnStatus
+                OR json_extract(RawData, '$.""حالة الارتداد""') LIKE @ReturnStatus
+                OR json_extract(RawData, '$.status') LIKE @ReturnStatus
+                OR json_extract(RawData, '$.ReturnStatus') LIKE @ReturnStatus
+            )";
+            parameters.Add("ReturnStatus", $"%{request.ReturnStatus}%");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.MonthFilter) && request.MonthFilter != "all")
+        {
+            if (request.MonthFilter == "فارغ")
+            {
+                sqlSelect += $@" AND NOT EXISTS (
+                    SELECT 1 FROM SearchFilterIndex
+                    WHERE SourceType = @SourceType
+                      AND RecordId = {tableName}.Id
+                      AND IsDeleted = 0
+                      AND IsArchived = 0
+                      AND COALESCE(ExtractedMonth, '') != ''
+                )";
+            }
+            else
+            {
+                sqlSelect += @" AND Id IN (
+                    SELECT RecordId FROM SearchFilterIndex
+                    WHERE SourceType = @SourceType
+                      AND IsDeleted = 0
+                      AND IsArchived = 0
+                      AND ExtractedMonth = @MonthFilter
+                )";
+                parameters.Add("MonthFilter", request.MonthFilter);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.PaymentDateFilter) && request.PaymentDateFilter != "all")
+        {
+            sqlSelect += @" AND Id IN (
+                SELECT RecordId FROM SearchFilterIndex
+                WHERE SourceType = @SourceType
+                  AND IsDeleted = 0
+                  AND IsArchived = 0
+                  AND PaymentDate = @PaymentDateFilter
+            )";
+            parameters.Add("PaymentDateFilter", request.PaymentDateFilter);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.AttachmentStatus) && request.AttachmentStatus != "all")
+        {
+            if (request.AttachmentStatus == "yes")
+                sqlSelect += $" AND EXISTS (SELECT 1 FROM {imagesTable} WHERE ReturnId = {tableName}.Id)";
+            else if (request.AttachmentStatus == "no")
+                sqlSelect += $" AND NOT EXISTS (SELECT 1 FROM {imagesTable} WHERE ReturnId = {tableName}.Id)";
+        }
+
+        parameters.Add("SourceType", sourceType);
+    }
 
     private static string ExpandDateTo(string dateTo)
         => !string.IsNullOrEmpty(dateTo) && dateTo.Length == 10 ? $"{dateTo} 23:59:59" : dateTo;

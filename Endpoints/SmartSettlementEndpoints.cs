@@ -11,6 +11,13 @@ namespace HKServer.Endpoints;
 
 public static class SmartSettlementEndpoints
 {
+    private static int GetActorUserId(HttpContext context)
+    {
+        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
+        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
+        return 0;
+    }
+
     public static void MapSmartSettlementEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/smart-settlement");
@@ -88,6 +95,8 @@ public static class SmartSettlementEndpoints
         group.MapPost("/execute", async (HttpContext context, [FromBody] ExecuteRequest request, DatabaseService db, IHubContext<NotificationHub> hub) =>
         {
             try {
+                if (!await db.UserHasPermissionAsync(GetActorUserId(context), "action.smart-payment"))
+                    return Results.Json(new { success = false, message = "غير مصرح بتنفيذ السداد الذكي" }, statusCode: 403);
                 using var conn = await db.GetOpenConnectionAsync();
                 using var trans = conn.BeginTransaction();
                 int updatedCount = 0;
@@ -196,11 +205,8 @@ public static class SmartSettlementEndpoints
     private static string ExtractRecordMonth(string batchCode, string rawData) {
         if (!string.IsNullOrEmpty(batchCode))
         {
-            var matches = System.Text.RegularExpressions.Regex.Matches(batchCode, @"(?:^|[^\d])(0?[1-9]|1[0-2])[-/](20\d{2})(?=$|[^\d])");
-            if (matches.Count > 0) {
-                var last = matches[matches.Count - 1];
-                return $"{last.Groups[1].Value.PadLeft(2, '0')}-{last.Groups[2].Value}";
-            }
+            var month = DatabaseService.ExtractMonthFromFileCode(batchCode);
+            if (month != "فارغ") return month;
         }
         if (!string.IsNullOrEmpty(rawData))
         {
@@ -214,14 +220,8 @@ public static class SmartSettlementEndpoints
                 foreach (var k in monthKeys) {
                     if (root.TryGetProperty(k, out JsonElement p)) {
                         var val = p.ToString();
-                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(?<!\d[-/])\b(0?[1-9]|1[0-2])[-/](20\d{2})\b(?![-/]\d)");
-                        if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
-                        
-                        var matchInv = System.Text.RegularExpressions.Regex.Match(val, @"\b(20\d{2})[-/](0?[1-9]|1[0-2])\b(?![-/]\d)");
-                        if (matchInv.Success) return $"{matchInv.Groups[2].Value.PadLeft(2, '0')}-{matchInv.Groups[1].Value}";
-
-                        // Fallback, return as is if short enough (e.g. "04-2024")
-                        if (val.Length > 0 && val.Length <= 10) return val.Trim();
+                        var month = DatabaseService.NormalizeMonthText(val);
+                        if (month != "فارغ") return month;
                     }
                 }
 
@@ -230,11 +230,8 @@ public static class SmartSettlementEndpoints
                 foreach (var k in fileCodeKeys) {
                     if (root.TryGetProperty(k, out JsonElement p)) {
                         var val = p.ToString();
-                        var match = System.Text.RegularExpressions.Regex.Match(val, @"(?<!\d[-/])\b(0?[1-9]|1[0-2])[-/](20\d{2})\b(?![-/]\d)");
-                        if (match.Success) return $"{match.Groups[1].Value.PadLeft(2, '0')}-{match.Groups[2].Value}";
-                        
-                        var matchInv = System.Text.RegularExpressions.Regex.Match(val, @"\b(20\d{2})[-/](0?[1-9]|1[0-2])\b(?![-/]\d)");
-                        if (matchInv.Success) return $"{matchInv.Groups[2].Value.PadLeft(2, '0')}-{matchInv.Groups[1].Value}";
+                        var month = DatabaseService.ExtractMonthFromFileCode(val);
+                        if (month != "فارغ") return month;
                     }
                 }
             }
@@ -308,10 +305,10 @@ public static class SmartSettlementEndpoints
             record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "تاريخ التسوية", "تاريخ_التسوية", "SettlementDate", "Settlement Date");
 
             
-            record.Month = GetJsonVal("الشهر", "شهر", "حافز شهر", "الدفعة", "Month", "MonthCode");
+            record.Month = DatabaseService.NormalizeMonthText(GetJsonVal("الشهر", "شهر", "حافز شهر", "الدفعة", "Month", "MonthCode"));
             
             // Fallback to calculated month if direct field is empty
-            if (string.IsNullOrEmpty(record.Month)) {
+            if (string.IsNullOrEmpty(record.Month) || record.Month == "فارغ") {
                 record.Month = ExtractRecordMonth(record.BatchCode ?? "", rawData);
             }
 

@@ -48,6 +48,7 @@ appsettings.Development.json
 appsettings.Local.json
 server_config.json
 server_config.local.json
+check_postgres.ps1
 
 # Uploaded/private data
 uploads/
