@@ -307,6 +307,7 @@ class Database {
     async updateReturn(id, data) {
         return await this.fetchApi(`/returns/${id}`, {
             method: 'PUT',
+            __skipLoadingWrapper: true,
             body: JSON.stringify(data)
         });
     }

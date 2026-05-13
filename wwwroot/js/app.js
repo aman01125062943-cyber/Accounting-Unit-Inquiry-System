@@ -6039,12 +6039,29 @@ renderTable(dataToRender = null, append = false) {
 
         const merged = this._stripEditableTechnicalFields({ ...this.editingMainReturnOriginal, ...data });
         const editId = this.editingMainReturnId;
-        this.showLoading();
+        const saveButton = formContainer.querySelector('footer button:last-child');
+        const previousSaveHtml = saveButton?.innerHTML;
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.classList.add('btn-loading');
+        }
+        this.isSavingReturns = true;
+        const saveStartedAt = performance.now();
         try {
+            console.log('[SAVE FLOW][returns] start', { id: editId });
+            console.log('[SAVE FLOW][returns] before api');
+            console.time('[SAVE PERF][returns] api');
+            console.log('[SAVE PERF][returns] sending update request', { id: editId });
             const result = await db.updateReturn(editId, merged);
+            console.timeEnd('[SAVE PERF][returns] api');
+            console.log('[SAVE FLOW][returns] after api');
             if (result && result.success) {
                 const updatedRow = result.record || { ...merged, id: editId };
+                console.log('[SAVE FLOW][returns] before cache update');
+                console.time('[SAVE PERF][returns] cache+idb+render');
                 await this._upsertEditedCachedRow('returns', editId, updatedRow);
+                console.timeEnd('[SAVE PERF][returns] cache+idb+render');
+                console.log('[SAVE FLOW][returns] after cache update');
                 this.showToast('\u062a\u0645 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
                 this.closeEditMainReturnModal();
             } else {
@@ -6053,7 +6070,14 @@ renderTable(dataToRender = null, append = false) {
         } catch (error) {
             this.showToast('\u062e\u0637\u0623: ' + error.message, 'error');
         } finally {
-            this.hideLoading();
+            this.isSavingReturns = false;
+            console.log('[SAVE PERF][returns] total', Math.round(performance.now() - saveStartedAt) + 'ms');
+            console.log('[SAVE FLOW][returns] end');
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.classList.remove('btn-loading');
+                if (previousSaveHtml !== undefined) saveButton.innerHTML = previousSaveHtml;
+            }
         }
     }
 
@@ -11109,8 +11133,12 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
 
     const cacheRows = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp] : null;
     if (cacheRows) {
+        if (type === 'returns') console.time('[SAVE PERF][returns] update returnsCache');
         updateArray(cacheRows);
+        if (type === 'returns') console.timeEnd('[SAVE PERF][returns] update returnsCache');
+        if (type === 'returns') console.time('[SAVE PERF][returns] indexeddb');
         await db.setLocalCache(cfg.dataKey, cacheRows).catch(e => console.warn('[SAVE][' + type + '] IndexedDB update failed:', e));
+        if (type === 'returns') console.timeEnd('[SAVE PERF][returns] indexeddb');
     }
 
     if (type === 'salary') {
@@ -11133,6 +11161,8 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
 
     updateArray(this.data);
     updateArray(this.filteredReturns);
+    if (type === 'returns') console.log('[SAVE FLOW][returns] before render');
+    if (type === 'returns') console.time('[SAVE PERF][returns] filters+render');
     this._populateReturnFilterOptions(cacheRows || this.data || []);
     if (cacheRows && this.handleLocalSearch) {
         this.handleLocalSearch(
@@ -11146,6 +11176,8 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
     } else {
         this.renderTable?.();
     }
+    if (type === 'returns') console.timeEnd('[SAVE PERF][returns] filters+render');
+    if (type === 'returns') console.log('[SAVE FLOW][returns] after render');
     return processed;
 };
 
@@ -11215,6 +11247,10 @@ App.prototype._refreshSyncedDatasetView = function (type) {
 App.prototype._syncDataset = async function (type, options = {}) {
     const cfg = HK_SYNC_CACHE[type];
     if (!cfg) return;
+    if (type === 'returns' && this.isSavingReturns && !options.forceSave) {
+        console.log(`[SYNC][${type}] Skipped while returns save is in progress`);
+        return;
+    }
     if (this[`_${type}Syncing`] && !options.force) return;
     this[`_${type}Syncing`] = true;
 

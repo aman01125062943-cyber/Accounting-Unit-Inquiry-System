@@ -1059,11 +1059,13 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
 
         app.MapPut("/returns/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
             try {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 using var reader = new StreamReader(context.Request.Body);
                 var rawBody = await reader.ReadToEndAsync();
                 if (string.IsNullOrWhiteSpace(rawBody)) return Results.BadRequest();
 
                 using var conn = await db.GetOpenConnectionAsync();
+                Console.WriteLine($"[SAVE PERF][returns][backend] open+read {sw.ElapsedMilliseconds}ms id={id}");
 
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody);
                 string settlementNo = "";
@@ -1092,6 +1094,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 var affectedRows = 0;
                 // Attempt to update physical columns if they exist
                 try {
+                    var updateStart = sw.ElapsedMilliseconds;
                     affectedRows = await conn.ExecuteAsync(@"
                         UPDATE Returns
                         SET RawData = @RawData,
@@ -1102,12 +1105,15 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                         WHERE Id = @Id",
                         new { RawData = rawBody, ReturnCode = rCode, SettlementNo = settlementNo, AccrualNo = accrualNo, UpdatedAt = updatedAt, Id = id }
                     );
+                    Console.WriteLine($"[SAVE PERF][returns][backend] update {sw.ElapsedMilliseconds - updateStart}ms id={id}");
                 } catch {
                     // Fallback if physical columns don't exist
+                    var fallbackStart = sw.ElapsedMilliseconds;
                     affectedRows = await conn.ExecuteAsync(
                         "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode, UpdatedAt = @UpdatedAt WHERE Id = @Id",
                         new { RawData = rawBody, ReturnCode = rCode, UpdatedAt = updatedAt, Id = id }
                     );
+                    Console.WriteLine($"[SAVE PERF][returns][backend] update-fallback {sw.ElapsedMilliseconds - fallbackStart}ms id={id}");
                 }
 
                 if (affectedRows == 0) {
@@ -1116,7 +1122,13 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
 
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
-                await db.AddNotificationEventAsync("Returns", "تعديل", id, user);
+                _ = Task.Run(async () => {
+                    try {
+                        await db.AddNotificationEventAsync("Returns", "\u062a\u0639\u062f\u064a\u0644", id, user);
+                    } catch (Exception notifyEx) {
+                        Console.WriteLine($"[SAVE PERF][returns][backend] notification failed id={id}: {notifyEx.Message}");
+                    }
+                });
 
                 // Return full updated record for frontend cache update
                 var updatedRecord = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -1124,9 +1136,12 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                     updatedRecord["id"] = id;
                     updatedRecord["UpdatedAt"] = updatedAt;
                     // Get attachment count
+                    var attachmentStart = sw.ElapsedMilliseconds;
                     var attachCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = @Id", new { Id = id });
+                    Console.WriteLine($"[SAVE PERF][returns][backend] attachment-count {sw.ElapsedMilliseconds - attachmentStart}ms id={id}");
                     updatedRecord["AttachmentCount"] = attachCount;
                 }
+                Console.WriteLine($"[SAVE PERF][returns][backend] total {sw.ElapsedMilliseconds}ms id={id}");
                 return Results.Ok(new { success = true, record = updatedRecord });
 
             } catch (Exception ex) {
