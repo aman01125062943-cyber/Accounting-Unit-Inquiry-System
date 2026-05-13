@@ -41,8 +41,50 @@ public static class ReturnsEndpoints
 
     private static async Task<IResult?> RequireDeletePermission(HttpContext context, DatabaseService db)
     {
-        if (await db.UserHasPermissionAsync(GetActorUserId(context), "action.delete")) return null;
-        return Results.Json(new { success = false, message = "غير مصرح بتنفيذ الحذف" }, statusCode: 403);
+        var actorId = GetActorUserId(context);
+        var permissionKeys = new[] { "action.delete", "delete", "delete_returns", "returns_delete" };
+        foreach (var key in permissionKeys)
+        {
+            if (await db.UserHasPermissionAsync(actorId, key)) return null;
+        }
+        return Results.Json(new { success = false, message = "ليس لديك صلاحية حذف هذه البيانات" }, statusCode: 403);
+    }
+
+    private static async Task<IResult?> RequireDeleteAllProtection(HttpContext context, DatabaseService db, IConfiguration configuration)
+    {
+        if (!await db.UserHasPermissionAsync(GetActorUserId(context), "page.settings"))
+        {
+            return Results.Json(new { success = false, message = "حذف كل السجلات يتطلب صلاحية مدير" }, statusCode: 403);
+        }
+
+        if (!SecurityHardening.ReadBool(configuration, "EnableDangerousAdminOperations", defaultValue: false))
+        {
+            return Results.Json(new { success = false, message = "حذف كل السجلات غير مفعل من الإعدادات" }, statusCode: 403);
+        }
+
+        var configuredToken = configuration["AdminOperationToken"] ?? configuration["DangerousAdminOperationToken"];
+        if (string.IsNullOrWhiteSpace(configuredToken))
+        {
+            return Results.Json(new { success = false, message = "رمز حذف كل السجلات غير مضبوط في الإعدادات" }, statusCode: 403);
+        }
+
+        var providedToken = context.Request.Headers[SecurityHardening.AdminOperationHeaderName].FirstOrDefault();
+        if (!FixedTimeEquals(providedToken, configuredToken))
+        {
+            Console.WriteLine("[SECURITY] Blocked returns delete-all: missing or invalid admin token.");
+            return Results.Json(new { success = false, message = "غير مصرح بحذف كل السجلات" }, statusCode: 403);
+        }
+
+        return null;
+    }
+
+    private static bool FixedTimeEquals(string? provided, string expected)
+    {
+        if (string.IsNullOrEmpty(provided)) return false;
+        var providedBytes = System.Text.Encoding.UTF8.GetBytes(provided);
+        var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expected);
+        return providedBytes.Length == expectedBytes.Length
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes);
     }
 
     private static async Task<IResult?> RequirePermission(HttpContext context, DatabaseService db, string permissionKey, string message)
@@ -891,12 +933,17 @@ var data = pagedRows.Select(r => {
         });
 
 
-        app.MapPost("/returns/bulk-delete", async (HttpContext context, DatabaseService db) => {
+        app.MapPost("/returns/bulk-delete", async (HttpContext context, DatabaseService db, IConfiguration configuration) => {
             try {
                 var forbidden = await RequireDeletePermission(context, db);
                 if (forbidden != null) return forbidden;
                 var request = await context.Request.ReadFromJsonAsync<BulkDeleteRequest>();
                 if (request == null) return Results.BadRequest("Invalid request");
+
+                if (request.DeleteAllFiltered) {
+                    var dangerousForbidden = await RequireDeleteAllProtection(context, db, configuration);
+                    if (dangerousForbidden != null) return dangerousForbidden;
+                }
 
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
@@ -1012,10 +1059,12 @@ var data = pagedRows.Select(r => {
             }
         });
 
-app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
                 var forbidden = await RequireDeletePermission(context, db);
                 if (forbidden != null) return forbidden;
+                var dangerousForbidden = await RequireDeleteAllProtection(context, db, configuration);
+                if (dangerousForbidden != null) return dangerousForbidden;
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
 

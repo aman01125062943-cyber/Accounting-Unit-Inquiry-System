@@ -56,6 +56,15 @@ public static class SettingsEndpoints
             return Results.Ok(new { success = true, message = "تم تغيير رمز الدخول بنجاح. سيتم استخدامه في عمليات التحقق التالية بعد إعادة تشغيل التطبيق." });
         });
 
+        app.MapGet("/api/settings/security-status", (IConfiguration configuration) => {
+            var dangerousEnabled = SecurityHardening.ReadBool(configuration, "EnableDangerousAdminOperations", defaultValue: false);
+            var dangerousTokenConfigured = !string.IsNullOrWhiteSpace(configuration["AdminOperationToken"] ?? configuration["DangerousAdminOperationToken"]);
+            return Results.Ok(new {
+                enableDangerousAdminOperations = dangerousEnabled,
+                dangerousAdminOperationTokenConfigured = dangerousTokenConfigured
+            });
+        });
+
         // ----------------------------------------------------
         // Phase 3-6: Filter Management Endpoints
         // ----------------------------------------------------

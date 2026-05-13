@@ -256,7 +256,7 @@ console.log('App JS Loaded Successfully version 8.0 - Performance Optimized');
         try {
             return await operation();
         } catch (error) {
-            if (sectionId) {
+            if (sectionId && error?.status !== 403) {
                 window.showErrorState(sectionId, error?.message || 'تعذر جلب البيانات', options.retry);
             }
             throw error;
@@ -279,7 +279,7 @@ console.log('App JS Loaded Successfully version 8.0 - Performance Optimized');
             if (!cfg) return state.originalFetch(input, options);
             return window.withLoading(async () => {
                 const response = await state.originalFetch(input, options);
-                if (!response.ok && cfg.sectionId) {
+                if (!response.ok && cfg.sectionId && response.status !== 403) {
                     window.showErrorState(cfg.sectionId, `تعذر جلب البيانات من الخادم (${response.status})`, () => window.fetch(input, options));
                 }
                 return response;
@@ -809,12 +809,47 @@ class App {
         });
 
         const toggle = (selector, allowed) => document.querySelectorAll(selector).forEach(el => el.classList.toggle('hidden', !allowed));
+        const canDelete = this.canDeleteReturns();
+        const canDeleteAll = this.canDeleteAllReturns();
         toggle('#btn-import-returns, #empty-import-btn, [onclick*="showImportModal"], [onclick*="showSalaryImportModal"], [onclick*="showFullReturnsImportModal"]', auth.canDo('import'));
         toggle('#export-excel-btn, #export-csv-btn, [onclick*="export"], [onclick*="downloadTemplate"], [onclick*="downloadSalaryTemplate"]', auth.canDo('export'));
-        toggle('.btn-delete-pro, [onclick*="delete"], [onclick*="Delete"], [onclick*="confirmDelete"]', auth.canDo('delete'));
+        toggle('.btn-delete-pro, [onclick*="delete"], [onclick*="Delete"], [onclick*="confirmDelete"]', canDelete);
+        toggle('[onclick="app.confirmDeleteAll()"], [onclick="window.app.confirmDeleteAll()"]', canDeleteAll);
         toggle('[onclick*="showAutoSyncModal"], [onclick*="showSalaryAutoSyncModal"], [onclick*="sync"]', auth.canDo('sync'));
         toggle('[onclick*="toggleAdabirInlineFilter"], [onclick*="archive"], [onclick*="Archive"]', auth.canDo('archive'));
         toggle('[onclick*="settle"], [onclick*="Settlement"], [onclick*="smart"]', auth.canDo('smart-payment'));
+    }
+
+    canDeleteReturns() {
+        return !!(
+            auth?.canDo?.('delete') ||
+            auth?.hasPermission?.('delete') ||
+            auth?.hasPermission?.('delete_returns') ||
+            auth?.hasPermission?.('returns_delete')
+        );
+    }
+
+    canDeleteAllReturns() {
+        return this.canDeleteReturns() && !!(
+            auth?.isAdmin?.() ||
+            auth?.hasPermission?.('page.settings') ||
+            auth?.hasPermission?.('dangerous.admin') ||
+            auth?.hasPermission?.('admin.operations')
+        );
+    }
+
+    async isDangerousDeleteAllEnabled() {
+        try {
+            const status = await db.getSecurityStatus?.();
+            return !!status?.enableDangerousAdminOperations;
+        } catch {
+            return false;
+        }
+    }
+
+    showDeleteForbidden(error) {
+        const message = error?.data?.message || error?.message || 'ليس لديك صلاحية حذف هذه البيانات';
+        this.showToast(message.includes('العملية الإدارية الخطيرة') ? 'حذف كل السجلات غير مفعل من الإعدادات' : message, 'error');
     }
 
     async refreshCurrentUserPermissions() {
@@ -3131,6 +3166,10 @@ class App {
     }
 
     async bulkDeleteReturns() {
+        if (!this.canDeleteReturns()) {
+            this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+            return;
+        }
         const count = this.isAllReturnsSelected ? 'كافة السجلات المطابقة للفلاتر' : this.selectedReturnIds.size + ' سجل';
         if (!await confirm(`هل أنت متأكد من رغبتك في حذف ${count}؟ لا يمكن التراجع عن هذه العملية.`)) return;
 
@@ -3153,14 +3192,14 @@ class App {
                 TargetColumn: this.targetColumn
             };
 
-            const res = await fetch('/returns/bulk-delete', {
+            const result = await db.fetchApi('/returns/bulk-delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                __skipLoadingWrapper: true,
+                __suppressErrorLog: true,
                 body: JSON.stringify(payload)
             });
 
-            if (res.ok) {
-                const result = await res.json();
+            if (result.success) {
                 this.showToast(`تم حذف ${result.count} سجل بنجاح`, 'success');
                 this.clearSelection();
                 this.loadReturns(); // Refresh table
@@ -3168,8 +3207,11 @@ class App {
                 this.showToast('حدث خطأ أثناء الحذف المجمع', 'error');
             }
         } catch (error) {
-            console.error('Bulk Delete Error:', error);
-            this.showToast('فشل الاتصال بالخادم', 'error');
+            if (error?.status === 403) this.showDeleteForbidden(error);
+            else {
+                console.error('Bulk Delete Error:', error);
+                this.showToast('فشل الاتصال بالخادم', 'error');
+            }
         } finally {
             this.hideLoading();
         }
@@ -3397,13 +3439,16 @@ renderTable(dataToRender = null, append = false) {
             // Style: Cyan Glow for buttons with attachments
             const style = hasAttachments ? 'position: relative; border: 1px solid #00f0ff; box-shadow: 0 0 10px rgba(0, 240, 255, 0.5); transform: scale(1.05); transition: all 0.2s ease;' : 'position: relative; opacity: 0.6;';
 
+            const deleteButton = this.canDeleteReturns()
+                ? `<button class="btn-icon" style="color: #f87171;" onclick="window.app.deleteReturn('${rowId}')" title="حذف السجل">🗑️</button>`
+                : '';
             const actions = `<td class="col-actions" style="text-align:center; white-space: nowrap;">
             <button class="btn-icon ${btnClass}" style="margin-left:5px; ${style}" onclick="window.app.openAttachmentsModal('${rowId}', 'returns')" title="${hasAttachments ? 'عرض ' + row.AttachmentCount + ' مرفقات' : 'إضافة مرفق'}">
                 ${icon} ${badge}
             </button>
             <button class="btn-icon" style="margin-left:5px;" onclick="window.app.editReturn('${rowId}')" title="تعديل السجل">✏️</button>
             <button class="btn-icon" style="margin-left:5px;" onclick="window.app.openReturnFolder('${rowId}')" title="فتح مجلد المرفقات">📂</button>
-            <button class="btn-icon" style="color: #f87171;" onclick="window.app.deleteReturn('${rowId}')" title="حذف السجل">🗑️</button>
+            ${deleteButton}
         </td>`;
 
             return `<tr>${cells}${actions}</tr>`;
@@ -5689,6 +5734,10 @@ renderTable(dataToRender = null, append = false) {
     // إلى أعلى الملف لضمان التوافق مع البانر والـ Toolbar الجديد.
 
     async deleteSelectedReturns() {
+        if (!this.canDeleteReturns()) {
+            this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+            return;
+        }
         const checkedBoxes = document.querySelectorAll('#table-body .return-row-checkbox:checked');
         if (checkedBoxes.length === 0) {
             this.showToast('الرجاء تحديد سجل واحد على الأقل', 'warning');
@@ -5721,8 +5770,11 @@ renderTable(dataToRender = null, append = false) {
 
             this.filterAndRenderTable();
         } catch (error) {
-            console.error('Error in multi delete:', error);
-            this.showToast('حدث خطأ أثناء الحذف المتعدد', 'error');
+            if (error?.status === 403) this.showDeleteForbidden(error);
+            else {
+                console.error('Error in multi delete:', error);
+                this.showToast('حدث خطأ أثناء الحذف المتعدد', 'error');
+            }
         } finally {
             this.hideLoading();
             this.updateSelectAllReturns();
@@ -5730,6 +5782,10 @@ renderTable(dataToRender = null, append = false) {
     }
 
     async deleteReturn(id) {
+        if (!this.canDeleteReturns()) {
+            this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+            return;
+        }
         const confirmed = await dialog.show({
             title: 'أرشفة سجل',
             message: 'هل أنت متأكد من نقل هذا السجل للأرشيف؟',
@@ -5748,7 +5804,8 @@ renderTable(dataToRender = null, append = false) {
                 this.showToast('فشل حذف السجل', 'error');
             }
         } catch (error) {
-            this.showToast('خطأ: ' + error.message, 'error');
+            if (error?.status === 403) this.showDeleteForbidden(error);
+            else this.showToast('خطأ: ' + error.message, 'error');
         }
     }
 
@@ -13266,6 +13323,18 @@ App.prototype.processSalaryFile = async function (file) {
 
 
 App.prototype.confirmDeleteAll = async function () {
+    if (!this.canDeleteReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!this.canDeleteAllReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!await this.isDangerousDeleteAllEnabled()) {
+        this.showToast('حذف كل السجلات غير مفعل من الإعدادات', 'error');
+        return;
+    }
     const correctPwd = localStorage.getItem('delete_password') || '1994';
     const inputPwd = await window.dialog.show({
         message: 'يرجى إدخال كلمة المرور لتأكيد حذف جميع البيانات:',
@@ -13301,7 +13370,8 @@ App.prototype.confirmDeleteAll = async function () {
             this.showToast('فشل حذف البيانات', 'error');
         }
     } catch (e) {
-        this.showToast('خطأ في الاتصال: ' + e.message, 'error');
+        if (e?.status === 403) this.showDeleteForbidden(e);
+        else this.showToast('خطأ في الاتصال: ' + e.message, 'error');
     } finally {
         this.hideLoading();
     }

@@ -160,7 +160,11 @@ class Database {
                     }, 1500);
                 }
 
-                throw new Error(errorData.error || errorData.message || `خادم غير متاح (${response.status})`);
+                const error = new Error(errorData.error || errorData.message || `خادم غير متاح (${response.status})`);
+                error.status = response.status;
+                error.data = errorData;
+                error.isForbidden = response.status === 403;
+                throw error;
             }
 
             const data = await response.json();
@@ -186,7 +190,7 @@ class Database {
 
             return data;
         } catch (error) {
-            if (!__suppressErrorLog) {
+            if (!__suppressErrorLog && !error?.isForbidden) {
                 console.error(`API Error (${endpoint}):`, error);
             }
             
@@ -292,14 +296,18 @@ class Database {
 
     async deleteAllReturns() {
         const response = await this.fetchApi('/returns', {
-            method: 'DELETE'
+            method: 'DELETE',
+            __skipLoadingWrapper: true,
+            __suppressErrorLog: true
         });
         return response.success;
     }
 
     async deleteReturn(id) {
         const response = await this.fetchApi(`/returns/${id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            __skipLoadingWrapper: true,
+            __suppressErrorLog: true
         });
         return response.success;
     }
@@ -333,6 +341,13 @@ class Database {
             console.error('Schema repair failed', e);
             return { success: false, error: e.message };
         }
+    }
+
+    async getSecurityStatus() {
+        return await this.fetchApi('/api/settings/security-status', {
+            __skipLoadingWrapper: true,
+            __suppressErrorLog: true
+        });
     }
 
     // ========================================

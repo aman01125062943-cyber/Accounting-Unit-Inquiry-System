@@ -183,7 +183,6 @@ static bool IsProtectedDangerousOperation(string method, string path)
     if (HttpMethods.IsDelete(method))
     {
         return path.Equals("/admin/reset", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWith("/returns", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/salary-returns", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/full-returns", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/archive", StringComparison.OrdinalIgnoreCase)
@@ -193,7 +192,6 @@ static bool IsProtectedDangerousOperation(string method, string path)
     if (!HttpMethods.IsPost(method)) return false;
 
     return path.Equals("/returns/import", StringComparison.OrdinalIgnoreCase)
-        || path.Equals("/returns/bulk-delete", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/salary-returns/import", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/salary-returns/bulk-delete", StringComparison.OrdinalIgnoreCase)
         || path.Equals("/full-returns/import", StringComparison.OrdinalIgnoreCase)
