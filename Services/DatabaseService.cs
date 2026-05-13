@@ -65,10 +65,12 @@ public class DatabaseService
     private string _connectionString;
     private DatabasePathValidationResult? _lastValidation;
     private bool _validatedForCurrentSession;
+    private readonly bool _enableDatabaseDiagnostics;
     private readonly object _pathLock = new();
 
     public DatabaseService(IConfiguration configuration)
     {
+        _enableDatabaseDiagnostics = IsDatabaseDiagnosticsEnabled(configuration);
         _config = LoadServerConfig();
         _dbPath = ResolveDatabasePath(configuration, out var startupValidation);
         _connectionString = BuildConnectionString(_dbPath);
@@ -77,14 +79,16 @@ public class DatabaseService
         {
             _lastValidation = validation;
             _validatedForCurrentSession = false;
-            Console.WriteLine($"[DB][CRITICAL] Configured SQLite database is not available: {_dbPath}");
-            Console.WriteLine($"[DB][CRITICAL] {validation.Code}: {validation.Message}");
+            Console.WriteLine($"[DB][CRITICAL] Configured SQLite database is not available: {FormatDatabasePathForLog(_dbPath, _enableDatabaseDiagnostics)}");
+            Console.WriteLine(_enableDatabaseDiagnostics
+                ? $"[DB][CRITICAL] {validation.Code}: {validation.Message}"
+                : $"[DB][CRITICAL] {validation.Code}: enable EnableDatabaseDiagnostics for full database path diagnostics.");
             Console.WriteLine("[DB][CRITICAL] No local SQLite fallback will be used. Fix the configured database path from Settings.");
             return;
         }
         _lastValidation = validation;
         _validatedForCurrentSession = true;
-        Console.WriteLine($"[DB] Using SQLite database: {_dbPath}");
+        Console.WriteLine($"[DB] Using SQLite database: {FormatDatabasePathForLog(_dbPath, _enableDatabaseDiagnostics)}");
     }
 
     public static ServerConfig LoadServerConfig() {
@@ -137,6 +141,7 @@ public class DatabaseService
         var configuredPath =
             FirstNonEmpty(savedConfig.DatabasePath, configuration["DatabasePath"], configuration["LocalDatabasePath"])
             ?? ServerConfig.DefaultDatabasePath;
+        var enableDatabaseDiagnostics = IsDatabaseDiagnosticsEnabled(configuration);
 
         DatabasePathResolution normalized;
         try
@@ -160,11 +165,13 @@ public class DatabaseService
             savedConfig.LastSuccessfulDatabasePath = normalized.DatabasePath;
             savedConfig.LastSuccessfulDatabaseConnection = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             SaveServerConfig(savedConfig);
-            Console.WriteLine($"[DB] Using configured SQLite database: {normalized.DatabasePath}");
+            Console.WriteLine($"[DB] Using configured SQLite database: {FormatDatabasePathForLog(normalized.DatabasePath, enableDatabaseDiagnostics)}");
         }
         else
         {
-            Console.WriteLine($"[DB] Configured path rejected: {normalized.DatabasePath} | {startupValidation.Code}: {startupValidation.Message}");
+            Console.WriteLine(enableDatabaseDiagnostics
+                ? $"[DB] Configured path rejected: {normalized.DatabasePath} | {startupValidation.Code}: {startupValidation.Message}"
+                : $"[DB] Configured path rejected: {FormatDatabasePathForLog(normalized.DatabasePath, false)} | {startupValidation.Code}");
         }
 
         return normalized.DatabasePath;
@@ -350,6 +357,10 @@ public class DatabaseService
         }
         catch (Exception ex)
         {
+            if (_enableDatabaseDiagnostics)
+            {
+                LogDatabaseOpenDiagnostics(_dbPath, ex);
+            }
             lock (_pathLock)
             {
                 _lastValidation = DatabasePathValidationResult.Fail(
@@ -361,6 +372,66 @@ public class DatabaseService
             await conn.DisposeAsync();
             throw;
         }
+    }
+
+    private static void LogDatabaseOpenDiagnostics(string dbPath, Exception openException)
+    {
+        var directory = "";
+        try { directory = Path.GetDirectoryName(dbPath) ?? ""; } catch { }
+
+        var directoryExists = false;
+        var fileExists = false;
+        var canRead = false;
+        var canWrite = false;
+        var tempFile = string.IsNullOrWhiteSpace(directory) ? "" : Path.Combine(directory, $".hk_sqlite_probe_{Guid.NewGuid():N}.tmp");
+
+        try { directoryExists = !string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory); } catch { }
+        try { fileExists = File.Exists(dbPath); } catch { }
+
+        try
+        {
+            if (fileExists)
+            {
+                using var stream = File.Open(dbPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                canRead = true;
+            }
+        }
+        catch { }
+
+        try
+        {
+            if (directoryExists)
+            {
+                File.WriteAllText(tempFile, "probe");
+                canWrite = true;
+            }
+        }
+        catch { }
+        finally
+        {
+            try { if (!string.IsNullOrWhiteSpace(tempFile) && File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+        }
+
+        Console.WriteLine("[DB DIAG] SQLite open failed.");
+        Console.WriteLine($"[DB DIAG] DatabasePath={dbPath}");
+        Console.WriteLine($"[DB DIAG] Directory={directory}");
+        Console.WriteLine($"[DB DIAG] Directory.Exists={directoryExists}");
+        Console.WriteLine($"[DB DIAG] File.Exists={fileExists}");
+        Console.WriteLine($"[DB DIAG] CanRead={canRead}");
+        Console.WriteLine($"[DB DIAG] CanWriteInDirectory={canWrite}");
+        Console.WriteLine($"[DB DIAG] CurrentUser={Environment.UserDomainName}\\{Environment.UserName}");
+        Console.WriteLine($"[DB DIAG] OpenError={openException.GetType().Name}: {openException.Message}");
+    }
+
+    private static bool IsDatabaseDiagnosticsEnabled(IConfiguration configuration) =>
+        bool.TryParse(configuration["EnableDatabaseDiagnostics"], out var enabled) && enabled;
+
+    private static string FormatDatabasePathForLog(string dbPath, bool includeFullPath)
+    {
+        if (includeFullPath) return dbPath;
+        if (string.IsNullOrWhiteSpace(dbPath)) return "<empty>";
+        if (dbPath.StartsWith(@"\\", StringComparison.Ordinal)) return "<network SQLite path>";
+        try { return Path.GetFileName(dbPath); } catch { return "<SQLite path>"; }
     }
 
     public DatabasePathValidationResult GetCachedConnectionStatus()
