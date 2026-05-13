@@ -1457,135 +1457,122 @@
                 <section id="page-settings" class="page-content hidden">
 
                     <!-- Settings Tabs Navigation -->
-                    <div class="tabs-nav mb-4">
-                        <button class="btn btn-tab active" onclick="app.switchSettingsTab('db')"
+                    <div class="tabs-nav settings-tabs-nav mb-4">
+                        <button class="btn btn-tab active" onclick="app.switchSettingsTab('general')"
+                            id="tab-settings-general">عام</button>
+                        <button class="btn btn-tab" onclick="app.switchSettingsTab('db')"
                             id="tab-settings-db">قاعدة البيانات</button>
+                        <button class="btn btn-tab" onclick="app.switchSettingsTab('print')"
+                            id="tab-settings-print">الطباعة والترويسة</button>
                         <button class="btn btn-tab" onclick="app.switchSettingsTab('users')"
-                            id="tab-settings-users">المستخدمين والأمان</button>
+                            id="tab-settings-users">المستخدمون والصلاحيات</button>
+                        <button class="btn btn-tab settings-protected-tab" onclick="app.switchSettingsTab('security')"
+                            id="tab-settings-security">الأمان والتشغيل</button>
+                        <button class="btn btn-tab settings-protected-tab" onclick="app.switchSettingsTab('maintenance')"
+                            id="tab-settings-maintenance">الصيانة</button>
+                        <button class="btn btn-tab settings-protected-tab" onclick="app.switchSettingsTab('advanced')"
+                            id="tab-settings-advanced">متقدم</button>
                     </div>
 
-                    <!-- Tab 1: Database & Sync -->
-                    <div id="settings-tab-db" class="settings-tab-content">
-                        <div class="table-container mb-4">
-                            <div class="table-header">
-                                <h3 class="table-title">الاتصال بقاعدة البيانات</h3>
-                            </div>
-                            <div class="modal-body">
-                                <div class="form-group">
-                                    <label class="form-label">مسار قاعدة البيانات</label>
-                                    <div class="text-muted mb-2">
-                                        <div>قاعدة البيانات النشطة: <strong id="db-active-path" dir="ltr">-</strong></div>
-                                        <div>نوع المسار: <strong id="db-path-kind">-</strong></div>
-                                        <div>آخر خطأ: <strong id="db-last-error">-</strong></div>
-                                        <div>آخر اتصال ناجح: <strong id="db-last-success">-</strong></div>
-                                    </div>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" id="db-path" class="form-input" dir="ltr"
-                                            placeholder="مثال: \\server\share\folder أو C:\Data\hk.db">
-                                        <button class="btn btn-secondary" id="browse-db-path-btn"
-                                            onclick="app.browseDbPath()" title="اختيار مجلد">📂</button>
-                                        <button class="btn btn-secondary" id="test-db-path-btn"
-                                            onclick="app.testDbConnection()">Test Connection</button>
-                                        <button class="btn btn-primary" id="save-db-path-btn"
-                                            onclick="app.saveDbPath()">Connect & Save</button>
-                                    </div>
-                                    <p class="text-muted mt-2" id="db-connection-status">حالة الاتصال: <span
-                                            class="badge badge-warning">جاري التحقق...</span></p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">رمز الدخول للإعدادات المتقدمة</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <button class="btn btn-secondary" onclick="app.changeSettingsPin()">تغيير رمز الدخول</button>
-                                        <span class="text-muted" id="settings-pin-status">يتم حفظ الرمز في إعدادات الخادم.</span>
+                    <!-- General -->
+                    <div id="settings-tab-general" class="settings-tab-content">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الإعدادات العامة</h3>
+                                        <p class="settings-card-description">خيارات عامة لا تغيّر قاعدة البيانات أو الصلاحيات.</p>
                                     </div>
                                 </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">مسار أرشيف الصور (Network Share for Images)</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" id="archive-path" class="form-input" dir="ltr"
-                                            placeholder="مثال: \\Server\Share\Images">
-                                        <button class="btn btn-primary" onclick="app.saveArchivePath()">Save
-                                            Path</button>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">عنوان خادم الإشعارات (اختياري)</label>
+                                        <p class="text-muted settings-help-text">اتركه فارغاً للاعتماد على الخادم الحالي. استخدم عنوان الخادم المركزي لضمان وصول الإشعارات لكل الأجهزة.</p>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="hub-server-url" class="form-input settings-path-input" dir="ltr" placeholder="مثال: http://192.168.1.10:5001/notificationHub">
+                                            <button class="btn btn-primary" onclick="app.saveHubUrl()">حفظ</button>
+                                        </div>
                                     </div>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">مسار المزامنة التلقائية (Auto Sync Source)</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" id="autosync-path" class="form-input" dir="ltr"
-                                            placeholder="مثال: C:\Users\User\Downloads">
-                                        <button class="btn btn-secondary" id="browse-autosync-path-btn"
-                                            onclick="app.browseAutoSyncPath()" title="اختيار مجلد">📂</button>
-                                        <button class="btn btn-primary" onclick="app.saveAutoSyncPath()">Save
-                                            Path</button>
-                                    </div>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">آلية ربط المرفقات (Attachment Linking Mode)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <select id="attachment-link-mode" class="form-input" style="flex: 1;">
-                                            <option value="Both">الرقم القومي ثم الاسم (كلاهما)</option>
-                                            <option value="NID">الرقم القومي فقط</option>
-                                            <option value="Name">الاسم فقط</option>
-                                        </select>
-                                        <button class="btn btn-primary" onclick="app.saveAttachmentLinkMode()">حفظ
-                                            الإعداد</button>
-                                    </div>
-                                    <p class="text-muted mt-2">حدد الطريقة التي سيستخدمها النظام لمطابقة ملفات الصور مع
-                                        السجلات.</p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">إدارة ذاكرة التخزين المؤقت (Cache Management)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <button class="btn btn-warning" onclick="app.clearSystemCache()">
-                                            🗑️ مسح وإعادة بناء الكاش (Reset Cache)
-                                        </button>
-                                        <button class="btn btn-secondary" onclick="app.populateReturnsCache()">
-                                            🔄 مزامنة يدوية (Manual Sync)
-                                        </button>
-                                    </div>
-                                    <p class="text-muted mt-2">استخدم هذه الخيارات إذا لاحظت أن البيانات لا تظهر بشكل صحيح بعد التحديثات.</p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">فهارس البحث والفلاتر</label>
-                                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                        <button class="btn btn-primary" id="refresh-search-index-btn" onclick="app.rebuildSearchFilterIndex(this)">
-                                            تحديث فهارس البحث والفلاتر
-                                        </button>
-                                        <span id="search-index-status" class="text-muted">آخر تحديث: - | عدد السجلات المفهرسة: 0</span>
-                                    </div>
-                                    <p class="text-muted mt-2" id="search-index-hint">يتم استخدام فهرس خفيف للفلاتر والبحث بدون تحميل السجلات الثقيلة إلى المتصفح.</p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">عنوان خادم الإشعارات (اختياري)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <input type="text" id="hub-server-url" class="form-input" dir="ltr" placeholder="مثال: http://192.168.1.10:5001/notificationHub">
-                                        <button class="btn btn-primary" onclick="app.saveHubUrl()">حفظ</button>
-                                    </div>
-                                    <p class="text-muted mt-2">اتركه فارغاً للاعتماد على الخادم الحالي. استخدم عنوان الخادم المركزي لضمان وصول الإشعارات لكل الأجهزة.</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-<!-- Tab 4: Users & Security -->
-                    <div id="settings-tab-users" class="settings-tab-content hidden">
-                        <!-- Delete Security -->
-                        <div class="table-container mb-4">
+                    <!-- Database -->
+                    <div id="settings-tab-db" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                        <div class="table-container mb-4 settings-card settings-card-sensitive">
                             <div class="table-header">
-                                <h3 class="table-title">🔐 أمان عمليات الحذف</h3>
+                                <div>
+                                    <h3 class="table-title">الاتصال بقاعدة البيانات</h3>
+                                    <p class="settings-card-description">المسار الفعلي المستخدم الآن وحالة الاتصال بملف SQLite.</p>
+                                </div>
                             </div>
                             <div class="modal-body">
-                                <div class="form-group">
+                                <div class="settings-warning-box">
+                                    تغيير قاعدة البيانات إجراء حساس وقد يحتاج إعادة تحميل التطبيق. تأكد أن كل الأجهزة تستخدم نفس المسار عند العمل على شبكة.
+                                </div>
+                                <div class="form-group settings-field-block">
+                                    <label class="form-label">مسار قاعدة البيانات</label>
+                                    <div class="text-muted mb-2 settings-path-summary">
+                                        <div>قاعدة البيانات النشطة: <strong id="db-active-path" dir="ltr">-</strong></div>
+                                        <div>نوع المسار: <strong id="db-path-kind">-</strong></div>
+                                        <div>آخر خطأ: <strong id="db-last-error">-</strong></div>
+                                        <div>آخر اتصال ناجح: <strong id="db-last-success">-</strong></div>
+                                    </div>
+                                    <div class="settings-action-row">
+                                        <input type="text" id="db-path" class="form-input settings-path-input" dir="ltr"
+                                            placeholder="مثال: \\server\share\folder أو C:\Data\hk.db">
+                                        <button class="btn btn-secondary" id="browse-db-path-btn"
+                                            onclick="app.browseDbPath()" title="اختيار ملف قاعدة البيانات">📂</button>
+                                        <button class="btn btn-secondary" id="test-db-path-btn"
+                                            onclick="app.testDbConnection()">اختبار الاتصال</button>
+                                        <button class="btn btn-primary" id="save-db-path-btn"
+                                            onclick="app.saveDbPath()">اتصال وحفظ</button>
+                                    </div>
+                                    <p class="text-muted mt-2" id="db-connection-status">حالة الاتصال: <span
+                                            class="badge badge-warning">جاري التحقق...</span></p>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    <!-- Print & Header -->
+                    <div id="settings-tab-print" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الطباعة والترويسة</h3>
+                                        <p class="settings-card-description">لا توجد حقول ظاهرة حاليًا للطباعة أو الشعار داخل صفحة الإعدادات.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="settings-empty-state">
+                                        سيتم نقل أي إعدادات طباعة أو ترويسة موجودة مستقبلًا إلى هذا القسم بدون تغيير منطق الحفظ.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Users & Permissions -->
+                    <div id="settings-tab-users" class="settings-tab-content hidden">
+                        <!-- Delete Security -->
+                        <div class="settings-section-grid">
+                        <div class="table-container mb-4 settings-card settings-card-warning">
+                            <div class="table-header">
+                                <div>
+                                    <h3 class="table-title">أمان عمليات الحذف</h3>
+                                    <p class="settings-card-description">نفس كلمة المرور الحالية للحذف، بدون تغيير طريقة الحفظ.</p>
+                                </div>
+                            </div>
+                            <div class="modal-body">
+                                <div class="form-group settings-field-block">
                                     <label class="form-label">كلمة مرور الحذف</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="password" id="setting-delete-password-main" class="form-input"
+                                    <div class="settings-action-row">
+                                        <input type="password" id="setting-delete-password-main" class="form-input settings-path-input"
                                             dir="ltr" placeholder="كلمة المرور">
                                         <button class="btn btn-primary" onclick="app.saveDeletePassword()">حفظ</button>
                                     </div>
@@ -1593,9 +1580,12 @@
                             </div>
                         </div>
                         <!-- User Permissions -->
-                        <div class="table-container mb-4 permissions-settings-card">
+                        <div class="table-container mb-4 permissions-settings-card settings-card">
                             <div class="table-header">
-                                <h3 class="table-title"><i class="fas fa-user-shield"></i> صلاحيات المستخدمين</h3>
+                                <div>
+                                    <h3 class="table-title"><i class="fas fa-user-shield"></i> صلاحيات المستخدمين</h3>
+                                    <p class="settings-card-description">اختيار مستخدم وتحديث صلاحياته الحالية.</p>
+                                </div>
                                 <button class="btn btn-primary btn-sm" onclick="app.saveSelectedUserPermissions()">
                                     <i class="fas fa-save"></i> حفظ الصلاحيات
                                 </button>
@@ -1617,9 +1607,12 @@
                         </div>
 
                         <!-- Users Management -->
-                        <div class="table-container mb-4">
+                        <div class="table-container mb-4 settings-card">
                             <div class="table-header">
-                                <h3 class="table-title">إدارة المستخدمين</h3>
+                                <div>
+                                    <h3 class="table-title">إدارة المستخدمين</h3>
+                                    <p class="settings-card-description">إضافة وتعديل المستخدمين الحاليين.</p>
+                                </div>
                                 <button class="btn btn-primary btn-sm" onclick="app.showUserModal()"><span>➕</span>
                                     إضافة مستخدم</button>
                             </div>
@@ -1637,6 +1630,135 @@
                                     </thead>
                                     <tbody id="users-table-body"></tbody>
                                 </table>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    <!-- Security & Runtime -->
+                    <div id="settings-tab-security" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card settings-card-danger">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الأمان والتشغيل</h3>
+                                        <p class="settings-card-description">إعدادات حساسة تؤثر على فتح صفحة الإعدادات وتشغيل النظام.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="settings-warning-box danger">
+                                        لا تغيّر هذه القيم إلا عند الحاجة. إعدادات NetworkMode أو Dangerous Operations غير معروضة كحقول في هذه الصفحة حاليًا.
+                                    </div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">رمز الدخول للإعدادات المتقدمة</label>
+                                        <div class="settings-action-row">
+                                            <button class="btn btn-secondary" onclick="app.changeSettingsPin()">تغيير رمز الدخول</button>
+                                            <span class="text-muted" id="settings-pin-status">يتم حفظ الرمز في إعدادات الخادم.</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Maintenance -->
+                    <div id="settings-tab-maintenance" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card settings-card-warning">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الصيانة والنسخ الاحتياطي</h3>
+                                        <p class="settings-card-description">عمليات صيانة للكاش والفهارس. استخدمها عند الحاجة فقط.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="settings-warning-box">
+                                        هذه العمليات قد تعيد بناء بيانات المتصفح أو الفهارس، لكنها لا تغيّر أسماء الأعمدة أو منطق الاستيراد.
+                                    </div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">إدارة ذاكرة التخزين المؤقت</label>
+                                        <div class="settings-action-row wrap">
+                                            <button class="btn btn-warning" onclick="app.clearSystemCache()">
+                                                🗑️ مسح وإعادة بناء الكاش
+                                            </button>
+                                            <button class="btn btn-secondary" onclick="app.populateReturnsCache()">
+                                                🔄 مزامنة يدوية
+                                            </button>
+                                        </div>
+                                        <p class="text-muted mt-2">استخدم هذه الخيارات إذا لاحظت أن البيانات لا تظهر بشكل صحيح بعد التحديثات.</p>
+                                    </div>
+                                    <div class="settings-divider"></div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">فهارس البحث والفلاتر</label>
+                                        <div class="settings-action-row wrap">
+                                            <button class="btn btn-primary" id="refresh-search-index-btn" onclick="app.rebuildSearchFilterIndex(this)">
+                                                تحديث فهارس البحث والفلاتر
+                                            </button>
+                                            <span id="search-index-status" class="text-muted">آخر تحديث: - | عدد السجلات المفهرسة: 0</span>
+                                        </div>
+                                        <p class="text-muted mt-2" id="search-index-hint">يتم استخدام فهرس خفيف للفلاتر والبحث بدون تحميل السجلات الثقيلة إلى المتصفح.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced -->
+                    <div id="settings-tab-advanced" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">المرفقات والأرشفة</h3>
+                                        <p class="settings-card-description">مسارات الصور وطريقة مطابقة المرفقات بالسجلات.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">مسار أرشيف الصور</label>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="archive-path" class="form-input settings-path-input" dir="ltr"
+                                                placeholder="مثال: \\Server\Share\Images">
+                                            <button class="btn btn-primary" onclick="app.saveArchivePath()">حفظ المسار</button>
+                                        </div>
+                                    </div>
+                                    <div class="settings-divider"></div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">آلية ربط المرفقات</label>
+                                        <div class="settings-action-row">
+                                            <select id="attachment-link-mode" class="form-input" style="flex: 1;">
+                                                <option value="Both">الرقم القومي ثم الاسم (كلاهما)</option>
+                                                <option value="NID">الرقم القومي فقط</option>
+                                                <option value="Name">الاسم فقط</option>
+                                            </select>
+                                            <button class="btn btn-primary" onclick="app.saveAttachmentLinkMode()">حفظ الإعداد</button>
+                                        </div>
+                                        <p class="text-muted mt-2">حدد الطريقة التي سيستخدمها النظام لمطابقة ملفات الصور مع السجلات.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">المزامنة التلقائية والماسح</h3>
+                                        <p class="settings-card-description">إعدادات تقنية متقدمة موجودة حاليًا في النظام.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">مسار المزامنة التلقائية</label>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="autosync-path" class="form-input settings-path-input" dir="ltr"
+                                                placeholder="مثال: C:\Users\User\Downloads">
+                                            <button class="btn btn-secondary" id="browse-autosync-path-btn"
+                                                onclick="app.browseAutoSyncPath()" title="اختيار مجلد">📂</button>
+                                            <button class="btn btn-primary" onclick="app.saveAutoSyncPath()">حفظ المسار</button>
+                                        </div>
+                                    </div>
+                                    <div class="settings-empty-state">
+                                        إعدادات NAPS2 / Scanner موجودة في الخادم، لكن لا توجد حقول ظاهرة لها داخل صفحة الإعدادات الحالية.
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

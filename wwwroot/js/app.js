@@ -1427,10 +1427,14 @@ class App {
         console.log('Switching settings tab to:', tabId);
 
         if (this.databaseSetupMode) {
-            document.getElementById('tab-settings-users')?.classList.add('hidden');
+            document.querySelectorAll('#page-settings .btn-tab').forEach(btn => {
+                btn.classList.toggle('hidden', btn.id !== 'tab-settings-db');
+            });
             if (tabId !== 'db') tabId = 'db';
         } else {
-            document.getElementById('tab-settings-users')?.classList.remove('hidden');
+            document.querySelectorAll('#page-settings .btn-tab').forEach(btn => {
+                btn.classList.remove('hidden');
+            });
         }
 
         let targetTab = document.getElementById(`settings-tab-${tabId}`);
@@ -1459,7 +1463,14 @@ class App {
         if (targetBtn) targetBtn.classList.add('active');
 
         this.currentSettingsTab = tabId;
+        if (tabId === 'general' && typeof this.fillHubUrlField === 'function') this.fillHubUrlField();
+        if (tabId === 'db') this.loadDbPath();
         if (tabId === 'users') this.initPermissionsSettings();
+        if (tabId === 'advanced') {
+            if (typeof this.loadArchivePath === 'function') this.loadArchivePath();
+            if (typeof this.loadAttachmentLinkMode === 'function') this.loadAttachmentLinkMode();
+        }
+        if (tabId === 'maintenance' && typeof this.refreshSearchFilterIndex === 'function') this.refreshSearchFilterIndex();
     }
 
     getPermissionGroups() {

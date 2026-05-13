@@ -805,6 +805,127 @@ body {
     animation: fadeInSlide 0.4s ease-out;
 }
 
+#page-settings .settings-tabs-nav {
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+#page-settings .settings-section-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+}
+
+#page-settings .settings-card {
+    border-radius: 12px;
+    overflow: visible;
+}
+
+#page-settings .settings-card .table-header {
+    align-items: flex-start;
+    gap: 14px;
+}
+
+#page-settings .settings-card-description {
+    margin: 6px 0 0;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+#page-settings .settings-field-block {
+    margin-bottom: 0;
+}
+
+#page-settings .settings-action-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+}
+
+#page-settings .settings-action-row.wrap {
+    flex-wrap: wrap;
+}
+
+#page-settings .settings-path-input {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#page-settings .settings-path-summary {
+    display: grid;
+    gap: 7px;
+    padding: 12px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.42);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+#page-settings .settings-path-summary strong {
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+#page-settings .settings-help-text {
+    margin: -2px 0 10px;
+    line-height: 1.6;
+}
+
+#page-settings .settings-warning-box,
+#page-settings .settings-empty-state {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    color: #f8fafc;
+    line-height: 1.7;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(245, 158, 11, 0.10);
+}
+
+#page-settings .settings-warning-box.danger {
+    border-color: rgba(239, 68, 68, 0.34);
+    background: rgba(239, 68, 68, 0.10);
+}
+
+#page-settings .settings-empty-state {
+    color: var(--text-secondary);
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(148, 163, 184, 0.07);
+}
+
+#page-settings .settings-card-sensitive {
+    border-color: rgba(14, 165, 233, 0.22);
+}
+
+#page-settings .settings-card-warning {
+    border-color: rgba(245, 158, 11, 0.26);
+}
+
+#page-settings .settings-card-danger {
+    border-color: rgba(239, 68, 68, 0.30);
+}
+
+#page-settings .settings-divider {
+    margin: 18px 0;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+@media (max-width: 760px) {
+    #page-settings .settings-action-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    #page-settings .settings-action-row .btn,
+    #page-settings .settings-action-row .form-input {
+        width: 100%;
+    }
+}
+
 @keyframes fadeInSlide {
     from {
         opacity: 0;
