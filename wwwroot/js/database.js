@@ -412,7 +412,9 @@ class Database {
 
     async deleteAllSalaryReturns() {
         const response = await this.fetchApi('/salary-returns', {
-            method: 'DELETE'
+            method: 'DELETE',
+            __skipLoadingWrapper: true,
+            __suppressErrorLog: true
         });
         return response.success;
     }

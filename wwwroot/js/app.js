@@ -814,7 +814,7 @@ class App {
         toggle('#btn-import-returns, #empty-import-btn, [onclick*="showImportModal"], [onclick*="showSalaryImportModal"], [onclick*="showFullReturnsImportModal"]', auth.canDo('import'));
         toggle('#export-excel-btn, #export-csv-btn, [onclick*="export"], [onclick*="downloadTemplate"], [onclick*="downloadSalaryTemplate"]', auth.canDo('export'));
         toggle('.btn-delete-pro, [onclick*="delete"], [onclick*="Delete"], [onclick*="confirmDelete"]', canDelete);
-        toggle('[onclick="app.confirmDeleteAll()"], [onclick="window.app.confirmDeleteAll()"]', canDeleteAll);
+        toggle('[onclick="app.confirmDeleteAll()"], [onclick="window.app.confirmDeleteAll()"], [onclick="app.confirmDeleteAllSalary()"], [onclick="window.app.confirmDeleteAllSalary()"]', canDeleteAll);
         toggle('[onclick*="showAutoSyncModal"], [onclick*="showSalaryAutoSyncModal"], [onclick*="sync"]', auth.canDo('sync'));
         toggle('[onclick*="toggleAdabirInlineFilter"], [onclick*="archive"], [onclick*="Archive"]', auth.canDo('archive'));
         toggle('[onclick*="settle"], [onclick*="Settlement"], [onclick*="smart"]', auth.canDo('smart-payment'));
@@ -13378,6 +13378,18 @@ App.prototype.confirmDeleteAll = async function () {
 };
 
 App.prototype.confirmDeleteAllSalary = async function () {
+    if (!this.canDeleteReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!this.canDeleteAllReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!await this.isDangerousDeleteAllEnabled()) {
+        this.showToast('حذف كل السجلات غير مفعل من الإعدادات', 'error');
+        return;
+    }
     const correctPwd = localStorage.getItem('delete_password') || '1994';
     const inputPwd = await window.dialog.show({
         message: 'يرجى إدخال كلمة المرور لتأكيد حذف جميع بيانات المرتبات:',
@@ -13413,7 +13425,8 @@ App.prototype.confirmDeleteAllSalary = async function () {
             this.showToast('فشل حذف البيانات', 'error');
         }
     } catch (e) {
-        this.showToast('خطأ في الاتصال: ' + e.message, 'error');
+        if (e?.status === 403) this.showDeleteForbidden(e);
+        else this.showToast('خطأ في الاتصال: ' + e.message, 'error');
     } finally {
         this.hideLoading();
     }
