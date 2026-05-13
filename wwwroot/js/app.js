@@ -5876,14 +5876,14 @@ renderTable(dataToRender = null, append = false) {
         ];
 
         // Combine standard fields with any extra keys in the record
-        const allKeys = new Set([...standardFields, ...Object.keys(currentRow)]);
+        const allKeys = new Set([...standardFields, '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f', ...Object.keys(currentRow)]);
 
         allKeys.forEach(key => {
             // Ignore technical and internal keys
             if (key === '#' || key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
 
             // Handle composite labels from the table to avoid confusion (don't show empty combined labels as inputs)
-            if (key.includes('/') || key.includes(' / ')) {
+            if ((key.includes('/') || key.includes(' / ')) && key !== '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f') {
                 // Skip combined labels like "تاريخ المرتد / تاريخ التعلية" if we already show the individual fields
                 return;
             }
@@ -6037,26 +6037,23 @@ renderTable(dataToRender = null, append = false) {
             data[input.name] = input.value;
         });
 
-        const merged = { ...this.editingMainReturnOriginal, ...data };
-        delete merged.id;
-        delete merged.Id;
-        delete merged.AttachmentCount;
-        Object.keys(merged).forEach(k => {
-            if (k.startsWith('_')) delete merged[k];
-        });
-
+        const merged = this._stripEditableTechnicalFields({ ...this.editingMainReturnOriginal, ...data });
+        const editId = this.editingMainReturnId;
+        this.showLoading();
         try {
-            const result = await db.updateReturn(this.editingMainReturnId, merged);
+            const result = await db.updateReturn(editId, merged);
             if (result && result.success) {
-                this.returnsCache = null;
-                this.showToast('تم تعديل السجل بنجاح', 'success');
+                const updatedRow = result.record || { ...merged, id: editId };
+                await this._upsertEditedCachedRow('returns', editId, updatedRow);
+                this.showToast('\u062a\u0645 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
                 this.closeEditMainReturnModal();
-                await this.loadReturns(this.pagination?.currentPage || 1, this.rowsPerPage, this.searchQuery, this.filterValue, this.attachmentFilterValue);
             } else {
-                this.showToast('فشل تعديل السجل', 'error');
+                this.showToast('\u0641\u0634\u0644 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644: ' + (result?.message || ''), 'error');
             }
         } catch (error) {
-            this.showToast('خطأ: ' + error.message, 'error');
+            this.showToast('\u062e\u0637\u0623: ' + error.message, 'error');
+        } finally {
+            this.hideLoading();
         }
     }
 
@@ -11078,6 +11075,80 @@ App.prototype._preprocessCachedRows = function (type, rows) {
     return type === 'salary' ? this._preprocessSalaryCacheRows(rows) : this._preprocessReturnCacheRows(rows);
 };
 
+App.prototype._stripEditableTechnicalFields = function (row) {
+    const clean = { ...(row || {}) };
+    delete clean.id;
+    delete clean.Id;
+    delete clean.AttachmentCount;
+    Object.keys(clean).forEach(key => {
+        if (String(key).startsWith('_')) delete clean[key];
+    });
+    return clean;
+};
+
+App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
+    const cfg = HK_SYNC_CACHE[type];
+    if (!cfg) return null;
+
+    const processed = this._preprocessCachedRows(type, [{ ...(updatedRow || {}), id }])[0];
+    if (!processed) return null;
+
+    const updateArray = (rows) => {
+        if (!Array.isArray(rows)) return false;
+        const idx = rows.findIndex(row => String(row?.id ?? row?.Id) === String(id));
+        if (idx >= 0) {
+            if (processed.AttachmentCount === undefined && rows[idx].AttachmentCount !== undefined) {
+                processed.AttachmentCount = rows[idx].AttachmentCount;
+            }
+            rows[idx] = processed;
+        } else {
+            rows.push(processed);
+        }
+        return true;
+    };
+
+    const cacheRows = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp] : null;
+    if (cacheRows) {
+        updateArray(cacheRows);
+        await db.setLocalCache(cfg.dataKey, cacheRows).catch(e => console.warn('[SAVE][' + type + '] IndexedDB update failed:', e));
+    }
+
+    if (type === 'salary') {
+        updateArray(this.salaryReturnsData);
+        updateArray(this.filteredSalaryReturns);
+        this._populateSalaryReturnFilterOptions(cacheRows || this.salaryReturnsData || []);
+        if (cacheRows && this.handleLocalSalarySearch) {
+            this.handleLocalSalarySearch(
+                this.salarySearchQuery || '',
+                this.salaryAttachmentFilterValue || 'all',
+                this.salaryPagination?.currentPage || this.paginationSalary?.currentPage || 1,
+                this.rowsPerPage || 50,
+                false
+            );
+        } else {
+            this.renderSalaryTable?.();
+        }
+        return processed;
+    }
+
+    updateArray(this.data);
+    updateArray(this.filteredReturns);
+    this._populateReturnFilterOptions(cacheRows || this.data || []);
+    if (cacheRows && this.handleLocalSearch) {
+        this.handleLocalSearch(
+            this.searchQuery || '',
+            this.filterValue || '',
+            this.attachmentFilterValue || 'all',
+            this.pagination?.currentPage || 1,
+            this.rowsPerPage || 50,
+            false
+        );
+    } else {
+        this.renderTable?.();
+    }
+    return processed;
+};
+
 App.prototype._loadCachedDataset = async function (type) {
     const cfg = HK_SYNC_CACHE[type];
     if (!cfg) return false;
@@ -11576,6 +11647,20 @@ App.prototype._populateDateFilters = function(rows = null) {
         Array.from(paymentDates).sort((a, b) => b.localeCompare(a)).map(value => ({ value, label: value })),
         this.paymentDateFilterValue
     );
+};
+
+App.prototype._getPaymentDateFilterValue = function(row) {
+    if (!row) return '';
+    const val =
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u062a\u0633\u0648\u064a\u0629'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f\u0020\u0627\u0644\u0641\u0639\u0644\u064a'] ||
+        row.SettlementDate ||
+        row['Settlement Date'] ||
+        '';
+    const raw = String(val).trim();
+    return raw ? this.formatDate(raw) : '';
 };
 
 App.prototype.handleMonthFilterChange = async function (val) {
@@ -12675,6 +12760,19 @@ App.prototype._getSalaryPaymentDateFilterValue = function(row) {
     return this._normalizeSalaryPaymentDateFilterValue(val);
 };
 
+App.prototype._getSalaryPaymentDateFilterValue = function(row) {
+    if (!row) return "";
+    const val =
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u0645\u0631\u062a\u062f\u0627\u062a'] ||
+        row.SettlementDate ||
+        row['Settlement Date'] ||
+        "";
+    return this._normalizeSalaryPaymentDateFilterValue(val);
+};
+
 App.prototype._populateSalaryReturnFilterOptions = function(rows = null) {
     const cacheRows = Array.isArray(this.salaryReturnsCache) && this.salaryReturnsCache.length ? this.salaryReturnsCache : null;
     const indexFilters = cacheRows ? null : this.searchFilterIndex?.salary?.filters;
@@ -12984,11 +13082,11 @@ App.prototype.showEditSalaryModal = function(row) {
         'تاريخ الرفع', 'رقم تسوية التعلية', 'رقم تسوية السداد', 'تاريخ تسوية التعلية', 'حالة التسوية'
     ];
 
-    const allKeys = new Set([...standardFields, ...Object.keys(row)]);
+    const allKeys = new Set([...standardFields, '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f', ...Object.keys(row)]);
 
     allKeys.forEach(key => {
         if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
-        if (key.includes('/') || key.includes(' / ')) return; // تجاهل المسميات المدمجة في الجدول (مثل تاريخ المرتد / تاريخ التعلية)
+        if ((key.includes('/') || key.includes(' / ')) && key !== '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f') return; // تجاهل المسميات المدمجة في الجدول (مثل تاريخ المرتد / تاريخ التعلية)
 
         const group = document.createElement('div');
         group.style.cssText = 'display: flex; flex-direction: column; gap: 0.5rem;';
@@ -13055,21 +13153,18 @@ App.prototype.saveEditSalaryReturn = async function() {
     inputs.forEach(input => {
         updatedData[input.dataset.key] = input.value;
     });
+    const mergedData = this._stripEditableTechnicalFields({ ...(this.currentSalaryEditOriginal || {}), ...updatedData });
 
     this.showLoading();
     try {
-        const res = await fetch(`/salary-returns/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedData)
-        });
-        const result = await res.json();
-        if (result.success) {
-            this.showToast('تم تحديث السجل بنجاح', 'success');
+        const result = await db.updateSalaryReturn(id, mergedData);
+        if (result && result.success) {
+            const updatedRow = result.record || { ...mergedData, id: id };
+            await this._upsertEditedCachedRow('salary', id, updatedRow);
+            this.showToast('\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
             this.closeEditSalaryModal();
-            await this.loadSalaryReturns();
         } else {
-            throw new Error(result.message || 'فشل التحديث');
+            throw new Error(result?.message || '\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u062f\u064a\u062b');
         }
     } catch (e) {
         this.showToast(e.message, 'error');

@@ -1,4 +1,4 @@
-﻿using HKServer.Services;
+using HKServer.Services;
 using HKServer.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using Dapper;
@@ -835,7 +835,78 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // PUT /salary-returns/{id} — Update record
         // ==========================================
+        app.MapPut("/salary-returns/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+            try {
+                using var reader = new StreamReader(context.Request.Body);
+                var rawBody = await reader.ReadToEndAsync();
+                if (string.IsNullOrWhiteSpace(rawBody)) return Results.BadRequest();
 
+                using var conn = await db.GetOpenConnectionAsync();
+
+                var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody);
+                string settlementNo = "";
+                string accrualNo = "";
+
+                if (obj != null) {
+                    var sVal = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
+                    string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
+                    bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
+                    obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
+
+                    rawBody = JsonSerializer.Serialize(obj, new JsonSerializerOptions {
+                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
+                    });
+
+                    settlementNo = sStr;
+                    var aVal = obj.ContainsKey("رقم تسوية التعلية") ? obj["رقم تسوية التعلية"] : null;
+                    accrualNo = (aVal is JsonElement ae && (ae.ValueKind == JsonValueKind.Null || ae.ValueKind == JsonValueKind.Undefined)) ? "" : aVal?.ToString() ?? "";
+                }
+
+                string fCode = DatabaseService.ExtractFileCodeDirect(rawBody);
+                string rCode = DatabaseService.ExtractReturnCode(fCode);
+
+                var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                var affectedRows = 0;
+                try {
+                    affectedRows = await conn.ExecuteAsync(@"
+                        UPDATE SalaryReturns
+                        SET RawData = @RawData,
+                            ReturnCode = @ReturnCode,
+                            [رقم تسوية السداد] = @SettlementNo,
+                            [رقم تسوية التعلية] = @AccrualNo,
+                            UpdatedAt = @UpdatedAt
+                        WHERE Id = @Id",
+                        new { RawData = rawBody, ReturnCode = rCode, SettlementNo = settlementNo, AccrualNo = accrualNo, UpdatedAt = updatedAt, Id = id }
+                    );
+                } catch {
+                    affectedRows = await conn.ExecuteAsync(
+                        "UPDATE SalaryReturns SET RawData = @RawData, ReturnCode = @ReturnCode, UpdatedAt = @UpdatedAt WHERE Id = @Id",
+                        new { RawData = rawBody, ReturnCode = rCode, UpdatedAt = updatedAt, Id = id }
+                    );
+                }
+
+                if (affectedRows == 0) {
+                    return Results.NotFound(new { success = false, message = "Record was not found or was not updated.", id });
+                }
+
+                string user = context.Request.Query["user"].ToString();
+                if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
+                await db.AddNotificationEventAsync("SalaryReturns", "تعديل", id, user);
+
+                // Return full updated record for frontend cache update
+                var updatedRecord = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (updatedRecord != null) {
+                    updatedRecord["id"] = id;
+                    updatedRecord["UpdatedAt"] = updatedAt;
+                    var attachCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(DISTINCT Filename) FROM SalaryReturnsImages WHERE ReturnId = @Id", new { Id = id });
+                    updatedRecord["AttachmentCount"] = attachCount;
+                }
+                return Results.Ok(new { success = true, record = updatedRecord });
+
+            } catch (Exception ex) {
+                return Results.Json(new { success = false, message = ex.Message });
+            }
+        });
 
         // ==========================================
         // POST /salary-returns/settle — Bulk Settle
@@ -1060,4 +1131,3 @@ public static class SalaryReturnsEndpoints
     public record ImportData(string filename, string size, List<string> headers, List<object> data);
     public record SettleRequest(List<int> Ids, string SettlementDate);
 }
-

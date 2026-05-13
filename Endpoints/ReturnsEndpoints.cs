@@ -1089,9 +1089,10 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 string rCode = DatabaseService.ExtractReturnCode(fCode);
 
                 var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                var affectedRows = 0;
                 // Attempt to update physical columns if they exist
                 try {
-                    await conn.ExecuteAsync(@"
+                    affectedRows = await conn.ExecuteAsync(@"
                         UPDATE Returns
                         SET RawData = @RawData,
                             ReturnCode = @ReturnCode,
@@ -1103,16 +1104,30 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                     );
                 } catch {
                     // Fallback if physical columns don't exist
-                    await conn.ExecuteAsync(
+                    affectedRows = await conn.ExecuteAsync(
                         "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode, UpdatedAt = @UpdatedAt WHERE Id = @Id",
                         new { RawData = rawBody, ReturnCode = rCode, UpdatedAt = updatedAt, Id = id }
                     );
                 }
 
+                if (affectedRows == 0) {
+                    return Results.NotFound(new { success = false, message = "Record was not found or was not updated.", id });
+                }
+
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
                 await db.AddNotificationEventAsync("Returns", "تعديل", id, user);
-                return Results.Ok(new { success = true });
+
+                // Return full updated record for frontend cache update
+                var updatedRecord = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (updatedRecord != null) {
+                    updatedRecord["id"] = id;
+                    updatedRecord["UpdatedAt"] = updatedAt;
+                    // Get attachment count
+                    var attachCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = @Id", new { Id = id });
+                    updatedRecord["AttachmentCount"] = attachCount;
+                }
+                return Results.Ok(new { success = true, record = updatedRecord });
 
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
