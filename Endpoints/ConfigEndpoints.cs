@@ -12,16 +12,22 @@ public static class ConfigEndpoints
         app.MapGet("/config/path", (DatabaseService db) => {
             var config = DatabaseService.LoadServerConfig();
             var status = db.GetCachedConnectionStatus();
+            var activePath = db.GetDbPath();
+            var isNetworkPath = IsNetworkPath(activePath);
             return Results.Ok(new {
-                path = db.GetDbPath(),
-                activePath = db.GetDbPath(),
+                path = activePath,
+                activePath,
                 selectedPath = config.DatabasePath,
                 lastSuccessfulConnection = config.LastSuccessfulDatabaseConnection,
                 lastSuccessfulPath = config.LastSuccessfulDatabasePath,
+                isNetworkPath,
+                connectionKind = isNetworkPath ? "network" : "local",
+                lastError = status.Success ? "" : status.Message,
                 status = new {
                     success = status.Success,
                     code = status.Code,
-                    message = ToArabicDatabasePathMessage(status.Code, status.Message)
+                    message = ToArabicDatabasePathMessage(status.Code, status.Message),
+                    rawMessage = status.Message
                 },
                 recommended = "folder_or_full_file_path",
                 message = "يمكن إدخال مجلد أو ملف hk.db كامل، محليًا أو على مشاركة شبكة."
@@ -34,15 +40,18 @@ public static class ConfigEndpoints
             var validation = string.IsNullOrWhiteSpace(req?.path)
                 ? db.TestCurrentConnection()
                 : ValidateSelectedPath(req.path, allowCreateMissing: false, out resolved);
+            var responsePath = validation.DatabasePath ?? resolved?.DatabasePath ?? db.GetDbPath();
             return Results.Ok(new {
                 success = validation.Success,
                 code = validation.Code,
                 message = ToArabicDatabasePathMessage(validation.Code, validation.Message),
-                path = validation.DatabasePath ?? resolved?.DatabasePath ?? db.GetDbPath(),
+                rawMessage = validation.Message,
+                path = responsePath,
                 inputWasFolder = resolved?.InputWasFolder ?? false,
                 requiresCreateConfirmation = validation.Code == "folder_db_missing",
                 activePath = db.GetDbPath(),
-                isNetworkPath = db.IsNetworkDatabase(),
+                isNetworkPath = IsNetworkPath(responsePath),
+                connectionKind = IsNetworkPath(responsePath) ? "network" : "local",
                 sqliteNetworkWarning = "SQLite on a LAN share can be limited by file locking and concurrent writes. busy_timeout is enabled. WAL and synchronous=NORMAL are not enabled automatically for UNC paths."
             });
         });
@@ -72,9 +81,12 @@ public static class ConfigEndpoints
                         success = false,
                         code = validation.Code,
                         message = ToArabicDatabasePathMessage(validation.Code, validation.Message),
+                        rawMessage = validation.Message,
                         path = resolved.DatabasePath,
                         inputWasFolder = resolved.InputWasFolder,
-                        requiresCreateConfirmation = validation.Code == "folder_db_missing"
+                        requiresCreateConfirmation = validation.Code == "folder_db_missing",
+                        isNetworkPath = IsNetworkPath(resolved.DatabasePath),
+                        connectionKind = IsNetworkPath(resolved.DatabasePath) ? "network" : "local"
                     });
                 }
                 
@@ -93,6 +105,8 @@ public static class ConfigEndpoints
                     message = "تم الاتصال وحفظ مسار قاعدة البيانات بنجاح.",
                     path = resolved.DatabasePath,
                     activePath = db.GetDbPath(),
+                    isNetworkPath = IsNetworkPath(db.GetDbPath()),
+                    connectionKind = IsNetworkPath(db.GetDbPath()) ? "network" : "local",
                     lastSuccessfulConnection = config.LastSuccessfulDatabaseConnection
                 });
             } catch (Exception ex) {
@@ -268,6 +282,41 @@ public static class ConfigEndpoints
                 return Results.Json(new { path = "" });
             }
         });
+
+        app.MapPost("/config/browse-db-file", async () => {
+            try {
+                var psScript = @"
+                    Add-Type -AssemblyName System.Windows.Forms;
+                    $f = New-Object System.Windows.Forms.OpenFileDialog;
+                    $f.Title = 'Select hk.db from local disk or network share';
+                    $f.Filter = 'SQLite database (*.db;*.sqlite;*.sqlite3)|*.db;*.sqlite;*.sqlite3|All files (*.*)|*.*';
+                    $f.CheckFileExists = $true;
+                    $f.Multiselect = $false;
+                    $result = $f.ShowDialog((New-Object System.Windows.Forms.Form -Property @{TopMost=$true}));
+                    if($result -eq 'OK') { $f.FileName }
+                ";
+
+                var info = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell",
+                    Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{psScript.Replace("\"", "\\\"").Replace("\r\n", " ")}\"",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var process = System.Diagnostics.Process.Start(info);
+                if (process == null) return Results.Json(new { path = "" });
+
+                var path = await process.StandardOutput.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                return Results.Ok(new { path = path.Trim() });
+            } catch (Exception ex) {
+                Console.WriteLine($"Browse DB File Error: {ex.Message}");
+                return Results.Json(new { path = "" });
+            }
+        });
         
         // Reset Database Endpoint
         app.MapDelete("/admin/reset", async (DatabaseService db) => {
@@ -338,6 +387,9 @@ public static class ConfigEndpoints
             resolved.DatabasePath,
             requireExistingFile: !allowCreateMissing);
     }
+
+    private static bool IsNetworkPath(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && path.StartsWith(@"\\", StringComparison.Ordinal);
 
     private static string ToArabicDatabasePathMessage(string code, string fallback) => code switch
     {

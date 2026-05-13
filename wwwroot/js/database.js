@@ -262,6 +262,18 @@ class Database {
         return await this.fetchApi(`/returns/all?${params}`);
     }
 
+    async getReturnChanges(since = null) {
+        const params = new URLSearchParams();
+        if (since) params.append('since', since);
+        return await this.fetchApi(`/api/returns/changes?${params}`, { timeout: 12000, __skipLoadingWrapper: true });
+    }
+
+    async syncReturns(since = null) {
+        const params = new URLSearchParams();
+        if (since) params.append('since', since);
+        return await this.fetchApi(`/api/returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true });
+    }
+
     async getReturnStatuses() {
         return await this.fetchApi('/returns/statuses');
     }
@@ -358,6 +370,18 @@ class Database {
         return await this.fetchApi(`/salary-returns/all?${params}`);
     }
 
+    async getSalaryReturnChanges(since = null) {
+        const params = new URLSearchParams();
+        if (since) params.append('since', since);
+        return await this.fetchApi(`/api/salary-returns/changes?${params}`, { timeout: 12000, __skipLoadingWrapper: true });
+    }
+
+    async syncSalaryReturns(since = null) {
+        const params = new URLSearchParams();
+        if (since) params.append('since', since);
+        return await this.fetchApi(`/api/salary-returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true });
+    }
+
     async saveSalaryReturns(data, importInfo) {
         return await this.fetchApi('/salary-returns/import', {
             method: 'POST',
@@ -393,6 +417,18 @@ class Database {
 
     async getSalaryUploadDates() {
         return await this.fetchApi('/salary-returns/upload-dates');
+    }
+
+    async getFullReturnChanges(since = null) {
+        const params = new URLSearchParams();
+        if (since) params.append('since', since);
+        return await this.fetchApi(`/api/full-returns/changes?${params}`, { timeout: 12000, __skipLoadingWrapper: true });
+    }
+
+    async syncFullReturns(since = null) {
+        const params = new URLSearchParams();
+        if (since) params.append('since', since);
+        return await this.fetchApi(`/api/full-returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true });
     }
 
     // ========================================

@@ -21,8 +21,7 @@ public class NotificationDispatcherService : BackgroundService
         // ═══ تنظيف أولي عند بدء التشغيل لمحاربة "طوفان" الإشعارات القديمة ═══
         try
         {
-            using var conn = _db.GetConnection();
-            await conn.OpenAsync(stoppingToken);
+            using var conn = await _db.GetOpenConnectionAsync();
             var deletedCount = await conn.ExecuteAsync("DELETE FROM NotificationEvents");
             if (deletedCount > 0)
             {
@@ -38,8 +37,7 @@ public class NotificationDispatcherService : BackgroundService
         {
             try
             {
-                using var conn = _db.GetConnection();
-                await conn.OpenAsync(stoppingToken);
+                using var conn = await _db.GetOpenConnectionAsync();
 
                 // جلب الأحداث ومعالجتها ثم حذفها فوراً (مع جلب اسم المستخدم CreatedBy)
                 var rows = await conn.QueryAsync<dynamic>(
@@ -87,7 +85,7 @@ public class NotificationDispatcherService : BackgroundService
 
             try
             {
-                await Task.Delay(2000, stoppingToken);
+                await Task.Delay(_db.IsNetworkDatabase() ? 5000 : 2000, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

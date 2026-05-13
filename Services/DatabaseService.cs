@@ -16,6 +16,50 @@ namespace HKServer.Services;
 
 public class DatabaseService
 {
+    private static readonly string[] OfficialImportHeaders =
+    {
+        "كود الملف",
+        "الاسم",
+        "الرقم القومي",
+        "رقم الحساب",
+        "البنك",
+        "قيمة العملية",
+        "الحالة",
+        "السبب",
+        "رقم الحساب بعد التعديل",
+        "البنك بعد التعديل",
+        "كود الفرع بعد التعديل",
+        "رقم تسوية التعلية",
+        "تاريخ المرتد / تاريخ التعلية",
+        "تاريخ اعتماد المرتدات",
+        "تاريخ التعديل",
+        "تاريخ اعتماد التعديل",
+        "رقم تسوية السداد",
+        "تاريخ اعتماد التعديل / تاريخ السداد"
+    };
+
+    private static readonly Dictionary<string, string[]> ImportHeaderAliases = new(StringComparer.Ordinal)
+    {
+        ["كود الملف"] = new[] { "كودالملف", "FileCode", "Code", "Batch ID", "BatchCode" },
+        ["الاسم"] = new[] { "Name", "FullName", "CREDITOR_NAME", "Beneficiary Name", "اسم المستفيد" },
+        ["الرقم القومي"] = new[] { "الرقم القومى", "الرقم_القومي", "NationalID", "National Id", "National ID", "NID", "رقم قومي" },
+        ["رقم الحساب"] = new[] { "AccountNumber", "Account No", "CurrentAccount", "ACCOUNT_NUMBER", "رقمالحساب" },
+        ["البنك"] = new[] { "Bank", "CurrentBank", "اسم البنك" },
+        ["قيمة العملية"] = new[] { "Amount", "Transaction Value", "Value", "المبلغ", "القيمة" },
+        ["الحالة"] = new[] { "Status", "ReturnStatus", "حالة الارتداد" },
+        ["السبب"] = new[] { "Reason" },
+        ["رقم الحساب بعد التعديل"] = new[] { "EditedAccountNumber", "NewAccountNumber", "ModifiedAccount", "رقم الحساب الجديد", "الحساب الجديد", "تعديل رقم الحساب" },
+        ["البنك بعد التعديل"] = new[] { "ModifiedBank", "البنك الجديد", "اسم البنك الجديد" },
+        ["كود الفرع بعد التعديل"] = new[] { "BranchCode", "ModifiedBranchCode" },
+        ["رقم تسوية التعلية"] = new[] { "ElevationSettlementNo", "AccrualSettlementNo", "رقم تسوية تعلية", "تسوية تعلية" },
+        ["تاريخ المرتد / تاريخ التعلية"] = new[] { "تاريخ المرتد/تاريخ التعلية", "تاريخ المرتد", "تاريخ المرتدات", "تاريخ التعلية", "ReturnDate" },
+        ["تاريخ اعتماد المرتدات"] = new[] { "ReturnApprovalDate" },
+        ["تاريخ التعديل"] = new[] { "ModDate", "ModificationDate" },
+        ["تاريخ اعتماد التعديل"] = new[] { "ModApprovalDate" },
+        ["رقم تسوية السداد"] = new[] { "SettlementNo", "Settlement No", "رقم التسوية", "رقم تسوية سداد" },
+        ["تاريخ اعتماد التعديل / تاريخ السداد"] = new[] { "تاريخ اعتماد التعديل/تاريخ السداد", "تاريخ السداد", "تاريخ التسوية", "تاريخ السداد الفعلي", "SettlementDate", "Settlement Date", "تاريخ تسوية السداد" }
+    };
+
     private ServerConfig _config = new();
     private string _dbPath;
     private string _connectionString;
@@ -26,14 +70,16 @@ public class DatabaseService
     public DatabaseService(IConfiguration configuration)
     {
         _config = LoadServerConfig();
-        _dbPath = ResolveDatabasePath(configuration);
+        _dbPath = ResolveDatabasePath(configuration, out var startupValidation);
         _connectionString = BuildConnectionString(_dbPath);
-        var validation = ValidateDatabasePath(_dbPath);
+        var validation = startupValidation ?? ValidateDatabasePath(_dbPath);
         if (!validation.Success)
         {
             _lastValidation = validation;
             _validatedForCurrentSession = false;
-            Console.WriteLine($"[DB] SQLite database is not available: {validation.Message}");
+            Console.WriteLine($"[DB][CRITICAL] Configured SQLite database is not available: {_dbPath}");
+            Console.WriteLine($"[DB][CRITICAL] {validation.Code}: {validation.Message}");
+            Console.WriteLine("[DB][CRITICAL] No local SQLite fallback will be used. Fix the configured database path from Settings.");
             return;
         }
         _lastValidation = validation;
@@ -84,18 +130,48 @@ public class DatabaseService
         }
     }
 
-    private static string ResolveDatabasePath(IConfiguration configuration)
+    private static string ResolveDatabasePath(IConfiguration configuration, out DatabasePathValidationResult? startupValidation)
     {
+        startupValidation = null;
         var savedConfig = LoadServerConfig();
-        var configuredPath = savedConfig.DatabasePath;
+        var configuredPath =
+            FirstNonEmpty(savedConfig.DatabasePath, configuration["DatabasePath"], configuration["LocalDatabasePath"])
+            ?? ServerConfig.DefaultDatabasePath;
 
-        if (string.IsNullOrWhiteSpace(configuredPath))
+        DatabasePathResolution normalized;
+        try
         {
-            throw new InvalidOperationException("SQLite database path is not configured.");
+            normalized = NormalizeDatabasePath(configuredPath);
+        }
+        catch (Exception ex)
+        {
+            startupValidation = DatabasePathValidationResult.Fail(
+                "invalid_path",
+                $"Invalid configured SQLite database path: {ex.Message}",
+                configuredPath);
+            return configuredPath;
         }
 
-        return NormalizeDatabasePath(configuredPath).DatabasePath;
+        startupValidation = ValidateDatabasePath(normalized.DatabasePath);
+        if (startupValidation.Success)
+        {
+            savedConfig.DatabasePath = normalized.DatabasePath;
+            savedConfig.BasePath = Path.GetDirectoryName(normalized.DatabasePath) ?? savedConfig.BasePath;
+            savedConfig.LastSuccessfulDatabasePath = normalized.DatabasePath;
+            savedConfig.LastSuccessfulDatabaseConnection = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            SaveServerConfig(savedConfig);
+            Console.WriteLine($"[DB] Using configured SQLite database: {normalized.DatabasePath}");
+        }
+        else
+        {
+            Console.WriteLine($"[DB] Configured path rejected: {normalized.DatabasePath} | {startupValidation.Code}: {startupValidation.Message}");
+        }
+
+        return normalized.DatabasePath;
     }
+
+    private static string? FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
     public static DatabasePathResolution NormalizeDatabasePath(string inputPath)
     {
@@ -128,11 +204,12 @@ public class DatabaseService
     public static DatabasePathValidationResult ValidateDatabasePath(string dbPath, bool requireExistingFile = true)
     {
         var task = Task.Run(() => ValidateDatabasePathCore(dbPath, requireExistingFile));
-        if (!task.Wait(TimeSpan.FromSeconds(8)))
+        if (!task.Wait(TimeSpan.FromSeconds(4)))
         {
             return DatabasePathValidationResult.Fail(
                 dbPath.StartsWith(@"\\", StringComparison.Ordinal) ? "shared_folder_unavailable" : "connection_timeout",
-                $"Timed out while checking SQLite database path: {dbPath}");
+                $"Timed out after 4 seconds while checking SQLite database path: {dbPath}",
+                dbPath);
         }
 
         return task.GetAwaiter().GetResult();
@@ -143,19 +220,20 @@ public class DatabaseService
         var directory = Path.GetDirectoryName(dbPath);
         if (string.IsNullOrWhiteSpace(directory))
         {
-            return DatabasePathValidationResult.Fail("invalid_path", $"Invalid SQLite database path: {dbPath}");
+            return DatabasePathValidationResult.Fail("invalid_path", $"Invalid SQLite database path: {dbPath}", dbPath);
         }
 
         if (!Directory.Exists(directory))
         {
             return DatabasePathValidationResult.Fail(
                 dbPath.StartsWith(@"\\", StringComparison.Ordinal) ? "shared_folder_unavailable" : "folder_not_found",
-                $"SQLite database folder is not available: {directory}");
+                $"SQLite database folder is not available: {directory}",
+                dbPath);
         }
 
         if (requireExistingFile && !File.Exists(dbPath))
         {
-            return DatabasePathValidationResult.Fail("file_not_found", $"SQLite database file was not found: {dbPath}");
+            return DatabasePathValidationResult.Fail("file_not_found", $"SQLite database file was not found: {dbPath}", dbPath);
         }
 
         var probePath = Path.Combine(directory, $".hk_write_test_{Guid.NewGuid():N}.tmp");
@@ -166,7 +244,7 @@ public class DatabaseService
         }
         catch (Exception ex)
         {
-            return DatabasePathValidationResult.Fail("permission_denied", $"SQLite database folder must allow read/write/create access: {directory}. {ex.Message}");
+            return DatabasePathValidationResult.Fail("permission_denied", $"SQLite database folder must allow read/write/create access: {directory}. {ex.Message}", dbPath);
         }
         finally
         {
@@ -184,34 +262,37 @@ public class DatabaseService
                 DataSource = dbPath,
                 Mode = requireExistingFile ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadWriteCreate,
                 Pooling = false,
-                DefaultTimeout = 5
+                DefaultTimeout = 3
             };
 
             using var conn = new SqliteConnection(builder.ToString());
             conn.Open();
+            using var pragmaCmd = conn.CreateCommand();
+            pragmaCmd.CommandText = "PRAGMA busy_timeout=3000;";
+            pragmaCmd.ExecuteNonQuery();
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT name FROM sqlite_master LIMIT 1;";
             _ = cmd.ExecuteScalar();
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6)
         {
-            return DatabasePathValidationResult.Fail("sqlite_locked", $"SQLite database is locked or busy: {ex.Message}");
+            return DatabasePathValidationResult.Fail("sqlite_locked", $"SQLite database is locked or busy: {ex.Message}", dbPath);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 14)
         {
-            return DatabasePathValidationResult.Fail("permission_denied", $"SQLite cannot open the database file. Check read/write/lock permissions: {ex.Message}");
+            return DatabasePathValidationResult.Fail("permission_denied", $"SQLite cannot open the database file. Check read/write/lock permissions: {ex.Message}", dbPath);
         }
         catch (UnauthorizedAccessException ex)
         {
-            return DatabasePathValidationResult.Fail("permission_denied", $"Permission denied: {ex.Message}");
+            return DatabasePathValidationResult.Fail("permission_denied", $"Permission denied: {ex.Message}", dbPath);
         }
         catch (IOException ex)
         {
-            return DatabasePathValidationResult.Fail("shared_folder_unavailable", $"Cannot access the SQLite file or network share: {ex.Message}");
+            return DatabasePathValidationResult.Fail("shared_folder_unavailable", $"Cannot access the SQLite file or network share: {ex.Message}", dbPath);
         }
         catch (Exception ex)
         {
-            return DatabasePathValidationResult.Fail("invalid_sqlite", $"The selected file is not a usable SQLite database: {ex.Message}");
+            return DatabasePathValidationResult.Fail("invalid_sqlite", $"The selected file is not a usable SQLite database: {ex.Message}", dbPath);
         }
 
         return DatabasePathValidationResult.Ok(dbPath);
@@ -267,8 +348,16 @@ public class DatabaseService
             }
             return conn;
         }
-        catch
+        catch (Exception ex)
         {
+            lock (_pathLock)
+            {
+                _lastValidation = DatabasePathValidationResult.Fail(
+                    "connection_failed",
+                    $"SQLite connection failed for configured database path: {ex.Message}",
+                    _dbPath);
+                _validatedForCurrentSession = false;
+            }
             await conn.DisposeAsync();
             throw;
         }
@@ -278,7 +367,7 @@ public class DatabaseService
     {
         lock (_pathLock)
         {
-            return _lastValidation ?? DatabasePathValidationResult.Fail("not_tested", "Connection has not been tested yet.");
+            return _lastValidation ?? DatabasePathValidationResult.Fail("not_tested", "Connection has not been tested yet.", _dbPath);
         }
     }
 
@@ -308,8 +397,8 @@ public class DatabaseService
         {
             DataSource = dbPath,
             Mode = SqliteOpenMode.ReadWrite,
-            Pooling = false,
-            DefaultTimeout = 30
+            Pooling = false, // Disable pooling to avoid file handle persistence issues
+            DefaultTimeout = 10
         };
         return builder.ToString();
     }
@@ -317,7 +406,12 @@ public class DatabaseService
     private static async Task ApplySafePragmasAsync(DbConnection conn)
     {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "PRAGMA busy_timeout=30000;";
+        cmd.CommandText = @"
+            PRAGMA busy_timeout=15000;
+            PRAGMA journal_mode=DELETE;
+            PRAGMA cache_size=-65536;
+            PRAGMA temp_store=MEMORY;
+            PRAGMA synchronous=NORMAL;";
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -328,17 +422,37 @@ public class DatabaseService
 
     public async Task InitDatabase()
     {
+        const int SCHEMA_VERSION = 13;
         using var conn = await GetOpenConnectionAsync();
+
+        // Switch away from WAL mode on network shares (run once, non-fatal)
+        if (IsNetworkDatabase())
+        {
+            try
+            {
+                using var walCmd = conn.CreateCommand();
+                walCmd.CommandTimeout = 10;
+                walCmd.CommandText = "PRAGMA journal_mode=DELETE;";
+                await walCmd.ExecuteNonQueryAsync();
+                Console.WriteLine("[DB] Journal mode set to DELETE (network share).");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB] Could not switch journal mode: {ex.Message}");
+            }
+        }
+
         var sql = @"
             CREATE TABLE IF NOT EXISTS Users (Id INTEGER PRIMARY KEY AUTOINCREMENT, Username TEXT UNIQUE, Password TEXT, Fullname TEXT, Role TEXT, Active INTEGER, CreatedAt TEXT);
             CREATE TABLE IF NOT EXISTS Archives (Id INTEGER PRIMARY KEY AUTOINCREMENT, Date TEXT, Filename TEXT, RecordCount INTEGER, Size TEXT, Headers TEXT, ExclusiveUserId INTEGER);
-            CREATE TABLE IF NOT EXISTS Returns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, IsArchived INTEGER DEFAULT 0, ArchivedBatchId INTEGER NULL, [رقم تسوية التعلية] TEXT, [رقم تسوية السداد] TEXT, FOREIGN KEY(ImportId) REFERENCES Archives(Id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS Returns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, IsArchived INTEGER DEFAULT 0, ArchivedBatchId INTEGER NULL, UpdatedAt TEXT, [رقم تسوية التعلية] TEXT, [رقم تسوية السداد] TEXT, FOREIGN KEY(ImportId) REFERENCES Archives(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS ReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES Returns(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS Filters (Id TEXT PRIMARY KEY, Name TEXT NOT NULL, Type TEXT NOT NULL, ValuesContent TEXT, MinValue REAL, MaxValue REAL, TargetPage TEXT, TargetColumn TEXT, Criteria TEXT, CreatedAt TEXT);
-            CREATE TABLE IF NOT EXISTS FullReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, RawData TEXT, CreatedAt TEXT);
+            CREATE TABLE IF NOT EXISTS FullReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, RawData TEXT, CreatedAt TEXT, UpdatedAt TEXT);
             CREATE TABLE IF NOT EXISTS FullReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES FullReturns(Id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS FullReturnsSyncState (Id INTEGER PRIMARY KEY CHECK (Id = 1), LastChangedAt TEXT, LastResetAt TEXT);
             CREATE TABLE IF NOT EXISTS SalaryArchives (Id INTEGER PRIMARY KEY AUTOINCREMENT, Date TEXT, Filename TEXT, RecordCount INTEGER, Size TEXT, Headers TEXT, ExclusiveUserId INTEGER);
-            CREATE TABLE IF NOT EXISTS SalaryReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, IsArchived INTEGER DEFAULT 0, ArchivedBatchId INTEGER NULL, [رقم تسوية التعلية] TEXT, [رقم تسوية السداد] TEXT, FOREIGN KEY(ImportId) REFERENCES SalaryArchives(Id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS SalaryReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, IsArchived INTEGER DEFAULT 0, ArchivedBatchId INTEGER NULL, UpdatedAt TEXT, [رقم تسوية التعلية] TEXT, [رقم تسوية السداد] TEXT, FOREIGN KEY(ImportId) REFERENCES SalaryArchives(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS SalaryReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES SalaryReturns(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS NotificationEvents (Id INTEGER PRIMARY KEY AUTOINCREMENT, TableName TEXT, Operation TEXT, RowId INTEGER, CreatedBy TEXT, CreatedAt TEXT, Status TEXT DEFAULT 'Pending', Error TEXT);
             
@@ -409,6 +523,7 @@ public class DatabaseService
                 LastError TEXT
             );
             INSERT OR IGNORE INTO SearchFilterIndexState (Id, IsStale, IndexedCount) VALUES (1, 1, 0);
+            INSERT OR IGNORE INTO FullReturnsSyncState (Id, LastChangedAt, LastResetAt) VALUES (1, '', '');
         ";
         await conn.ExecuteAsync(sql);
         
@@ -420,14 +535,28 @@ public class DatabaseService
             );
         }
 
+        // Skip migrations if schema is already at current version
+        var schemaVersion = await conn.ExecuteScalarAsync<int>("PRAGMA user_version");
+        if (schemaVersion >= SCHEMA_VERSION)
+        {
+            Console.WriteLine($"[DB] Schema v{schemaVersion} is current. Skipping migrations.");
+            return;
+        }
+        Console.WriteLine($"[DB] Migrating schema from v{schemaVersion} to v{SCHEMA_VERSION}...");
+
         // Schema updates for SQLite
         try { await conn.ExecuteAsync("ALTER TABLE Filters ADD COLUMN Criteria TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE Filters ADD COLUMN TargetPage TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE Filters ADD COLUMN TargetColumn TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN IsArchived INTEGER DEFAULT 0;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN ArchivedBatchId INTEGER NULL;"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN UpdatedAt TEXT;"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE FullReturns ADD COLUMN UpdatedAt TEXT;"); } catch {}
+        try { await conn.ExecuteAsync("CREATE TABLE IF NOT EXISTS FullReturnsSyncState (Id INTEGER PRIMARY KEY CHECK (Id = 1), LastChangedAt TEXT, LastResetAt TEXT);"); } catch {}
+        try { await conn.ExecuteAsync("INSERT OR IGNORE INTO FullReturnsSyncState (Id, LastChangedAt, LastResetAt) VALUES (1, '', '');"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE SalaryReturns ADD COLUMN IsArchived INTEGER DEFAULT 0;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE SalaryReturns ADD COLUMN ArchivedBatchId INTEGER NULL;"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE SalaryReturns ADD COLUMN UpdatedAt TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية التعلية] TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية السداد] TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE SalaryReturns ADD COLUMN [رقم تسوية التعلية] TEXT;"); } catch {}
@@ -440,8 +569,11 @@ public class DatabaseService
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_Returns_ArchiveState ON Returns(IsDeleted, IsArchived, ArchivedBatchId);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_ArchiveState ON SalaryReturns(IsDeleted, IsArchived, ArchivedBatchId);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_Returns_FilterFast ON Returns(IsDeleted, IsArchived, ReturnCode, UploadDate);"); } catch {}
+        try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_Returns_UpdatedAt ON Returns(UpdatedAt, IsDeleted, IsArchived);"); } catch {}
+        try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_FullReturns_UpdatedAt ON FullReturns(UpdatedAt);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_Returns_ImportState ON Returns(ImportId, IsDeleted, IsArchived);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_FilterFast ON SalaryReturns(IsDeleted, IsArchived, ReturnCode, UploadDate);"); } catch {}
+        try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_UpdatedAt ON SalaryReturns(UpdatedAt, IsDeleted, IsArchived);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SalaryReturns_ImportState ON SalaryReturns(ImportId, IsDeleted, IsArchived);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_ReturnsImages_ReturnId ON ReturnsImages(ReturnId);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SalaryReturnsImages_ReturnId ON SalaryReturnsImages(ReturnId);"); } catch {}
@@ -465,6 +597,13 @@ public class DatabaseService
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SearchFilterIndex_Status ON SearchFilterIndex(SourceType, Status, ReturnedRejected);"); } catch {}
         try { await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS IDX_SearchFilterIndex_Attachments ON SearchFilterIndex(SourceType, HasAttachments);"); } catch {}
         try { await conn.ExecuteAsync("CREATE VIRTUAL TABLE IF NOT EXISTS SearchFilterIndexFts USING fts5(SourceType UNINDEXED, RecordId UNINDEXED, SearchText);"); } catch {}
+        var migrationNow = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        try { await conn.ExecuteAsync("UPDATE Returns SET UpdatedAt = COALESCE(NULLIF(UpdatedAt, ''), NULLIF(UploadDate, ''), @Now);", new { Now = migrationNow }); } catch {}
+        try { await conn.ExecuteAsync("UPDATE FullReturns SET UpdatedAt = COALESCE(NULLIF(UpdatedAt, ''), NULLIF(CreatedAt, ''), @Now);", new { Now = migrationNow }); } catch {}
+        try { await conn.ExecuteAsync("UPDATE SalaryReturns SET UpdatedAt = COALESCE(NULLIF(UpdatedAt, ''), NULLIF(UploadDate, ''), @Now);", new { Now = migrationNow }); } catch {}
+
+        await conn.ExecuteAsync($"PRAGMA user_version = {SCHEMA_VERSION}");
+        Console.WriteLine($"[DB] Schema updated to v{SCHEMA_VERSION}.");
     }
 
     public async Task AddNotificationEventAsync(string tableName, string operation, long rowId, string user)
@@ -666,6 +805,164 @@ public class DatabaseService
         } catch { return ""; }
     }
 
+    public static string NormalizeImportHeader(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "";
+        return name.Trim()
+            .Replace("\uFEFF", "")
+            .Replace("\u200B", "")
+            .Replace("\u200C", "")
+            .Replace("\u200D", "")
+            .Replace("\u200E", "")
+            .Replace("\u200F", "")
+            .Replace("\u202A", "")
+            .Replace("\u202B", "")
+            .Replace("\u202C", "")
+            .Replace("\u202D", "")
+            .Replace("\u202E", "")
+            .Replace("\u2066", "")
+            .Replace("\u2067", "")
+            .Replace("\u2068", "")
+            .Replace("\u2069", "")
+            .Replace("\u0640", "")
+            .Replace('\uFF0F', '/')
+            .Replace('\u2044', '/')
+            .Replace('\u2215', '/')
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace("\t", " ");
+    }
+
+    public static string CanonicalizeImportHeader(string? name)
+    {
+        var normalized = Regex.Replace(NormalizeImportHeader(name), @"[\u064B-\u0652\u06D6-\u06ED]", "");
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        normalized = Regex.Replace(normalized, @"\s*/\s*", " / ");
+
+        foreach (var header in OfficialImportHeaders)
+        {
+            if (string.Equals(normalized, CanonicalizeComparableHeader(header), StringComparison.OrdinalIgnoreCase))
+            {
+                return header;
+            }
+        }
+
+        foreach (var entry in ImportHeaderAliases)
+        {
+            if (entry.Value.Any(alias => string.Equals(normalized, CanonicalizeComparableHeader(alias), StringComparison.OrdinalIgnoreCase)))
+            {
+                return entry.Key;
+            }
+        }
+
+        return normalized;
+    }
+
+    private static string CanonicalizeComparableHeader(string? name)
+    {
+        var normalized = NormalizeImportHeader(name);
+        normalized = Regex.Replace(normalized, @"[\u064B-\u0652\u06D6-\u06ED]", "");
+        normalized = Regex.Replace(normalized, @"\s+", " ").Trim();
+        return Regex.Replace(normalized, @"\s*/\s*", " / ");
+    }
+
+    public static (bool IsValid, List<string> MissingHeaders, List<string> DuplicateOfficialHeaders, List<string> ExtraHeaders) ValidateOfficialImportHeaders(IEnumerable<string>? headers)
+    {
+        var rawHeaders = headers?
+            .Where(h => !string.IsNullOrWhiteSpace(h))
+            .Select(h => h.Trim())
+            .ToList() ?? new List<string>();
+
+        var canonicalHeaders = rawHeaders
+            .Select(CanonicalizeImportHeader)
+            .Where(h => !string.IsNullOrWhiteSpace(h))
+            .ToList();
+
+        var duplicates = canonicalHeaders
+            .GroupBy(h => h, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1 && OfficialImportHeaders.Contains(g.Key, StringComparer.OrdinalIgnoreCase))
+            .Select(g => g.Key)
+            .ToList();
+
+        var present = canonicalHeaders
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missing = OfficialImportHeaders
+            .Where(h => !present.Contains(h))
+            .ToList();
+
+        var extras = canonicalHeaders
+            .Where(h => !OfficialImportHeaders.Contains(h, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return (missing.Count == 0 && duplicates.Count == 0, missing, duplicates, extras);
+    }
+
+    public static Dictionary<string, string> NormalizeImportedRow(JsonElement root)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (root.ValueKind != JsonValueKind.Object) return result;
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            var canonicalKey = CanonicalizeImportHeader(prop.Name);
+            var value = JsonElementToString(prop.Value);
+            var existing = result.TryGetValue(canonicalKey, out var currentValue) ? currentValue : "";
+            var hasExisting = !string.IsNullOrWhiteSpace(existing);
+            var hasIncoming = !string.IsNullOrWhiteSpace(value);
+            var exactCanonicalSource = string.Equals(CanonicalizeComparableHeader(prop.Name), CanonicalizeComparableHeader(canonicalKey), StringComparison.OrdinalIgnoreCase);
+
+            if (!hasExisting || (hasIncoming && exactCanonicalSource))
+            {
+                result[canonicalKey] = value;
+            }
+        }
+
+        return result;
+    }
+
+    public static string NormalizeImportedJson(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return raw;
+            return JsonSerializer.Serialize(NormalizeImportedRow(doc.RootElement));
+        }
+        catch
+        {
+            return raw;
+        }
+    }
+
+    public static string ExtractImportedFieldValue(string raw, params string[] fieldNames)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return "";
+            var normalized = NormalizeImportedRow(doc.RootElement);
+            foreach (var fieldName in fieldNames)
+            {
+                var canonical = CanonicalizeImportHeader(fieldName);
+                if (normalized.TryGetValue(canonical, out var value) && !string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     public static string CleanArabic(string name, bool strict = false)
     {
         if (string.IsNullOrWhiteSpace(name)) return "";
@@ -788,68 +1085,91 @@ public class DatabaseService
         }
     }
 
+    private static readonly SemaphoreSlim _rebuildLock = new(1, 1);
+
     public async Task<int> RebuildSearchFilterIndexAsync()
     {
-        using var conn = await GetOpenConnectionAsync();
-        using var tx = conn.BeginTransaction();
+        if (!await _rebuildLock.WaitAsync(0))
+        {
+            Console.WriteLine("[SearchIndex] Rebuild already in progress, skipping.");
+            return -1;
+        }
+        const int BATCH_SIZE = 300;
         try
         {
-            await conn.ExecuteAsync("DELETE FROM SearchFilterIndex;", transaction: tx);
-            try { await conn.ExecuteAsync("DELETE FROM SearchFilterIndexFts;", transaction: tx); } catch {}
+            // Clear index in one small transaction
+            using (var conn = await GetOpenConnectionAsync())
+            {
+                using var tx = conn.BeginTransaction();
+                await conn.ExecuteAsync("DELETE FROM SearchFilterIndex;", transaction: tx);
+                try { await conn.ExecuteAsync("DELETE FROM SearchFilterIndexFts;", transaction: tx); } catch {}
+                tx.Commit();
+            }
 
             var count = 0;
-            count += await RebuildSearchFilterIndexForSourceAsync(conn, tx, "returns", "Returns", "ReturnsImages");
-            count += await RebuildSearchFilterIndexForSourceAsync(conn, tx, "salary", "SalaryReturns", "SalaryReturnsImages");
+            count += await RebuildSearchFilterIndexForSourceAsync("returns", "Returns", "ReturnsImages", BATCH_SIZE);
+            count += await RebuildSearchFilterIndexForSourceAsync("salary", "SalaryReturns", "SalaryReturnsImages", BATCH_SIZE);
 
-            await conn.ExecuteAsync(@"
-                INSERT INTO SearchFilterIndexState (Id, LastRebuiltAt, IndexedCount, IsStale, LastError)
-                VALUES (1, datetime('now'), @Count, 0, NULL)
-                ON CONFLICT(Id) DO UPDATE SET
-                    LastRebuiltAt = excluded.LastRebuiltAt,
-                    IndexedCount = excluded.IndexedCount,
-                    IsStale = 0,
-                    LastError = NULL;",
-                new { Count = count }, tx);
-            tx.Commit();
+            using (var conn = await GetOpenConnectionAsync())
+            {
+                await conn.ExecuteAsync(@"
+                    INSERT INTO SearchFilterIndexState (Id, LastRebuiltAt, IndexedCount, IsStale, LastError)
+                    VALUES (1, datetime('now'), @Count, 0, NULL)
+                    ON CONFLICT(Id) DO UPDATE SET
+                        LastRebuiltAt = excluded.LastRebuiltAt,
+                        IndexedCount = excluded.IndexedCount,
+                        IsStale = 0,
+                        LastError = NULL;",
+                    new { Count = count });
+            }
             return count;
         }
         catch (Exception ex)
         {
-            tx.Rollback();
-            using var errorConn = await GetOpenConnectionAsync();
-            await errorConn.ExecuteAsync(@"
-                INSERT INTO SearchFilterIndexState (Id, IsStale, LastError)
-                VALUES (1, 1, @Error)
-                ON CONFLICT(Id) DO UPDATE SET IsStale = 1, LastError = excluded.LastError;",
-                new { Error = ex.Message });
+            try
+            {
+                using var errorConn = await GetOpenConnectionAsync();
+                await errorConn.ExecuteAsync(@"
+                    INSERT INTO SearchFilterIndexState (Id, IsStale, LastError)
+                    VALUES (1, 1, @Error)
+                    ON CONFLICT(Id) DO UPDATE SET IsStale = 1, LastError = excluded.LastError;",
+                    new { Error = ex.Message });
+            }
+            catch { }
             throw;
+        }
+        finally
+        {
+            _rebuildLock.Release();
         }
     }
 
-    private static async Task<int> RebuildSearchFilterIndexForSourceAsync(IDbConnection conn, IDbTransaction tx, string sourceType, string tableName, string imagesTable)
+    private async Task<int> RebuildSearchFilterIndexForSourceAsync(string sourceType, string tableName, string imagesTable, int batchSize)
     {
-        var rows = await conn.QueryAsync<dynamic>($@"
-            SELECT r.Id, r.RawData, r.ReturnCode, r.UploadDate, COALESCE(r.IsDeleted, 0) AS IsDeleted,
-                   COALESCE(r.IsArchived, 0) AS IsArchived,
-                   CASE WHEN EXISTS (SELECT 1 FROM {imagesTable} i WHERE i.ReturnId = r.Id) THEN 1 ELSE 0 END AS HasAttachments
-            FROM {tableName} r;", transaction: tx);
+        List<dynamic> rows;
+        using (var conn = await GetOpenConnectionAsync())
+        {
+            rows = (await conn.QueryAsync<dynamic>($@"
+                SELECT r.Id, r.RawData, r.ReturnCode, r.UploadDate, COALESCE(r.IsDeleted, 0) AS IsDeleted,
+                       COALESCE(r.IsArchived, 0) AS IsArchived,
+                       CASE WHEN EXISTS (SELECT 1 FROM {imagesTable} i WHERE i.ReturnId = r.Id) THEN 1 ELSE 0 END AS HasAttachments
+                FROM {tableName} r;")).ToList();
+        }
 
         var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
         var count = 0;
-        foreach (var row in rows)
+
+        // Build all index rows in memory first (no DB lock during processing)
+        var indexRows = rows.Select(row =>
         {
             var raw = (string?)row.RawData ?? "";
             var data = ParseRawObject(raw);
             var fileCode = FirstText(data, "كود الملف", "كـــود الملف", "كود_الملف", "FileCode", "ReturnCode");
             if (string.IsNullOrWhiteSpace(fileCode)) fileCode = (string?)row.ReturnCode ?? "";
-
-            var paymentNo = FirstText(data, "رقم تسوية السداد", "PaymentSettlementNo", "SettlementNo");
             var status = FirstText(data, "الحالة", "حالة الارتداد", "ReturnStatus", "Status", "السبب");
             var upload = FirstText(data, "تاريخ الرفع", "UploadDate", "CreatedAt");
             if (string.IsNullOrWhiteSpace(upload)) upload = (string?)row.UploadDate ?? "";
-            upload = NormalizeDateOnly(upload);
-
-            var indexRow = new
+            return new
             {
                 RecordId = (long)row.Id,
                 SourceType = sourceType,
@@ -859,8 +1179,8 @@ public class DatabaseService
                 Bank = FirstText(data, "البنك", "Bank", "اسم البنك"),
                 FileCode = fileCode,
                 ExtractedMonth = NormalizeMonthText(FirstText(data, "الشهر", "شهر", "Month", "month", "ExtractedMonth", "Extracted Month", " ") is var m && !string.IsNullOrWhiteSpace(m) ? m : fileCode),
-                PaymentDate = NormalizeDateOnly(FirstText(data, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ اعتماد التعديل", "تاريخ اعتماد المرتدات", "SettlementDate")),
-                UploadDate = upload,
+                PaymentDate = NormalizeDateOnly(FirstText(data, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ التسوية", "تاريخ السداد الفعلي", "SettlementDate")),
+                UploadDate = NormalizeDateOnly(upload),
                 Status = status,
                 ReturnedRejected = NormalizeReturnedRejected(status + " " + raw),
                 HasAttachments = Convert.ToInt32(row.HasAttachments),
@@ -869,26 +1189,32 @@ public class DatabaseService
                 SearchText = BuildSearchText(data, fileCode, sourceType),
                 UpdatedAt = now
             };
+        }).ToList();
 
-            await conn.ExecuteAsync(@"
-                INSERT INTO SearchFilterIndex
-                    (RecordId, SourceType, Name, NationalId, AccountNumber, Bank, FileCode, ExtractedMonth, PaymentDate, UploadDate, Status, ReturnedRejected, HasAttachments, IsArchived, IsDeleted, SearchText, UpdatedAt)
-                VALUES
-                    (@RecordId, @SourceType, @Name, @NationalId, @AccountNumber, @Bank, @FileCode, @ExtractedMonth, @PaymentDate, @UploadDate, @Status, @ReturnedRejected, @HasAttachments, @IsArchived, @IsDeleted, @SearchText, @UpdatedAt);",
-                indexRow, tx);
-            try
+        // Insert in batches — each batch is a short transaction to avoid long locks
+        foreach (var batch in indexRows.Chunk(batchSize))
+        {
+            using var conn = await GetOpenConnectionAsync();
+            using var tx = conn.BeginTransaction();
+            foreach (var indexRow in batch)
             {
-                await conn.ExecuteAsync("INSERT INTO SearchFilterIndexFts (SourceType, RecordId, SearchText) VALUES (@SourceType, @RecordId, @SearchText);", indexRow, tx);
+                await conn.ExecuteAsync(@"
+                    INSERT OR REPLACE INTO SearchFilterIndex
+                        (RecordId, SourceType, Name, NationalId, AccountNumber, Bank, FileCode, ExtractedMonth, PaymentDate, UploadDate, Status, ReturnedRejected, HasAttachments, IsArchived, IsDeleted, SearchText, UpdatedAt)
+                    VALUES
+                        (@RecordId, @SourceType, @Name, @NationalId, @AccountNumber, @Bank, @FileCode, @ExtractedMonth, @PaymentDate, @UploadDate, @Status, @ReturnedRejected, @HasAttachments, @IsArchived, @IsDeleted, @SearchText, @UpdatedAt);",
+                    indexRow, tx);
+                try { await conn.ExecuteAsync("INSERT OR REPLACE INTO SearchFilterIndexFts (SourceType, RecordId, SearchText) VALUES (@SourceType, @RecordId, @SearchText);", indexRow, tx); } catch {}
+                count++;
             }
-            catch {}
-            count++;
+            tx.Commit();
         }
         return count;
     }
 
-    public async Task<object> GetSearchFilterIndexFiltersAsync(string? sourceType)
+    public async Task<object> GetSearchFilterIndexFiltersAsync(string? sourceType, bool ensureFresh = true)
     {
-        await EnsureSearchFilterIndexFreshAsync();
+        if (ensureFresh) await EnsureSearchFilterIndexFreshAsync();
         using var conn = await GetOpenConnectionAsync();
         var source = NormalizeSourceType(sourceType);
         var where = source == "all" ? "WHERE IsDeleted = 0 AND IsArchived = 0" : "WHERE SourceType = @Source AND IsDeleted = 0 AND IsArchived = 0";
@@ -1034,6 +1360,6 @@ public record DatabasePathValidationResult(bool Success, string Code, string Mes
     public static DatabasePathValidationResult Ok(string databasePath) =>
         new(true, "connected", "Connected successfully", databasePath);
 
-    public static DatabasePathValidationResult Fail(string code, string message) =>
-        new(false, code, message, null);
+    public static DatabasePathValidationResult Fail(string code, string message, string? databasePath = null) =>
+        new(false, code, message, databasePath);
 }

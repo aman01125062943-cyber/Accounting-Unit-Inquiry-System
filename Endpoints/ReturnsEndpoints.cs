@@ -1,4 +1,4 @@
-﻿using HKServer.Services;
+using HKServer.Services;
 using HKServer.Models;
 using HKServer.Hubs;
 using Microsoft.AspNetCore.SignalR;
@@ -63,15 +63,15 @@ public static class ReturnsEndpoints
                     json_extract(RawData, '$.""حالة الارتداد""'),
                     json_extract(RawData, '$.status'),
                     json_extract(RawData, '$.ReturnStatus')
-                  ) as Status 
-                  FROM Returns 
-                  WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
+                  ) as Status
+                  FROM Returns
+                  WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
                   AND COALESCE(
                     json_extract(RawData, '$.""الحالة""'),
                     json_extract(RawData, '$.""حالة الارتداد""'),
                     json_extract(RawData, '$.status'),
                     json_extract(RawData, '$.ReturnStatus')
-                  ) IS NOT NULL 
+                  ) IS NOT NULL
                   AND TRIM(COALESCE(
                     json_extract(RawData, '$.""الحالة""'),
                     json_extract(RawData, '$.""حالة الارتداد""'),
@@ -83,7 +83,7 @@ public static class ReturnsEndpoints
 
         app.MapGet("/debug/returns", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
-            
+
             // Manual trigger for testing
             var pending = await conn.QueryAsync<dynamic>("SELECT Id, RawData FROM Returns WHERE ReturnCode IS NULL OR trim(ReturnCode) = '' LIMIT 100");
             int fixedCount = 0;
@@ -108,14 +108,14 @@ public static class ReturnsEndpoints
             using var conn = await db.GetOpenConnectionAsync();
             var allReturns = await conn.QueryAsync<dynamic>("SELECT Id, RawData, FileCode FROM Returns");
             int count = 0;
-            
+
             using (var trans = conn.BeginTransaction()) {
                 foreach (var row in allReturns) {
                     string fCode = row.FileCode;
                     if (string.IsNullOrEmpty(fCode)) {
                         fCode = DatabaseService.ExtractFileCodeDirect(row.RawData ?? "");
                     }
-                    
+
                     string rCode = DatabaseService.ExtractReturnCode(fCode ?? "");
                     if (!string.IsNullOrEmpty(rCode)) {
                         await conn.ExecuteAsync("UPDATE Returns SET ReturnCode = @ReturnCode WHERE Id = @Id", new { ReturnCode = rCode, Id = row.Id }, trans);
@@ -130,14 +130,14 @@ public static class ReturnsEndpoints
         app.MapGet("/test-extract", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             var row = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
-                SELECT 
+                SELECT
                     Id,
                     json_extract(RawData, '$.""تاريخ اعتماد التعديل""') as d1,
                     json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') as d2,
                     json_extract(RawData, '$.""الشهر""') as m1,
                     RawData
-                FROM Returns 
-                WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 
+                FROM Returns
+                WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
                 AND (
                     (json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') IS NOT NULL AND json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') != '')
                     OR (json_extract(RawData, '$.""الشهر""') IS NOT NULL AND json_extract(RawData, '$.""الشهر""') != '')
@@ -149,7 +149,7 @@ public static class ReturnsEndpoints
         app.MapPost("/maintenance/repair-schema", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             var logs = new List<string>();
-            
+
             try {
                 // 1. Check/Add UploadDate Column
                 try {
@@ -188,7 +188,7 @@ public static class ReturnsEndpoints
                 // This is a heavier operation, so we limit it or do it carefully
                 var rowsToFix = await conn.QueryAsync<dynamic>(
                     "SELECT Id, RawData, UploadDate FROM Returns WHERE RawData NOT LIKE '%تاريخ الرفع%' AND UploadDate IS NOT NULL LIMIT 5000");
-                
+
                 int jsonFixed = 0;
                 if (rowsToFix.Any()) {
                     using var trans = conn.BeginTransaction();
@@ -196,7 +196,7 @@ public static class ReturnsEndpoints
                         try {
                             string raw = row.RawData;
                             string date = row.UploadDate;
-                            
+
                             // Simple injection before the last closing brace
                             int lastBrace = raw.LastIndexOf('}');
                             if (lastBrace > 0) {
@@ -222,7 +222,7 @@ public static class ReturnsEndpoints
         // Moved to top to avoid routing conflicts with /returns/{id}
         app.MapGet("/returns/upload-dates", async (DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
-            
+
             // Fetch from BOTH the column and the JSON for maximum reliability
             try {
                 var rawDates = await conn.QueryAsync<string>(@"
@@ -233,7 +233,7 @@ public static class ReturnsEndpoints
                     )
                     WHERE UploadDateVal IS NOT NULL AND UploadDateVal != ''
                     ORDER BY UploadDateVal DESC");
-                
+
                 var formattedDates = rawDates
                     .Where(d => !string.IsNullOrWhiteSpace(d))
                     .Select(d => {
@@ -243,11 +243,11 @@ public static class ReturnsEndpoints
                     .Distinct()
                     .OrderByDescending(d => d)
                     .ToList();
-                    
+
                 return Results.Ok(formattedDates);
             } catch (Exception ex) {
                 Console.WriteLine($"[ERROR] Fetching upload dates: {ex.Message}");
-                return Results.Ok(new List<string>()); 
+                return Results.Ok(new List<string>());
             }
         });
 
@@ -259,28 +259,28 @@ public static class ReturnsEndpoints
             try {
                 var rawDates = await conn.QueryAsync<string>(@"
                     SELECT DISTINCT PaymentDate FROM (
-                        SELECT trim(json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""')) as PaymentDate 
-                        FROM Returns 
+                        SELECT trim(json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""')) as PaymentDate
+                        FROM Returns
                         WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
                         UNION
-                        SELECT trim(json_extract(RawData, '$.""تاريخ السداد""')) as PaymentDate 
-                        FROM Returns 
+                        SELECT trim(json_extract(RawData, '$.""تاريخ السداد""')) as PaymentDate
+                        FROM Returns
                         WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0
                     )
                     WHERE PaymentDate IS NOT NULL AND PaymentDate != ''
                     ORDER BY PaymentDate DESC");
-                
+
                 var formattedDates = rawDates
                     .Where(d => !string.IsNullOrWhiteSpace(d))
                     .Select(d => d.Length >= 10 ? d.Substring(0, 10) : d)
                     .Distinct()
                     .OrderByDescending(d => d)
                     .ToList();
-                    
+
                 return Results.Ok(formattedDates);
             } catch (Exception ex) {
                 Console.WriteLine($"[ERROR] Fetching payment dates: {ex.Message}");
-                return Results.Ok(new List<string>()); 
+                return Results.Ok(new List<string>());
             }
         });
 
@@ -306,17 +306,17 @@ public static class ReturnsEndpoints
                     .Distinct()
                     .OrderByDescending(m => m)
                     .ToList();
-                    
+
                 return Results.Ok(formattedMonths);
             } catch (Exception ex) {
                 Console.WriteLine($"[ERROR] Fetching return months: {ex.Message}");
-                return Results.Ok(new List<string>()); 
+                return Results.Ok(new List<string>());
             }
         });
 
         app.MapGet("/returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? filter, string? filterId, string? attachmentStatus, double? min, double? max, string? targetColumn, string? uploadDateFrom, string? uploadDateTo, string? settlementFilter, string? statusFilter, string? monthFilter, string? paymentDateFilter) => {
              using var conn = await db.GetOpenConnectionAsync();
-             
+
              // Ensure UploadDate column exists to prevent runtime errors if migration hasn't completed yet
              try {
                  await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1");
@@ -325,16 +325,16 @@ public static class ReturnsEndpoints
                  uploadDateFrom = null;
                  uploadDateTo = null;
              }
-             
-             var jsonOptions = new JsonSerializerOptions { 
+
+             var jsonOptions = new JsonSerializerOptions {
                 Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
              };
-             
+
              // Pagination & Shared Parameters
              int p = Math.Max(1, page ?? 1);
              int s = Math.Max(10, Math.Min(100, pageSize ?? 50));
              int offset = (p - 1) * s;
-             
+
              string sqlWhere = "WHERE 1=1";
              var parameters = new DynamicParameters();
 
@@ -344,7 +344,7 @@ public static class ReturnsEndpoints
                  parameters.Add("ActiveImportId", config.ActiveImportId);
              }
              sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
-             
+
              try {
                   if (!string.IsNullOrWhiteSpace(search)) {
                       var words = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -358,8 +358,8 @@ public static class ReturnsEndpoints
                           // AI Fix: Combined search logic for maximum reliability
                           // Search in ReturnCode, RawData (using LIKE), and through FTS5 for deep indexing
                           sqlWhere += $@" AND (
-                              ReturnCode LIKE @{spLike} 
-                              OR RawData LIKE @{spLike} 
+                              ReturnCode LIKE @{spLike}
+                              OR RawData LIKE @{spLike}
                               OR Id IN (SELECT rowid FROM Returns_FTS WHERE Returns_FTS MATCH @{spMatch})
                               OR Id IN (SELECT RecordId FROM SearchFilterIndex WHERE SourceType = 'returns' AND IsDeleted = 0 AND IsArchived = 0 AND SearchText LIKE @{spLike})
                           )";
@@ -400,7 +400,7 @@ public static class ReturnsEndpoints
                           var slashMonth = normalizedMonth.Replace('-', '/');
                           var invertedSlashMonth = invertedMonth.Replace('-', '/');
                           sqlWhere += @" AND (
-                              json_extract(RawData, '$.""الشهر""') = @MonthFilter 
+                              json_extract(RawData, '$.""الشهر""') = @MonthFilter
                               OR json_extract(RawData, '$.""شهر""') = @MonthFilter
                               OR ReturnCode LIKE @MonthFilterLike
                               OR ReturnCode LIKE @MonthFilterInvertedLike
@@ -424,8 +424,6 @@ public static class ReturnsEndpoints
                       sqlWhere += @" AND (
                           json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""') LIKE @PaymentDateFilter
                           OR json_extract(RawData, '$.""تاريخ السداد""') LIKE @PaymentDateFilter
-                          OR json_extract(RawData, '$.""تاريخ اعتماد التعديل""') LIKE @PaymentDateFilter
-                          OR json_extract(RawData, '$.""تاريخ اعتماد المرتدات""') LIKE @PaymentDateFilter
                           OR json_extract(RawData, '$.SettlementDate') LIKE @PaymentDateFilter
                           OR Id IN (
                               SELECT RecordId
@@ -450,7 +448,7 @@ public static class ReturnsEndpoints
                        sqlWhere += " AND UploadDate <= @UploadDateTo";
                        parameters.Add("UploadDateTo", uploadDateTo);
                   }
-                  
+
                   // --- UNIFIED FILTER LOGIC (Consolidated Smart & Legacy) ---
                   if (!string.IsNullOrEmpty(filterId)) {
                       var filterDef = await db.GetFilterByIdAsync(filterId);
@@ -459,13 +457,13 @@ public static class ReturnsEndpoints
                               var critType = crit.Type ?? "list";
                               double? critMin = crit.MinValue;
                               double? critMax = crit.MaxValue;
-                              
+
                               // If criteria is a range type and user provided min/max in URL, use those instead
                               if (critType == "range") {
                                   if (min.HasValue) critMin = min;
                                   if (max.HasValue) critMax = max;
                               }
-                              
+
                               ApplyCriterion(crit.TargetColumn ?? "كود الملف", critType, crit.ValuesContent, critMin, critMax, ref sqlWhere, parameters);
                           }
                       }
@@ -493,7 +491,7 @@ public static class ReturnsEndpoints
              // We use json_extract for robust key detection in the JSON blob
              var statsSql = $@"
                 WITH AmountData AS (
-                    SELECT 
+                    SELECT
                         Id,
                         RawData,
                         COALESCE(
@@ -515,7 +513,7 @@ public static class ReturnsEndpoints
                     FROM Returns
                     {sqlWhere}
                 )
-                SELECT 
+                SELECT
                     COUNT(*) as FilteredCount,
                     SUM(RowAmount) as TotalAmount,
                     COUNT(CASE WHEN RawData LIKE '%إرجاع%' OR RawData LIKE '%ارجاع%' OR RawData LIKE '%return%' THEN 1 END) as ReturnedCount,
@@ -525,7 +523,7 @@ public static class ReturnsEndpoints
                     SUM(CASE WHEN ModDate IS NOT NULL AND ModDate != '' THEN RowAmount ELSE 0 END) as SettledAmount,
                     SUM(CASE WHEN ModDate IS NULL OR ModDate = '' THEN RowAmount ELSE 0 END) as PendingAmount
                 FROM AmountData";
-             
+
              var stats = await conn.QueryFirstOrDefaultAsync<dynamic>(statsSql, parameters);
              double totalAmount = stats?.TotalAmount ?? 0;
              double settledAmount = stats?.SettledAmount ?? 0;
@@ -535,7 +533,7 @@ public static class ReturnsEndpoints
              int successCount = (int)(stats?.SuccessCount ?? 0);
              int pendingCount = (int)(stats?.PendingCount ?? 0);
              int filteredCount = (int)(stats?.FilteredCount ?? 0);
-             
+
              // 0. Get Global System Total (Unfiltered)
              var systemTotalCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
 
@@ -544,30 +542,30 @@ public static class ReturnsEndpoints
              try { await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1"); }
              catch { hasUploadDateInDb = false; }
 
-             string selectFields = hasUploadDateInDb 
-                 ? "Id, RawData, ReturnCode, UploadDate" 
+             string selectFields = hasUploadDateInDb
+                 ? "Id, RawData, ReturnCode, UploadDate"
                  : "Id, RawData, ReturnCode, NULL as UploadDate";
 
              var sqlPaged = $@"
                 SELECT {selectFields}
-                FROM Returns 
-                {sqlWhere} 
-                ORDER BY Id ASC 
+                FROM Returns
+                {sqlWhere}
+                ORDER BY Id ASC
                 LIMIT @Limit OFFSET @Offset";
-             
+
              var pagingParams = new DynamicParameters(parameters);
              pagingParams.Add("Limit", s);
              pagingParams.Add("Offset", offset);
-             
+
              var pagedRows = await conn.QueryAsync<dynamic>(sqlPaged, pagingParams);
-             
+
              // Extract Ids to fetch attachment counts
              var ids = pagedRows.Select(r => (long)r.Id).ToList();
              var attachmentCounts = new Dictionary<long, int>();
-             
+
              if (ids.Any()) {
                  var counts = await conn.QueryAsync<(long ReturnId, int Count)>(
-                     "SELECT ReturnId, COUNT(DISTINCT Filename) as Count FROM ReturnsImages WHERE ReturnId IN @Ids GROUP BY ReturnId", 
+                     "SELECT ReturnId, COUNT(DISTINCT Filename) as Count FROM ReturnsImages WHERE ReturnId IN @Ids GROUP BY ReturnId",
                      new { Ids = ids });
                  attachmentCounts = counts.ToDictionary(c => c.ReturnId, c => c.Count);
              }
@@ -580,22 +578,23 @@ var data = pagedRows.Select(r => {
                      if (uDateVal != null) {
                          obj["تاريخ الرفع"] = uDateVal.ToString();
                      }
-                     
-                     // Normalize payment date field for frontend compatibility
-                     // Check for "تاريخ السداد" and copy to "تاريخ اعتماد التعديل / تاريخ السداد" if preferred field is missing
+
+                     // Normalize payment date field for frontend compatibility.
+                     // If the official combined column exists but is blank, keep it blank exactly as imported.
                      string paymentDateKey1 = "تاريخ اعتماد التعديل / تاريخ السداد";
                      string paymentDateKey2 = "تاريخ السداد";
-                     var paymentDateVal1 = obj.ContainsKey(paymentDateKey1) ? obj[paymentDateKey1] : null;
+                     bool hasPaymentDateKey1 = obj.ContainsKey(paymentDateKey1);
+                     var paymentDateVal1 = hasPaymentDateKey1 ? obj[paymentDateKey1] : null;
                      var paymentDateVal2 = obj.ContainsKey(paymentDateKey2) ? obj[paymentDateKey2] : null;
                      string paymentDateStr1 = (paymentDateVal1 is JsonElement p1 && (p1.ValueKind == JsonValueKind.Null || p1.ValueKind == JsonValueKind.Undefined)) ? "" : paymentDateVal1?.ToString() ?? "";
                      string paymentDateStr2 = (paymentDateVal2 is JsonElement p2 && (p2.ValueKind == JsonValueKind.Null || p2.ValueKind == JsonValueKind.Undefined)) ? "" : paymentDateVal2?.ToString() ?? "";
                      bool hasPaymentDate1 = !string.IsNullOrWhiteSpace(paymentDateStr1);
                      bool hasPaymentDate2 = !string.IsNullOrWhiteSpace(paymentDateStr2);
-                     
-                     if (!hasPaymentDate1 && hasPaymentDate2) {
+
+                     if (!hasPaymentDateKey1 && !hasPaymentDate1 && hasPaymentDate2) {
                          obj[paymentDateKey1] = obj[paymentDateKey2];
                      }
-                     
+
                      // Ensure crucial status field is calculated for UI consistency
                      var sVal = obj.ContainsKey("رقم تسوية السداد") ? obj["رقم تسوية السداد"] : null;
                      string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
@@ -611,9 +610,9 @@ var data = pagedRows.Select(r => {
                  }
                  return obj;
               }).ToList();
-             
+
              var totalPages = (int)Math.Ceiling((double)filteredCount / s);
-             
+
              return Results.Ok(new {
                 data,
                 pagination = new {
@@ -637,11 +636,11 @@ var data = pagedRows.Select(r => {
                 }
              });
         });
-        
+
         // Extended: Get ALL data for validation (No Pagination) - OPTIMIZED FOR RAW JSON SPEED (Server-Side JSON Joining)
         app.MapGet("/returns/all", async (DatabaseService db, string? search, string? filter, string? filterId, string? attachmentStatus, double? min, double? max, string? targetColumn, string? uploadDateFrom, string? uploadDateTo) => {
              using var conn = await db.GetOpenConnectionAsync();
-             
+
              // Safety check for UploadDate column
              bool hasUploadDate = true;
              try { await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1"); }
@@ -651,7 +650,7 @@ var data = pagedRows.Select(r => {
              var parameters = new DynamicParameters();
 
              sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
-             
+
              try {
                 if (!string.IsNullOrWhiteSpace(search)) {
                     var words = search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -672,7 +671,7 @@ var data = pagedRows.Select(r => {
                       sqlWhere += " AND UploadDate <= @UploadDateTo";
                       parameters.Add("UploadDateTo", uploadDateTo);
                  }
-                 
+
                  // --- UNIFIED FILTER LOGIC (Consolidated Smart & Legacy) ---
                  if (!string.IsNullOrEmpty(filterId)) {
                      var filterDef = await db.GetFilterByIdAsync(filterId);
@@ -700,13 +699,13 @@ var data = pagedRows.Select(r => {
                       sqlWhere += " AND NOT EXISTS (SELECT 1 FROM ReturnsImages WHERE ReturnId = Returns.Id)";
                   }
               }
- 
+
               // Speed Optimization: Improved JSON injection for reliability
               string uploadDateSelect = hasUploadDate ? "COALESCE(UploadDate, '')" : "''";
               var allRawRows = await conn.QueryAsync<string>(
-                  $@"SELECT json_insert(RawData, 
-                         '$.id', Id, 
-                         '$.تاريخ الرفع', {uploadDateSelect}, 
+                  $@"SELECT json_insert(RawData,
+                         '$.id', Id,
+                         '$.تاريخ الرفع', {uploadDateSelect},
                          '$.AttachmentCount', COALESCE((SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = Returns.Id), 0),
                          '$.تاريخ اعتماد التعديل / تاريخ السداد', COALESCE(
                              json_extract(RawData, '$.""تاريخ اعتماد التعديل / تاريخ السداد""'),
@@ -714,9 +713,102 @@ var data = pagedRows.Select(r => {
                          )
                      )
                      FROM Returns {sqlWhere}", parameters);
-              
+
               var finalJson = "[" + string.Join(",", allRawRows) + "]";
               return Results.Text(finalJson, "application/json");
+        });
+
+        app.MapGet("/api/returns/changes", async (DatabaseService db, string? since) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var config = DatabaseService.LoadServerConfig();
+            var parameters = new DynamicParameters();
+            var activeImportSql = "";
+            if (config.ActiveImportId > 0) {
+                activeImportSql = " AND ImportId = @ActiveImportId";
+                parameters.Add("ActiveImportId", config.ActiveImportId);
+            }
+
+            var sinceSql = "";
+            if (!string.IsNullOrWhiteSpace(since)) {
+                sinceSql = " AND COALESCE(UpdatedAt, UploadDate, '') > @Since";
+                parameters.Add("Since", since);
+            }
+
+            var changedCount = await conn.ExecuteScalarAsync<int>(
+                $@"SELECT COUNT(*) FROM Returns
+                   WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 {activeImportSql} {sinceSql}",
+                parameters);
+
+            var archivedOrDeletedCount = string.IsNullOrWhiteSpace(since)
+                ? 0
+                : await conn.ExecuteScalarAsync<int>(
+                    $@"SELECT COUNT(*) FROM Returns
+                       WHERE (IsDeleted = 1 OR COALESCE(IsArchived, 0) = 1) {activeImportSql} {sinceSql}",
+                    parameters);
+
+            var latestUpdatedAt = await conn.ExecuteScalarAsync<string>(
+                $@"SELECT MAX(COALESCE(UpdatedAt, UploadDate, '')) FROM Returns WHERE 1 = 1 {activeImportSql}",
+                parameters);
+            var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            latestUpdatedAt = string.IsNullOrWhiteSpace(latestUpdatedAt) ? serverTime : latestUpdatedAt;
+
+            return Results.Ok(new {
+                hasChanges = string.IsNullOrWhiteSpace(since) ? changedCount > 0 : (changedCount + archivedOrDeletedCount) > 0,
+                latestUpdatedAt,
+                latestVersion = latestUpdatedAt,
+                changedCount,
+                archivedOrDeletedCount,
+                serverTime
+            });
+        });
+
+        app.MapGet("/api/returns/sync", async (DatabaseService db, string? since) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var config = DatabaseService.LoadServerConfig();
+            var parameters = new DynamicParameters();
+            var activeImportSql = "";
+            if (config.ActiveImportId > 0) {
+                activeImportSql = " AND ImportId = @ActiveImportId";
+                parameters.Add("ActiveImportId", config.ActiveImportId);
+            }
+
+            var sinceSql = "";
+            if (!string.IsNullOrWhiteSpace(since)) {
+                sinceSql = " AND COALESCE(UpdatedAt, UploadDate, '') > @Since";
+                parameters.Add("Since", since);
+            }
+
+            var changedRows = await conn.QueryAsync<string>(
+                $@"SELECT json_insert(RawData,
+                        '$.id', Id,
+                        '$.تاريخ الرفع', COALESCE(UploadDate, ''),
+                        '$.UpdatedAt', COALESCE(UpdatedAt, UploadDate, ''),
+                        '$.AttachmentCount', COALESCE((SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = Returns.Id), 0)
+                    )
+                    FROM Returns
+                    WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 {activeImportSql} {sinceSql}
+                    ORDER BY Id ASC",
+                parameters);
+
+            var archivedOrDeletedIds = string.IsNullOrWhiteSpace(since)
+                ? Enumerable.Empty<long>()
+                : await conn.QueryAsync<long>(
+                    $@"SELECT Id FROM Returns
+                       WHERE (IsDeleted = 1 OR COALESCE(IsArchived, 0) = 1) {activeImportSql} {sinceSql}",
+                    parameters);
+
+            var latestUpdatedAt = await conn.ExecuteScalarAsync<string>(
+                $@"SELECT MAX(COALESCE(UpdatedAt, UploadDate, '')) FROM Returns WHERE 1 = 1 {activeImportSql}",
+                parameters);
+            var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var latestSyncAt = string.IsNullOrWhiteSpace(latestUpdatedAt) ? serverTime : latestUpdatedAt;
+            var json = "{" +
+                "\"insertedOrUpdated\":[" + string.Join(",", changedRows) + "]," +
+                "\"archivedOrDeletedIds\":[" + string.Join(",", archivedOrDeletedIds) + "]," +
+                "\"serverTime\":" + JsonSerializer.Serialize(serverTime) + "," +
+                "\"latestSyncAt\":" + JsonSerializer.Serialize(latestSyncAt) +
+                "}";
+            return Results.Text(json, "application/json");
         });
 
         app.MapPost("/returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
@@ -725,10 +817,10 @@ var data = pagedRows.Select(r => {
                  if (forbidden != null) return forbidden;
                  var importData = await context.Request.ReadFromJsonAsync<ImportData>();
                  if (importData == null) return Results.BadRequest();
-                 
+
                  using var conn = await db.GetOpenConnectionAsync();
                  using var trans = conn.BeginTransaction();
-                 
+
                  try {
                     // Preparation of the archive record
                     var archiveId = await conn.QuerySingleAsync<int>(@"
@@ -746,19 +838,19 @@ var data = pagedRows.Select(r => {
 
                     // --- Optimized Batch Insertion ---
                     const int batchSize = 2000;
-                    
+
                     // Check if UploadDate exists ONCE before the loop to maximize performance
                     bool hasUploadDateInDb = true;
                     try { await conn.ExecuteScalarAsync("SELECT UploadDate FROM Returns LIMIT 1"); }
                     catch { hasUploadDateInDb = false; }
 
                     string currentDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                    
+
                     // Use json_set in SQL to inject the upload date efficiently directly in the database engine
                     // This avoids the massive CPU overhead of Deserializing/Serializing every JSON record in C#
                     string insertSql = hasUploadDateInDb
-                        ? "INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate, [رقم تسوية التعلية], [رقم تسوية السداد]) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate, @InquiryNum, @PaymentNum)"
-                        : "INSERT INTO Returns (ImportId, RawData, ReturnCode, [رقم تسوية التعلية], [رقم تسوية السداد]) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @InquiryNum, @PaymentNum)";
+                        ? "INSERT INTO Returns (ImportId, RawData, ReturnCode, UploadDate, UpdatedAt, [رقم تسوية التعلية], [رقم تسوية السداد]) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate, @UpdatedAt, @InquiryNum, @PaymentNum)"
+                        : "INSERT INTO Returns (ImportId, RawData, ReturnCode, UpdatedAt, [رقم تسوية التعلية], [رقم تسوية السداد]) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UpdatedAt, @InquiryNum, @PaymentNum)";
 
                     for (int i = 0; i < importData.data.Count; i += batchSize)
                     {
@@ -766,13 +858,14 @@ var data = pagedRows.Select(r => {
                             var je = (JsonElement)d;
                             string raw = je.GetRawText();
                             string fCode = DatabaseService.ExtractFileCodeDirect(raw);
-                            
+
                             return new
                             {
                                 ImportId = archiveId,
                                 RawData = raw,
                                 ReturnCode = DatabaseService.ExtractReturnCode(fCode),
                                 UploadDate = currentDate,
+                                UpdatedAt = currentDate,
                                 InquiryNum = je.TryGetProperty("رقم تسوية التعلية", out var inq) ? inq.ToString() : "",
                                 PaymentNum = je.TryGetProperty("رقم تسوية السداد", out var pay) ? pay.ToString() : ""
                             };
@@ -797,7 +890,7 @@ var data = pagedRows.Select(r => {
              }
         });
 
-        
+
         app.MapPost("/returns/bulk-delete", async (HttpContext context, DatabaseService db) => {
             try {
                 var forbidden = await RequireDeletePermission(context, db);
@@ -807,7 +900,7 @@ var data = pagedRows.Select(r => {
 
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
-                
+
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
 
@@ -820,7 +913,7 @@ var data = pagedRows.Select(r => {
                         parameters.Add("ActiveImportId", config.ActiveImportId);
                     }
                     sqlWhere += " AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
-                    
+
                     try {
                         if (!string.IsNullOrWhiteSpace(request.Search)) {
                             var words = request.Search.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -832,12 +925,12 @@ var data = pagedRows.Select(r => {
                                 string spLike = $"SL{i}";
                                 string spMatch = $"SM{i}";
                                 sqlWhere += $@" AND (
-                                    ReturnCode LIKE @{spLike} 
-                                    OR RawData LIKE @{spLike} 
+                                    ReturnCode LIKE @{spLike}
+                                    OR RawData LIKE @{spLike}
                                     OR Id IN (SELECT rowid FROM Returns_FTS WHERE Returns_FTS MATCH @{spMatch})
                                 )";
                                 parameters.Add(spLike, $"%{sanitized}%");
-                                parameters.Add(spMatch, sanitized + "*"); 
+                                parameters.Add(spMatch, sanitized + "*");
                             }
                         }
 
@@ -851,7 +944,7 @@ var data = pagedRows.Select(r => {
                             sqlWhere += " AND UploadDate <= @UploadDateTo";
                             parameters.Add("UploadDateTo", to);
                         }
-                        
+
                         if (!string.IsNullOrEmpty(request.FilterId)) {
                             var filterDef = await db.GetFilterByIdAsync(request.FilterId);
                             if (filterDef != null && filterDef.Criteria != null && filterDef.Criteria.Count > 0) {
@@ -895,18 +988,19 @@ var data = pagedRows.Select(r => {
                         parameters.Add(rsParam, $"%{request.ReturnStatus}%");
                     }
 
-                    int count = await conn.ExecuteAsync($"UPDATE Returns SET IsDeleted = 1 {sqlWhere}", parameters);
+                    parameters.Add("UpdatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    int count = await conn.ExecuteAsync($"UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt {sqlWhere}", parameters);
                     await db.AddNotificationEventAsync("Returns", "حذف مجمع", 0, user);
                     return Results.Ok(new { success = true, count = count });
 
                 } else if (request.Ids != null && request.Ids.Any()) {
                     var ids = request.Ids;
                     if (config.ActiveImportId > 0) {
-                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id IN @Ids AND ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids, ImportId = config.ActiveImportId });
+                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id IN @Ids AND ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids, ImportId = config.ActiveImportId, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                         await db.AddNotificationEventAsync("Returns", "حذف مجمع", 0, user);
                         return Results.Ok(new { success = true, count = count });
                     } else {
-                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id IN @Ids AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids });
+                        int count = await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id IN @Ids AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                         await db.AddNotificationEventAsync("Returns", "حذف مجمع", 0, user);
                         return Results.Ok(new { success = true, count = count });
                     }
@@ -924,12 +1018,12 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 if (forbidden != null) return forbidden;
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
-                
+
                 if (config.ActiveImportId > 0) {
                     // إذا كان في وضع عرض أرشيف محدد، نؤرشف السجلات المرتبطة بهذا الأرشيف فقط
-                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { ImportId = config.ActiveImportId });
+                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { ImportId = config.ActiveImportId, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 } else {
-                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
+                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -946,13 +1040,13 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 if (forbidden != null) return forbidden;
                 using var conn = await db.GetOpenConnectionAsync();
                 var config = DatabaseService.LoadServerConfig();
-                
+
                 if (config.ActiveImportId > 0) {
                     // أرشفة السجل المختار حتى في وضع استعراض الأرشيف
-                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id = @Id AND ImportId = @ImportId", new { Id = id, ImportId = config.ActiveImportId });
+                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id = @Id AND ImportId = @ImportId", new { Id = id, ImportId = config.ActiveImportId, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 } else {
                     // حذف ناعم (أرشفة) في الوضع الطبيعي
-                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1 WHERE Id = @Id", new { Id = id });
+                    await conn.ExecuteAsync("UPDATE Returns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id = @Id", new { Id = id, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -970,7 +1064,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 if (string.IsNullOrWhiteSpace(rawBody)) return Results.BadRequest();
 
                 using var conn = await db.GetOpenConnectionAsync();
-                
+
                 var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(rawBody);
                 string settlementNo = "";
                 string accrualNo = "";
@@ -981,7 +1075,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                     string sStr = (sVal is JsonElement e && (e.ValueKind == JsonValueKind.Null || e.ValueKind == JsonValueKind.Undefined)) ? "" : sVal?.ToString() ?? "";
                     bool hasSettlement = !string.IsNullOrWhiteSpace(sStr);
                     obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
-                    
+
                     rawBody = JsonSerializer.Serialize(obj, new JsonSerializerOptions {
                         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
                     });
@@ -994,22 +1088,24 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 string fCode = DatabaseService.ExtractFileCodeDirect(rawBody);
                 string rCode = DatabaseService.ExtractReturnCode(fCode);
 
+                var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
                 // Attempt to update physical columns if they exist
                 try {
                     await conn.ExecuteAsync(@"
-                        UPDATE Returns 
-                        SET RawData = @RawData, 
+                        UPDATE Returns
+                        SET RawData = @RawData,
                             ReturnCode = @ReturnCode,
                             [رقم تسوية السداد] = @SettlementNo,
-                            [رقم تسوية التعلية] = @AccrualNo
-                        WHERE Id = @Id", 
-                        new { RawData = rawBody, ReturnCode = rCode, SettlementNo = settlementNo, AccrualNo = accrualNo, Id = id }
+                            [رقم تسوية التعلية] = @AccrualNo,
+                            UpdatedAt = @UpdatedAt
+                        WHERE Id = @Id",
+                        new { RawData = rawBody, ReturnCode = rCode, SettlementNo = settlementNo, AccrualNo = accrualNo, UpdatedAt = updatedAt, Id = id }
                     );
                 } catch {
                     // Fallback if physical columns don't exist
                     await conn.ExecuteAsync(
-                        "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode WHERE Id = @Id", 
-                        new { RawData = rawBody, ReturnCode = rCode, Id = id }
+                        "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode, UpdatedAt = @UpdatedAt WHERE Id = @Id",
+                        new { RawData = rawBody, ReturnCode = rCode, UpdatedAt = updatedAt, Id = id }
                     );
                 }
 
@@ -1035,7 +1131,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                     // Update the modification date in RawData to current date
                     // We also need to ensure the RawData stays valid JSON
                     var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                    
+
                     foreach (var id in request.Ids) {
                         var rawData = await conn.QueryFirstOrDefaultAsync<string>("SELECT RawData FROM Returns WHERE Id = @Id", new { Id = id }, trans);
                         if (!string.IsNullOrEmpty(rawData)) {
@@ -1045,12 +1141,12 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                                 obj["تاريخ اعتماد التعديل"] = now;
                                 obj["تاريخ التسوية"] = now;
                                 obj["حالة التسوية"] = "تم التسوية";
-                                
-                                var updatedRaw = JsonSerializer.Serialize(obj, new JsonSerializerOptions { 
-                                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) 
+
+                                var updatedRaw = JsonSerializer.Serialize(obj, new JsonSerializerOptions {
+                                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
                                 });
-                                
-                                await conn.ExecuteAsync("UPDATE Returns SET RawData = @RawData WHERE Id = @Id", new { RawData = updatedRaw, Id = id }, trans);
+
+                                await conn.ExecuteAsync("UPDATE Returns SET RawData = @RawData, UpdatedAt = @UpdatedAt WHERE Id = @Id", new { RawData = updatedRaw, UpdatedAt = now, Id = id }, trans);
                             }
                         }
                     }
@@ -1075,15 +1171,15 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
 
         app.MapGet("/returns/attachments/{returnId}", async (int returnId, DatabaseService db) => {
             var related = await db.GetRelatedIdsAcrossTables(returnId, "returns");
-            
+
             using var conn = await db.GetOpenConnectionAsync();
-            
+
             var attachments = new List<dynamic>();
 
             // Fetch from ReturnsImages
             if (related.ReturnIds.Any()) {
                 var rAttachments = await conn.QueryAsync(
-                    "SELECT Id, Filename, CreatedAt, 'returns' as Source FROM ReturnsImages WHERE ReturnId IN @Ids", 
+                    "SELECT Id, Filename, CreatedAt, 'returns' as Source FROM ReturnsImages WHERE ReturnId IN @Ids",
                     new { Ids = related.ReturnIds });
                 attachments.AddRange(rAttachments);
             }
@@ -1091,7 +1187,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
             // Fetch from SalaryReturnsImages
             if (related.SalaryIds.Any()) {
                 var sAttachments = await conn.QueryAsync(
-                    "SELECT Id, Filename, CreatedAt, 'salary' as Source FROM SalaryReturnsImages WHERE ReturnId IN @Ids", 
+                    "SELECT Id, Filename, CreatedAt, 'salary' as Source FROM SalaryReturnsImages WHERE ReturnId IN @Ids",
                     new { Ids = related.SalaryIds });
                 attachments.AddRange(sAttachments);
             }
@@ -1109,7 +1205,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
         app.MapGet("/returns/attachment/{id}", async (int id, DatabaseService db) => {
             using var conn = await db.GetOpenConnectionAsync();
             var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM ReturnsImages WHERE Id = @Id", new { Id = id });
-            
+
             if (record == null) {
                 // Try SalaryReturnsImages
                 record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
@@ -1162,13 +1258,13 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
 
             var targetReturnIds = new HashSet<int> { returnId };
             var linkMode = config.AttachmentLinkMode ?? "Both";
-            
+
             if (linkMode != "Name" && !string.IsNullOrEmpty(nid))
             {
                 var matches = await conn.QueryAsync<int>("SELECT Id FROM Returns WHERE RawData LIKE @Nid", new { Nid = $"%\"{nid}\"%" });
                 foreach (var id in matches) targetReturnIds.Add(id);
             }
-            
+
             if (linkMode != "NID" && !string.IsNullOrWhiteSpace(cleanName))
             {
                 var matches = await conn.QueryAsync<int>("SELECT Id FROM Returns WHERE RawData LIKE @Name", new { Name = $"%\"{originalName}\"%" });
@@ -1194,6 +1290,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                          "INSERT INTO ReturnsImages (ReturnId, Filename, CreatedAt) VALUES (@ReturnId, @Filename, @CreatedAt)",
                          new { ReturnId = rId, Filename = dbFilename, CreatedAt = DateTime.Now });
                 }
+                await conn.ExecuteAsync("UPDATE Returns SET UpdatedAt = @UpdatedAt WHERE Id IN @Ids", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Ids = targetReturnIds.ToArray() });
 
                 await db.AddNotificationEventAsync("Returns", "رفع مرفق", returnId, user);
 
@@ -1208,7 +1305,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
             if (forbidden != null) return forbidden;
             using var conn = await db.GetOpenConnectionAsync();
             var config = DatabaseService.LoadServerConfig();
-            
+
             string user = context.Request.Query["user"].ToString();
             if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
 
@@ -1217,10 +1314,12 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
             if (record != null) {
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
-                
+
+                var returnId = await conn.ExecuteScalarAsync<long?>("SELECT ReturnId FROM ReturnsImages WHERE Id = @Id", new { Id = id });
                 // Restore DB deletion
                 await conn.ExecuteAsync("DELETE FROM ReturnsImages WHERE Id = @Id", new { Id = id });
-                
+                if (returnId.HasValue) await conn.ExecuteAsync("UPDATE Returns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Id = returnId.Value });
+
                 await db.AddNotificationEventAsync("Returns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
             }
@@ -1231,9 +1330,11 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 // Restore physical file deletion
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
-                
+
+                var salaryReturnId = await conn.ExecuteScalarAsync<long?>("SELECT ReturnId FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
                 // Restore DB deletion
                 await conn.ExecuteAsync("DELETE FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
+                if (salaryReturnId.HasValue) await conn.ExecuteAsync("UPDATE SalaryReturns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Id = salaryReturnId.Value });
 
                 await db.AddNotificationEventAsync("SalaryReturns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
@@ -1264,12 +1365,12 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
               var invalidChars = Path.GetInvalidFileNameChars();
               var cleanName = new string(folderName.Where(ch => !invalidChars.Contains(ch)).ToArray()).Trim();
               if (string.IsNullOrEmpty(cleanName)) cleanName = "Unknown";
-              
+
               string folderPrefix = !string.IsNullOrEmpty(nid) ? nid : id.ToString();
               var folderNameWithId = $"{folderPrefix}_{cleanName}";
               var config = DatabaseService.LoadServerConfig();
               var targetFolder = Path.Combine(config.ArchivePath ?? "", folderNameWithId);
-              
+
               if (!Directory.Exists(targetFolder)) Directory.CreateDirectory(targetFolder);
 
              try {
@@ -1277,7 +1378,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 string absolutePath = Path.GetFullPath(targetFolder);
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
                     FileName = "explorer.exe",
-                    Arguments = $"\"{absolutePath}\"", 
+                    Arguments = $"\"{absolutePath}\"",
                     UseShellExecute = true
                 });
                 return Results.Ok(new { success = true, path = absolutePath });
@@ -1295,9 +1396,9 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
             var config = DatabaseService.LoadServerConfig();
             if (string.IsNullOrWhiteSpace(config.AutoSyncPath)) return Results.BadRequest(new { message = "لم يتم تحديد مسار المزامنة في الإعدادات" });
             if (!Directory.Exists(config.AutoSyncPath)) return Results.BadRequest(new { message = "مسار المزامنة غير موجود" });
-            
+
             await syncService.StartSync(config.AutoSyncPath);
-            
+
             string user = context.Request.Query["user"].ToString();
             if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
             await hub.Clients.All.SendAsync("UpdateData", "Returns", user, "مزامنة");
@@ -1335,7 +1436,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
     {
         string critJsonPath = $"$.\"{critCol.Replace("\"", "\\\"")}\"";
         string paramId = Guid.NewGuid().ToString("N").Substring(0, 8);
-        
+
         // Normalize column name for better detection
         string normCol = critCol.Replace(" ", "").Replace("ـ", "");
         bool isCodeCol = normCol == "كودالملف" || normCol == "FileCode" || normCol == "ReturnCode" || normCol == "كودالمرتد" || normCol.Contains("كود");
@@ -1349,10 +1450,10 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                     for (int i = 0; i < rawVals.Length; i++) {
                         string pName = $"RC_{paramId}_{i}";
                         string pFile = $"FC_{paramId}_{i}";
-                        
+
                         string v = rawVals[i];
                         string cleanV = DatabaseService.ExtractReturnCode(v);
-                        if (string.IsNullOrEmpty(cleanV)) cleanV = v; 
+                        if (string.IsNullOrEmpty(cleanV)) cleanV = v;
 
                         // AI Fix: Hybrid Match (Numeric OR Full Text with Prefix)
                         // This allows searching for "434" or "Army-c-434"
@@ -1361,7 +1462,7 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                         parameters.Add(pFile, $"%{v}%");
                     }
                     sqlWhere += $" AND ({string.Join(" OR ", listParts)})";
-                    return; 
+                    return;
                 }
             } else if (critType == "range") {
                 double? finalMin = minValue;

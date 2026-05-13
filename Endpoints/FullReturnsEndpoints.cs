@@ -12,6 +12,16 @@ namespace HKServer.Endpoints;
 
 public static class FullReturnsEndpoints
 {
+    private static JsonSerializerOptions JsonOptions { get; } = new() { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) };
+    private const string TouchSyncSql = @"
+        INSERT INTO FullReturnsSyncState (Id, LastChangedAt, LastResetAt)
+        VALUES (1, @Now, COALESCE((SELECT LastResetAt FROM FullReturnsSyncState WHERE Id = 1), ''))
+        ON CONFLICT(Id) DO UPDATE SET LastChangedAt = @Now;";
+    private const string ResetSyncSql = @"
+        INSERT INTO FullReturnsSyncState (Id, LastChangedAt, LastResetAt)
+        VALUES (1, @Now, @Now)
+        ON CONFLICT(Id) DO UPDATE SET LastChangedAt = @Now, LastResetAt = @Now;";
+
     private static int GetActorUserId(HttpContext context)
     {
         if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
@@ -110,6 +120,103 @@ public static class FullReturnsEndpoints
             });
         });
 
+        app.MapGet("/api/full-returns/changes", async (DatabaseService db, string? since) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            var sinceSql = "";
+            if (!string.IsNullOrWhiteSpace(since)) {
+                sinceSql = "WHERE COALESCE(UpdatedAt, CreatedAt, '') > @Since";
+                parameters.Add("Since", since);
+            }
+
+            var changedCount = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM FullReturns {sinceSql}", parameters);
+            var latestUpdatedAt = await conn.ExecuteScalarAsync<string>("SELECT MAX(COALESCE(UpdatedAt, CreatedAt, '')) FROM FullReturns");
+            var syncState = await conn.QueryFirstOrDefaultAsync<(string? LastChangedAt, string? LastResetAt)>(
+                "SELECT LastChangedAt, LastResetAt FROM FullReturnsSyncState WHERE Id = 1");
+            var resetRequired = !string.IsNullOrWhiteSpace(since)
+                && !string.IsNullOrWhiteSpace(syncState.LastResetAt)
+                && string.CompareOrdinal(syncState.LastResetAt, since) > 0;
+
+            var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var latestVersion = new[] { latestUpdatedAt, syncState.LastChangedAt }
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .OrderBy(v => v)
+                .LastOrDefault() ?? serverTime;
+
+            return Results.Ok(new {
+                hasChanges = string.IsNullOrWhiteSpace(since)
+                    ? changedCount > 0
+                    : changedCount > 0 || resetRequired || (!string.IsNullOrWhiteSpace(syncState.LastChangedAt) && string.CompareOrdinal(syncState.LastChangedAt, since) > 0),
+                latestUpdatedAt = latestVersion,
+                latestVersion,
+                changedCount,
+                archivedOrDeletedCount = resetRequired ? 1 : 0,
+                resetRequired,
+                serverTime
+            });
+        });
+
+        app.MapGet("/api/full-returns/sync", async (DatabaseService db, string? since) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            var resetRequired = false;
+
+            if (!string.IsNullOrWhiteSpace(since)) {
+                parameters.Add("Since", since);
+                var lastResetAt = await conn.ExecuteScalarAsync<string>("SELECT LastResetAt FROM FullReturnsSyncState WHERE Id = 1");
+                resetRequired = !string.IsNullOrWhiteSpace(lastResetAt) && string.CompareOrdinal(lastResetAt, since) > 0;
+            }
+
+            var sinceSql = "";
+            if (!string.IsNullOrWhiteSpace(since) && !resetRequired) {
+                sinceSql = "WHERE COALESCE(UpdatedAt, CreatedAt, '') > @Since";
+            }
+
+            var rows = await conn.QueryAsync<(int Id, string RawData, string? CreatedAt, string? UpdatedAt)>(
+                $@"SELECT Id, RawData, CreatedAt, UpdatedAt
+                   FROM FullReturns
+                   {sinceSql}
+                   ORDER BY Id ASC",
+                parameters);
+
+            var rowIds = rows.Select(r => (long)r.Id).ToList();
+            var attachmentCounts = new Dictionary<long, int>();
+            if (rowIds.Any()) {
+                var counts = await conn.QueryAsync<(long ReturnId, int Count)>(
+                    "SELECT ReturnId, COUNT(DISTINCT Filename) as Count FROM FullReturnsImages WHERE ReturnId IN @Ids GROUP BY ReturnId",
+                    new { Ids = rowIds });
+                attachmentCounts = counts.ToDictionary(c => c.ReturnId, c => c.Count);
+            }
+
+            var rowJson = rows.Select(r => {
+                var obj = JsonSerializer.Deserialize<Dictionary<string, object>>(r.RawData, JsonOptions) ?? new Dictionary<string, object>();
+                obj["id"] = r.Id;
+                obj["ID"] = r.Id;
+                obj["CreatedAt"] = r.CreatedAt ?? "";
+                obj["UpdatedAt"] = string.IsNullOrWhiteSpace(r.UpdatedAt) ? (r.CreatedAt ?? "") : r.UpdatedAt!;
+                obj["AttachmentCount"] = attachmentCounts.TryGetValue(r.Id, out var count) ? count : 0;
+                return JsonSerializer.Serialize(obj, JsonOptions);
+            });
+
+            var latestUpdatedAt = await conn.ExecuteScalarAsync<string>("SELECT MAX(COALESCE(UpdatedAt, CreatedAt, '')) FROM FullReturns");
+            var syncState = await conn.QueryFirstOrDefaultAsync<(string? LastChangedAt, string? LastResetAt)>(
+                "SELECT LastChangedAt, LastResetAt FROM FullReturnsSyncState WHERE Id = 1");
+            var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var latestSyncAt = new[] { latestUpdatedAt, syncState.LastChangedAt }
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .OrderBy(v => v)
+                .LastOrDefault() ?? serverTime;
+
+            var json = "{" +
+                "\"insertedOrUpdated\":[" + string.Join(",", rowJson) + "]," +
+                "\"archivedOrDeletedIds\":[]," +
+                "\"reset\":" + (resetRequired ? "true" : "false") + "," +
+                "\"serverTime\":" + JsonSerializer.Serialize(serverTime) + "," +
+                "\"latestSyncAt\":" + JsonSerializer.Serialize(latestSyncAt) +
+                "}";
+            return Results.Text(json, "application/json");
+        });
+
         app.MapPost("/full-returns/settle", async (HttpContext context, DatabaseService db) => {
             try {
                 var request = await context.Request.ReadFromJsonAsync<SettleRequest>();
@@ -120,6 +227,7 @@ public static class FullReturnsEndpoints
 
                 try {
                     var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
                     foreach (var id in request.Ids) {
                         var rawData = await conn.QueryFirstOrDefaultAsync<string>("SELECT RawData FROM FullReturns WHERE Id = @Id", new { Id = id }, trans);
                         if (!string.IsNullOrEmpty(rawData)) {
@@ -132,11 +240,12 @@ public static class FullReturnsEndpoints
                                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All) 
                                 });
                                 
-                                await conn.ExecuteAsync("UPDATE FullReturns SET RawData = @RawData WHERE Id = @Id", new { RawData = updatedRaw, Id = id }, trans);
+                                await conn.ExecuteAsync("UPDATE FullReturns SET RawData = @RawData, UpdatedAt = @UpdatedAt WHERE Id = @Id", new { RawData = updatedRaw, UpdatedAt = updatedAt, Id = id }, trans);
                             }
                         }
                     }
 
+                    await conn.ExecuteAsync(TouchSyncSql, new { Now = updatedAt }, trans);
                     trans.Commit();
                     string user = context.Request.Query["user"].ToString();
                     if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -163,21 +272,25 @@ public static class FullReturnsEndpoints
                 
                 try {
                     const int batchSize = 2000;
+                    var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
                     for (int i = 0; i < importData.data.Count; i += batchSize)
                     {
                         var batch = importData.data.Skip(i).Take(batchSize).Select(d => {
                             var je = (JsonElement)d;
                             return new {
                                 RawData = je.GetRawText(),
-                                CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                                CreatedAt = now,
+                                UpdatedAt = updatedAt
                             };
                         });
 
                         await conn.ExecuteAsync(
-                            "INSERT INTO FullReturns (RawData, CreatedAt) VALUES (@RawData, @CreatedAt)",
+                            "INSERT INTO FullReturns (RawData, CreatedAt, UpdatedAt) VALUES (@RawData, @CreatedAt, @UpdatedAt)",
                             batch, trans);
                     }
 
+                    await conn.ExecuteAsync(TouchSyncSql, new { Now = updatedAt }, trans);
                     trans.Commit();
                     string user = context.Request.Query["user"].ToString();
                     if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -197,6 +310,7 @@ public static class FullReturnsEndpoints
             try {
                 using var conn = await db.GetOpenConnectionAsync();
                 await conn.ExecuteAsync("DELETE FROM FullReturns");
+                await conn.ExecuteAsync(ResetSyncSql, new { Now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 string user = context.Request.Query["user"] .ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
                 await db.AddNotificationEventAsync("FullReturns", "حذف", 0, user);
@@ -309,6 +423,9 @@ public static class FullReturnsEndpoints
             await conn.ExecuteAsync(
                 "INSERT INTO FullReturnsImages (ReturnId, Filename, CreatedAt) VALUES (@ReturnId, @Filename, @CreatedAt)",
                 new { ReturnId = id, Filename = dbFilename, CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") });
+            var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            await conn.ExecuteAsync("UPDATE FullReturns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = updatedAt, Id = id });
+            await conn.ExecuteAsync(TouchSyncSql, new { Now = updatedAt });
 
             string user = context.Request.Query["user"].ToString();
             if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -324,11 +441,14 @@ public static class FullReturnsEndpoints
             if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
 
             // 1. FullReturnsImages
-            var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
+            var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename, ReturnId FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
                 var path = Path.Combine(config.ArchivePath ?? "", "FullReturns", (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
                 await conn.ExecuteAsync("DELETE FROM FullReturnsImages WHERE Id = @Id", new { Id = id });
+                var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                await conn.ExecuteAsync("UPDATE FullReturns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = updatedAt, Id = Convert.ToInt64(record.ReturnId) });
+                await conn.ExecuteAsync(TouchSyncSql, new { Now = updatedAt });
                 await db.AddNotificationEventAsync("FullReturns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
             }

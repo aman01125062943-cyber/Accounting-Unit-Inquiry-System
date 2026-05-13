@@ -214,13 +214,14 @@ public static class SalaryReturnsEndpoints
                         }
                     }
 
-                    int count = await conn.ExecuteAsync($"UPDATE SalaryReturns SET IsDeleted = 1 {sqlWhere}", parameters);
+                    parameters.Add("UpdatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+                    int count = await conn.ExecuteAsync($"UPDATE SalaryReturns SET IsDeleted = 1, UpdatedAt = @UpdatedAt {sqlWhere}", parameters);
                     await db.AddNotificationEventAsync("SalaryReturns", "حذف مجمع", 0, user);
                     return Results.Ok(new { success = true, count = count });
 
                 } else if (request.Ids != null && request.Ids.Any()) {
                     var ids = request.Ids;
-                    int count = await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE Id IN @Ids AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids });
+                    int count = await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id IN @Ids AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { Ids = ids, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                     await db.AddNotificationEventAsync("SalaryReturns", "حذف مجمع", 0, user);
                     return Results.Ok(new { success = true, count = count });
                 }
@@ -613,6 +614,97 @@ public static class SalaryReturnsEndpoints
              return Results.Text(finalJson, "application/json");
         });
 
+        app.MapGet("/api/salary-returns/changes", async (DatabaseService db, string? since) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var config = DatabaseService.LoadServerConfig();
+            var parameters = new DynamicParameters();
+            var activeImportSql = "";
+            if (config.ActiveSalaryImportId > 0) {
+                activeImportSql = " AND ImportId = @ActiveImportId";
+                parameters.Add("ActiveImportId", config.ActiveSalaryImportId);
+            }
+
+            var sinceSql = "";
+            if (!string.IsNullOrWhiteSpace(since)) {
+                sinceSql = " AND COALESCE(UpdatedAt, UploadDate, '') > @Since";
+                parameters.Add("Since", since);
+            }
+
+            var changedCount = await conn.ExecuteScalarAsync<int>(
+                $@"SELECT COUNT(*) FROM SalaryReturns
+                   WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 {activeImportSql} {sinceSql}",
+                parameters);
+            var archivedOrDeletedCount = string.IsNullOrWhiteSpace(since)
+                ? 0
+                : await conn.ExecuteScalarAsync<int>(
+                    $@"SELECT COUNT(*) FROM SalaryReturns
+                       WHERE (IsDeleted = 1 OR COALESCE(IsArchived, 0) = 1) {activeImportSql} {sinceSql}",
+                    parameters);
+            var latestUpdatedAt = await conn.ExecuteScalarAsync<string>(
+                $@"SELECT MAX(COALESCE(UpdatedAt, UploadDate, '')) FROM SalaryReturns WHERE 1 = 1 {activeImportSql}",
+                parameters);
+            var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            latestUpdatedAt = string.IsNullOrWhiteSpace(latestUpdatedAt) ? serverTime : latestUpdatedAt;
+
+            return Results.Ok(new {
+                hasChanges = string.IsNullOrWhiteSpace(since) ? changedCount > 0 : (changedCount + archivedOrDeletedCount) > 0,
+                latestUpdatedAt,
+                latestVersion = latestUpdatedAt,
+                changedCount,
+                archivedOrDeletedCount,
+                serverTime
+            });
+        });
+
+        app.MapGet("/api/salary-returns/sync", async (DatabaseService db, string? since) => {
+            using var conn = await db.GetOpenConnectionAsync();
+            var config = DatabaseService.LoadServerConfig();
+            var parameters = new DynamicParameters();
+            var activeImportSql = "";
+            if (config.ActiveSalaryImportId > 0) {
+                activeImportSql = " AND ImportId = @ActiveImportId";
+                parameters.Add("ActiveImportId", config.ActiveSalaryImportId);
+            }
+
+            var sinceSql = "";
+            if (!string.IsNullOrWhiteSpace(since)) {
+                sinceSql = " AND COALESCE(UpdatedAt, UploadDate, '') > @Since";
+                parameters.Add("Since", since);
+            }
+
+            var changedRows = await conn.QueryAsync<string>(
+                $@"SELECT json_insert(RawData,
+                        '$.id', Id,
+                        '$.تاريخ الرفع', COALESCE(UploadDate, ''),
+                        '$.UpdatedAt', COALESCE(UpdatedAt, UploadDate, ''),
+                        '$.AttachmentCount', COALESCE((SELECT COUNT(DISTINCT Filename) FROM SalaryReturnsImages WHERE ReturnId = SalaryReturns.Id), 0)
+                    )
+                    FROM SalaryReturns
+                    WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 {activeImportSql} {sinceSql}
+                    ORDER BY Id ASC",
+                parameters);
+
+            var archivedOrDeletedIds = string.IsNullOrWhiteSpace(since)
+                ? Enumerable.Empty<long>()
+                : await conn.QueryAsync<long>(
+                    $@"SELECT Id FROM SalaryReturns
+                       WHERE (IsDeleted = 1 OR COALESCE(IsArchived, 0) = 1) {activeImportSql} {sinceSql}",
+                    parameters);
+
+            var latestUpdatedAt = await conn.ExecuteScalarAsync<string>(
+                $@"SELECT MAX(COALESCE(UpdatedAt, UploadDate, '')) FROM SalaryReturns WHERE 1 = 1 {activeImportSql}",
+                parameters);
+            var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var latestSyncAt = string.IsNullOrWhiteSpace(latestUpdatedAt) ? serverTime : latestUpdatedAt;
+            var json = "{" +
+                "\"insertedOrUpdated\":[" + string.Join(",", changedRows) + "]," +
+                "\"archivedOrDeletedIds\":[" + string.Join(",", archivedOrDeletedIds) + "]," +
+                "\"serverTime\":" + JsonSerializer.Serialize(serverTime) + "," +
+                "\"latestSyncAt\":" + JsonSerializer.Serialize(latestSyncAt) +
+                "}";
+            return Results.Text(json, "application/json");
+        });
+
         // ==========================================
         // POST /salary-returns/import — Import data
         // ==========================================
@@ -653,8 +745,8 @@ public static class SalaryReturnsEndpoints
                     // Use json_set in SQL to inject the upload date efficiently directly in the database engine
                     // This avoids the massive CPU overhead of Deserializing/Serializing every JSON record in C#
                     string insertSql = hasUploadDateInDb
-                        ? "INSERT INTO SalaryReturns (ImportId, RawData, ReturnCode, UploadDate) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate)"
-                        : "INSERT INTO SalaryReturns (ImportId, RawData, ReturnCode) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode)";
+                        ? "INSERT INTO SalaryReturns (ImportId, RawData, ReturnCode, UploadDate, UpdatedAt) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UploadDate, @UpdatedAt)"
+                        : "INSERT INTO SalaryReturns (ImportId, RawData, ReturnCode, UpdatedAt) VALUES (@ImportId, json_set(@RawData, '$.\"تاريخ الرفع\"', @UploadDate), @ReturnCode, @UpdatedAt)";
 
                     for (int i = 0; i < importData.data.Count; i += batchSize)
                     {
@@ -668,7 +760,8 @@ public static class SalaryReturnsEndpoints
                                 ImportId = archiveId,
                                 RawData = raw,
                                 ReturnCode = DatabaseService.ExtractReturnCode(fCode),
-                                UploadDate = currentDate
+                                UploadDate = currentDate,
+                                UpdatedAt = currentDate
                             };
                         }).ToList();
 
@@ -702,9 +795,9 @@ public static class SalaryReturnsEndpoints
                 var config = DatabaseService.LoadServerConfig();
                 
                 if (config.ActiveSalaryImportId > 0) {
-                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { ImportId = config.ActiveSalaryImportId });
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE ImportId = @ImportId AND IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { ImportId = config.ActiveSalaryImportId, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 } else {
-                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -726,9 +819,9 @@ public static class SalaryReturnsEndpoints
                 var config = DatabaseService.LoadServerConfig();
                 
                 if (config.ActiveSalaryImportId > 0) {
-                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE Id = @Id AND ImportId = @ActiveId", new { Id = id, ActiveId = config.ActiveSalaryImportId });
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id = @Id AND ImportId = @ActiveId", new { Id = id, ActiveId = config.ActiveSalaryImportId, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 } else {
-                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1 WHERE Id = @Id", new { Id = id });
+                    await conn.ExecuteAsync("UPDATE SalaryReturns SET IsDeleted = 1, UpdatedAt = @UpdatedAt WHERE Id = @Id", new { Id = id, UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
                 }
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -770,7 +863,7 @@ public static class SalaryReturnsEndpoints
                                     Encoder = Microsoft.Extensions.WebEncoders.Testing.HtmlTestEncoder.Default == null ? JsonSerializerOptions.Default.Encoder : System.Text.Encodings.Web.JavaScriptEncoder.Create(System.Text.Unicode.UnicodeRanges.All)
                                 });
                                 
-                                await conn.ExecuteAsync("UPDATE SalaryReturns SET RawData = @RawData WHERE Id = @Id", new { RawData = updatedRaw, Id = id }, trans);
+                                await conn.ExecuteAsync("UPDATE SalaryReturns SET RawData = @RawData, UpdatedAt = @UpdatedAt WHERE Id = @Id", new { RawData = updatedRaw, UpdatedAt = now, Id = id }, trans);
                             }
                         }
                     }
@@ -837,6 +930,7 @@ public static class SalaryReturnsEndpoints
                 await conn.ExecuteAsync(
                      "INSERT INTO SalaryReturnsImages (ReturnId, Filename, CreatedAt) VALUES (@ReturnId, @Filename, @CreatedAt)",
                      new { ReturnId = returnId, Filename = dbFilename, CreatedAt = DateTime.Now });
+                await conn.ExecuteAsync("UPDATE SalaryReturns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Id = returnId });
 
                 string user = context.Request.Query["user"].ToString();
                 if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
@@ -881,21 +975,23 @@ public static class SalaryReturnsEndpoints
             if (string.IsNullOrWhiteSpace(user)) user = "مستخدم";
 
             // Try SalaryReturnsImages
-            var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
+            var record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename, ReturnId FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
                 await conn.ExecuteAsync("DELETE FROM SalaryReturnsImages WHERE Id = @Id", new { Id = id });
+                await conn.ExecuteAsync("UPDATE SalaryReturns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Id = Convert.ToInt64(record.ReturnId) });
                 await db.AddNotificationEventAsync("SalaryReturns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
             }
 
             // Try ReturnsImages
-            record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename FROM ReturnsImages WHERE Id = @Id", new { Id = id });
+            record = await conn.QueryFirstOrDefaultAsync<dynamic>("SELECT Filename, ReturnId FROM ReturnsImages WHERE Id = @Id", new { Id = id });
             if (record != null) {
                 var path = Path.Combine(config.ArchivePath, (string)record.Filename);
                 try { if (File.Exists(path)) File.Delete(path); } catch {}
                 await conn.ExecuteAsync("DELETE FROM ReturnsImages WHERE Id = @Id", new { Id = id });
+                await conn.ExecuteAsync("UPDATE Returns SET UpdatedAt = @UpdatedAt WHERE Id = @Id", new { UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Id = Convert.ToInt64(record.ReturnId) });
                 await db.AddNotificationEventAsync("Returns", "حذف مرفق", (long)id, user);
                 return Results.Ok(new { success = true });
             }

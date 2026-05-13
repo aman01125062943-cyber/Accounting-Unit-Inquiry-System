@@ -1,6 +1,7 @@
 ﻿using HKServer.Services;
 using HKServer.Models;
 using Dapper;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace HKServer.Endpoints;
 
@@ -62,12 +63,17 @@ public static class AuthEndpoints
 
         app.MapGet("/permissions/keys", () => Results.Ok(DatabaseService.DefaultPermissionKeys()));
 
-        app.MapGet("/permissions/{userId:int}", async (int userId, DatabaseService db) => {
-            var permissions = await db.GetUserPermissionsAsync(userId);
+        app.MapGet("/permissions/{userId:int}", async (int userId, DatabaseService db, IMemoryCache cache) => {
+            var key = $"perms:{userId}";
+            if (!cache.TryGetValue(key, out List<string>? permissions))
+            {
+                permissions = await db.GetUserPermissionsAsync(userId);
+                cache.Set(key, permissions, TimeSpan.FromMinutes(5));
+            }
             return Results.Ok(new { userId, permissions });
         });
 
-        app.MapPost("/permissions/save", async (HttpContext context, DatabaseService db) => {
+        app.MapPost("/permissions/save", async (HttpContext context, DatabaseService db, IMemoryCache cache) => {
             var req = await context.Request.ReadFromJsonAsync<SaveUserPermissionsRequest>();
             if (req == null || req.UserId <= 0) return Results.BadRequest(new { success = false, message = "Invalid permissions request" });
 
@@ -76,6 +82,7 @@ public static class AuthEndpoints
                 return Results.Json(new { success = false, message = "غير مصرح بتعديل الصلاحيات" }, statusCode: 403);
 
             await db.SaveUserPermissionsAsync(req.UserId, req.Permissions);
+            cache.Remove($"perms:{req.UserId}");
             return Results.Ok(new { success = true });
         });
 

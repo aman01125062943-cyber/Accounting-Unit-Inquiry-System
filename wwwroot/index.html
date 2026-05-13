@@ -1475,6 +1475,8 @@
                                     <label class="form-label">مسار قاعدة البيانات</label>
                                     <div class="text-muted mb-2">
                                         <div>قاعدة البيانات النشطة: <strong id="db-active-path" dir="ltr">-</strong></div>
+                                        <div>نوع المسار: <strong id="db-path-kind">-</strong></div>
+                                        <div>آخر خطأ: <strong id="db-last-error">-</strong></div>
                                         <div>آخر اتصال ناجح: <strong id="db-last-success">-</strong></div>
                                     </div>
                                     <div style="display: flex; gap: 10px;">
@@ -2414,6 +2416,16 @@
                     </thead>
                     <tbody>
                         <tr>
+                            <td>إجمالي سجلات الحوافز</td>
+                            <td id="print-incentive-count">0</td>
+                            <td id="print-incentive-amount">0.00 ج.م</td>
+                        </tr>
+                        <tr>
+                            <td>إجمالي سجلات المرتبات</td>
+                            <td id="print-salary-count">0</td>
+                            <td id="print-salary-amount">0.00 ج.م</td>
+                        </tr>
+                        <tr>
                             <td>إجمالي الأشهر التي تم تسويتها</td>
                             <td id="print-settled-count">0</td>
                             <td id="print-settled-amount">0.00 ج.م</td>
@@ -2584,7 +2596,7 @@
     <script src="js/database.js"></script>
     <script src="js/validation-service.js"></script>
     <script src="js/chat.js?v=1.0"></script>
-    <script src="js/app.js?v=7.7"></script>
+    <script src="js/app.js?v=8.0"></script>
 </body>
 
 </html>

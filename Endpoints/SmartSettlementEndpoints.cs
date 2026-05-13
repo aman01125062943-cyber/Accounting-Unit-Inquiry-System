@@ -104,6 +104,7 @@ public static class SmartSettlementEndpoints
 
                 string incUpdateSql = @"UPDATE Returns
                                SET ReturnCode = COALESCE(@BatchCode, ReturnCode),
+                                   UpdatedAt = @UpdatedAt,
                                    RawData = json_set(COALESCE(NULLIF(RawData, ''), '{}'),
                                        '$.""رقم الحساب بعد التعديل""', @NewAccount,
                                        '$.""البنك بعد التعديل""', @NewBank,
@@ -119,6 +120,7 @@ public static class SmartSettlementEndpoints
 
                 string salUpdateSql = @"UPDATE SalaryReturns
                                SET ReturnCode = COALESCE(@BatchCode, ReturnCode),
+                                   UpdatedAt = @UpdatedAt,
                                    RawData = json_set(COALESCE(NULLIF(RawData, ''), '{}'),
                                        '$.""رقم الحساب بعد التعديل""', @NewAccount,
                                        '$.""البنك بعد التعديل""', @NewBank,
@@ -159,6 +161,7 @@ public static class SmartSettlementEndpoints
                             SettlementNo = upd.SettlementNo ?? "",
                             SettlementDate = upd.SettlementDate ?? "",
                             StatusVal = statusVal,
+                            UpdatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"),
                             DbRecordId = upd.DbRecordId
                         }, trans);
                         

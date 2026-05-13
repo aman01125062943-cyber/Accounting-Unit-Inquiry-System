@@ -80,6 +80,7 @@ class ValidationService {
         text = text.replace(/[ى]/g, 'ي');
         text = text.replace(/[ة]/g, 'ه');
         text = text.replace(/\s+/g, ' ');
+        text = text.replace(/\s*\/\s*/g, ' / ');
         return text;
     }
 

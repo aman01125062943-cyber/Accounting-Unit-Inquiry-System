@@ -61,6 +61,7 @@ class ChatModule {
 
             // تحديث مؤشر الإشعارات
             this.updateTotalUnreadCount();
+            this.startGlobalPolling();
         } catch (e) {
             console.error('[Chat] Initialization error:', e);
             this.showPageError('تعذر تحميل المراسلة. تحقق من اتصال قاعدة البيانات ثم أعد المحاولة.');
@@ -727,28 +728,138 @@ class ChatModule {
 
     startPolling() {
         if (this.pollingTimer) return;
-        this.pollingTimer = setInterval(() => this.pollCurrentConversation(), 5000);
+        this.pollingTimer = setInterval(() => this.pollCurrentConversation(), 3000);
+    }
+
+    stopPolling() {
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
+            this.pollingTimer = null;
+        }
     }
 
     async pollCurrentConversation() {
         if (!this.currentConversationId || !this.currentUser?.id) return;
         try {
             const response = await db.fetchApi(`/chat/messages/${this.currentConversationId}?userId=${this.currentUser.id}`);
-            if (response.data) {
+            if (response?.data) {
                 const oldLastId = this.messages.length ? Math.max(...this.messages.map(m => Number(m.id) || 0)) : 0;
-                const nextMessages = response.data;
-                const newIncoming = nextMessages.some(m => Number(m.id) > oldLastId && String(m.senderId) !== String(this.currentUser.id));
-                this.messages = nextMessages;
-                this.renderAllMessages();
-                if (newIncoming) {
-                    window.app?.playNotificationSound?.();
-                    this.markMessagesAsRead(this.currentConversationId);
+                const serverLastId = response.data.length ? Math.max(...response.data.map(m => Number(m.id) || 0)) : 0;
+                if (serverLastId > oldLastId) {
+                    const newIncoming = response.data.some(m => Number(m.id) > oldLastId && String(m.senderId) !== String(this.currentUser.id));
+                    this.messages = response.data;
+                    this.renderAllMessages();
+                    if (newIncoming) {
+                        window.app?.playNotificationSound?.();
+                        this.markMessagesAsRead(this.currentConversationId);
+                    }
                 }
             }
-            await this.loadTasksForConversation(this.currentConversationId);
         } catch (e) {
             console.warn('[Chat] Polling failed:', e);
         }
+    }
+
+    startGlobalPolling() {
+        if (this._globalPollTimer) return;
+        this._globalPollCounter = 0;
+        this._lastNotifiedTimes = {};
+        this._shownRingIds = new Set();
+        this._globalPollTimer = setInterval(() => this._globalPoll(), 3000);
+    }
+
+    stopGlobalPolling() {
+        if (this._globalPollTimer) {
+            clearInterval(this._globalPollTimer);
+            this._globalPollTimer = null;
+        }
+    }
+
+    async _globalPoll() {
+        if (!this.currentUser?.id) return;
+        this._globalPollCounter = (this._globalPollCounter || 0) + 1;
+
+        try {
+            const response = await db.fetchApi(`/chat/conversations/${this.currentUser.id}`);
+            if (Array.isArray(response)) this._syncConversations(response);
+        } catch (e) { /* silent */ }
+
+        try {
+            const rings = await db.fetchApi(`/chat/pending-rings/${this.currentUser.id}`);
+            if (Array.isArray(rings)) {
+                rings.forEach(ring => {
+                    const key = String(ring.ringId);
+                    if (!this._shownRingIds) this._shownRingIds = new Set();
+                    if (!this._shownRingIds.has(key)) {
+                        this._shownRingIds.add(key);
+                        this.showIncomingCall(ring);
+                    }
+                });
+            }
+        } catch (e) { /* silent */ }
+
+        if (this._globalPollCounter % 7 === 0) {
+            await this._checkPermissions();
+        }
+    }
+
+    _syncConversations(newConversations) {
+        if (!this._lastNotifiedTimes) this._lastNotifiedTimes = {};
+        const now = Date.now();
+        let notifyConv = null;
+
+        newConversations.forEach(newConv => {
+            const oldConv = this.conversations.find(c => c.id == newConv.id);
+            const prevUnread = oldConv ? (oldConv.unreadCount || 0) : 0;
+            if (
+                newConv.unreadCount > prevUnread &&
+                newConv.id != this.currentConversationId &&
+                (!this._lastNotifiedTimes[newConv.id] || now - this._lastNotifiedTimes[newConv.id] > 10000)
+            ) {
+                notifyConv = newConv;
+                this._lastNotifiedTimes[newConv.id] = now;
+            }
+        });
+
+        this.conversations = newConversations;
+        this.updateTotalUnreadCount();
+
+        const activeTab = document.querySelector('.chat-tab-btn.active');
+        if (activeTab && activeTab.dataset.tab === 'conversations') {
+            const searchTerm = this.elements.searchInput?.value?.trim() || '';
+            if (!searchTerm) this.renderConversations();
+        }
+
+        if (notifyConv) {
+            window.app?.playNotificationSound?.();
+            this.showGlobalMessageNotification({
+                senderName: notifyConv.otherUserName,
+                content: notifyConv.lastMessage,
+                conversationId: notifyConv.id,
+                senderId: notifyConv.otherUserId,
+                attachmentType: null
+            });
+        }
+    }
+
+    async _checkPermissions() {
+        // الصلاحيات تُفحص دورياً في app.js (startPermissionsPolling) على مستوى التطبيق كله
+        // هذا fallback فقط لو app.js لم يشتغل
+        if (window.app?._permissionsPoller) return;
+        if (!this.currentUser?.id) return;
+        try {
+            const response = await db.fetchApi(`/permissions/${this.currentUser.id}`);
+            if (!response?.permissions) return;
+            const serverPerms = (response.permissions || []).slice().sort().join(',');
+            const localPerms = (this.currentUser.permissions || []).slice().sort().join(',');
+            if (serverPerms !== localPerms) {
+                this.currentUser.permissions = response.permissions;
+                auth.currentUser = this.currentUser;
+                localStorage.setItem(auth.sessionKey, JSON.stringify(this.currentUser));
+                window.app?.applyPermissions?.();
+                window.app?.showToast('تم تحديث صلاحياتك', 'info');
+            }
+        } catch (e) { /* silent */ }
     }
 
     ensureCallControls() {

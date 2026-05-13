@@ -75,6 +75,7 @@ builder.Services.ConfigureHttpJsonOptions(options => {
 builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<HKServer.Services.AutoSyncService>();
 builder.Services.AddHostedService<HKServer.Services.NotificationDispatcherService>();
+builder.Services.AddMemoryCache();
 
 // 5. Open Browser Automatically (Configure Port)
 var url = "http://*:5001";
@@ -112,6 +113,40 @@ app.UseStaticFiles();
 
 app.MapGet("/api/ping", () => Results.Ok(new { success = true, status = "ok", timestamp = DateTime.UtcNow }));
 
+app.Use(async (context, next) => {
+    if (IsDatabaseRecoveryPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
+    var db = context.RequestServices.GetRequiredService<DatabaseService>();
+    var status = db.GetCachedConnectionStatus();
+    if (!status.Success)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        await context.Response.WriteAsJsonAsync(new {
+            success = false,
+            message = "Configured database is unavailable. No local fallback is active.",
+            code = status.Code,
+            error = status.Message,
+            activePath = db.GetDbPath(),
+            isNetworkPath = db.IsNetworkDatabase()
+        });
+        return;
+    }
+
+    await next();
+});
+
+static bool IsDatabaseRecoveryPath(PathString path)
+{
+    var value = path.Value ?? "";
+    return value.Equals("/api/ping", StringComparison.OrdinalIgnoreCase)
+        || value.StartsWith("/config", StringComparison.OrdinalIgnoreCase)
+        || value.StartsWith("/api/settings", StringComparison.OrdinalIgnoreCase);
+}
+
 // Serve uploaded files from wwwroot/uploads (for chat attachments etc.)
 var uploadsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads");
 if (Directory.Exists(uploadsPath))
@@ -123,16 +158,18 @@ if (Directory.Exists(uploadsPath))
     });
 }
 
-// 3. Init DB
-using (var scope = app.Services.CreateScope()) {
+// 3. Init DB in background so the server starts accepting requests immediately
+_ = Task.Run(async () => {
+    await Task.Delay(500);
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<DatabaseService>();
     try {
-        db.InitDatabase().Wait();
+        await db.InitDatabase();
+        Console.WriteLine("[DB] Database initialization completed.");
     } catch (Exception ex) {
         Console.WriteLine($"[WARNING] Database initialization failed: {ex.InnerException?.Message ?? ex.Message}");
-        Console.WriteLine("[WARNING] The application will start but database features may not work.");
     }
-}
+});
 
 app.MapGet("/api/debug/counts", async (DatabaseService db) => {
     using var conn = await db.GetOpenConnectionAsync();
@@ -174,8 +211,10 @@ app.MapPost("/api/test/dbchange", async (DatabaseService db) => {
 
 // Legacy compatibility for Tables info
 app.MapGet("/hk/config/tables", (DatabaseService db) => {
+    var activePath = db.GetDbPath();
     return Results.Ok(new {
-        basePath = "Local SQLite (hk.db)",
+        basePath = activePath,
+        isNetworkPath = db.IsNetworkDatabase(),
         tables = new [] {
             new { name = "Returns (SQLite)", description = "المرتدات (Local Database)", exists = true, recordCount = "Dynamic" },
             new { name = "Archive (SQLite)", description = "الأرشيف (Local Database)", exists = true, recordCount = "Dynamic" }

@@ -202,7 +202,7 @@ public static class AccountStatementEndpoints
                 if (!row.ContainsKey("Amount")) row["Amount"] = amountValue;
                 row["رقم تسوية السداد"] = FirstNonEmpty(row, "رقم تسوية السداد", "PaymentSettlementNo", "SettlementNo") ?? "";
                 row["تاريخ اعتماد التعديل"] = FirstNonEmpty(row, "تاريخ اعتماد التعديل", "ModificationDate", "ModApprovalDate") ?? "";
-                row["تاريخ اعتماد التعديل / تاريخ السداد"] = FirstNonEmpty(row, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ اعتماد التعديل", "تاريخ اعتماد المرتدات", "SettlementDate", "ModificationDate") ?? "";
+                row["تاريخ اعتماد التعديل / تاريخ السداد"] = FirstNonEmpty(row, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ التسوية", "تاريخ السداد الفعلي", "SettlementDate") ?? "";
                 row["حالة التسوية"] = string.IsNullOrWhiteSpace(paymentNo) ? "لم يتم التسوية" : "تم التسوية";
                 row["AttachmentCount"] = Convert.ToInt32(r.AttachmentCount);
                 row["_src"] = sourceType;
@@ -246,6 +246,7 @@ public static class AccountStatementEndpoints
             var query = request.Query["q"].FirstOrDefault()?.Trim() ?? "";
             var personKey = request.Query["personKey"].FirstOrDefault()?.Trim() ?? "";
             var includeArchived = bool.TryParse(request.Query["includeArchived"].FirstOrDefault(), out var ia) && ia;
+            var combineAll = bool.TryParse(request.Query["combineAll"].FirstOrDefault(), out var ca) && ca;
 
             if (string.IsNullOrWhiteSpace(query) && string.IsNullOrWhiteSpace(personKey))
                 return Results.BadRequest(new { success = false, message = "Search query is required" });
@@ -288,7 +289,7 @@ public static class AccountStatementEndpoints
                 SameDigits(r.NationalId, query) ||
                 SameDigits(r.AccountNumber, query));
 
-            if (groups.Count > 1 && !exactIdentitySearch && string.IsNullOrWhiteSpace(personKey))
+            if (groups.Count > 1 && !exactIdentitySearch && string.IsNullOrWhiteSpace(personKey) && !combineAll)
             {
                 return Results.Ok(new
                 {
@@ -298,9 +299,10 @@ public static class AccountStatementEndpoints
                 });
             }
 
-            var selected = string.IsNullOrWhiteSpace(personKey)
-                ? filtered.Where(r => BuildPersonKey(r) == groups[0].personKey).ToList()
-                : filtered;
+            // combineAll=true أو بحث دقيق بـ ID: اجمع كل السجلات المطابقة
+            var selected = (combineAll || !string.IsNullOrWhiteSpace(personKey) || exactIdentitySearch)
+                ? filtered
+                : filtered.Where(r => BuildPersonKey(r) == groups[0].personKey).ToList();
 
             return Results.Ok(new
             {
@@ -361,7 +363,7 @@ public static class AccountStatementEndpoints
             Status = isRejected ? "Rejected" : (isReturned ? "Returned" : FirstText(data, "الحالة", "Status")),
             Amount = ParseAmount(FirstText(data, "قيمة العملية", "المبلغ", "مبلغ", "صافي المبلغ", "Amount", "ProcessValue")),
             UploadDate = FirstText(data, "تاريخ الرفع", "UploadDate", "CreatedAt", "تاريخ المرتد", "ت. المرتد") is { Length: > 0 } d ? d : ((string?)row.UploadDate ?? ""),
-            SettlementDate = FirstText(data, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ اعتماد التعديل", "تاريخ السداد", "تاريخ التسوية", "SettlementDate", "ModificationDate"),
+            SettlementDate = FirstText(data, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ التسوية", "تاريخ السداد الفعلي", "SettlementDate"),
             PaymentSettlementNo = paymentNo,
             SettlementStatus = string.IsNullOrWhiteSpace(paymentNo) ? "لم يتم التسوية" : "تم التسوية",
             Reason = FirstText(data, "السبب", "سبب الرفض", "Reason", "RejectReason"),

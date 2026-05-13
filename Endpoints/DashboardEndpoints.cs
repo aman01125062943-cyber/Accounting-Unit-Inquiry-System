@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dapper;
 using HKServer.Services;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace HKServer.Endpoints;
 
@@ -30,28 +31,32 @@ public static class DashboardEndpoints
 
     public static void MapDashboardEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/dashboard/summary", async (HttpRequest request, DatabaseService db) =>
+        app.MapGet("/api/dashboard/summary", async (HttpRequest request, DatabaseService db, IMemoryCache cache) =>
         {
             var filters = ReadFilters(request);
-            var rows = ApplyFilters(await LoadRows(db, includeArchived: false), filters).ToList();
-            var archiveCount = await GetArchiveCount(db, filters);
-            return Results.Ok(new
+            var cacheKey = $"dash:summary:{filters}";
+            if (!cache.TryGetValue(cacheKey, out object? result))
             {
-                filters,
-                summary = BuildSummary(rows, archiveCount)
-            });
+                var rows = ApplyFilters(await LoadRows(db, includeArchived: false), filters).ToList();
+                var archiveCount = await GetArchiveCount(db, filters);
+                result = new { filters, summary = BuildSummary(rows, archiveCount) };
+                cache.Set(cacheKey, result, TimeSpan.FromSeconds(30));
+            }
+            return Results.Ok(result);
         });
 
-        app.MapGet("/api/dashboard/charts", async (HttpRequest request, DatabaseService db) =>
+        app.MapGet("/api/dashboard/charts", async (HttpRequest request, DatabaseService db, IMemoryCache cache) =>
         {
             var filters = ReadFilters(request);
-            var rows = ApplyFilters(await LoadRows(db, includeArchived: false), filters).ToList();
-            var archiveBySource = await GetArchiveBySource(db, filters);
-            return Results.Ok(new
+            var cacheKey = $"dash:charts:{filters}";
+            if (!cache.TryGetValue(cacheKey, out object? result))
             {
-                filters,
-                charts = BuildCharts(rows, archiveBySource)
-            });
+                var rows = ApplyFilters(await LoadRows(db, includeArchived: false), filters).ToList();
+                var archiveBySource = await GetArchiveBySource(db, filters);
+                result = new { filters, charts = BuildCharts(rows, archiveBySource) };
+                cache.Set(cacheKey, result, TimeSpan.FromSeconds(30));
+            }
+            return Results.Ok(result);
         });
 
         app.MapGet("/api/dashboard/report", async (HttpRequest request, DatabaseService db) =>

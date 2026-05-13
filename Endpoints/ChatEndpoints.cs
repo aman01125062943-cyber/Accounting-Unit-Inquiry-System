@@ -512,6 +512,45 @@ public static class ChatEndpoints
             }
         });
 
+        // ══════════════════════════════════════════════════════════════════
+        // رنينات انتظار المستخدم (Pending Rings) - للـ polling عبر أجهزة مختلفة
+        // ══════════════════════════════════════════════════════════════════
+        app.MapGet("/chat/pending-rings/{userId:int}", async (int userId, DatabaseService db) =>
+        {
+            try
+            {
+                await InitChatTables(db);
+                using var conn = await db.GetOpenConnectionAsync();
+                var cutoff = DateTime.Now.AddMinutes(-2).ToString("yyyy-MM-dd HH:mm:ss");
+                var rings = await conn.QueryAsync<dynamic>(@"
+                    SELECT r.Id, r.ConversationId, r.CallerUserId, r.RingTone, r.CreatedAt,
+                           u.Fullname as CallerName
+                    FROM ChatRingEvents r
+                    LEFT JOIN Users u ON r.CallerUserId = u.Id
+                    WHERE r.TargetUserId = @UserId AND r.Status = 'Pending' AND r.CreatedAt > @Cutoff
+                    ORDER BY r.CreatedAt ASC
+                    LIMIT 5
+                ", new { UserId = userId, Cutoff = cutoff });
+
+                var result = rings.Select(r => new
+                {
+                    ringId = (long)r.Id,
+                    conversationId = (long)r.ConversationId,
+                    callerId = (int)(long)r.CallerUserId,
+                    callerName = (string?)r.CallerName ?? "مستخدم",
+                    ringTone = (string?)r.RingTone ?? "classic",
+                    sentAt = (string?)r.CreatedAt
+                });
+
+                return Results.Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Chat] Pending rings error: {ex.Message}");
+                return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+            }
+        });
+
         app.MapPost("/chat/messages/like", async (HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub) =>
         {
             try
