@@ -10,9 +10,7 @@ public static class TaskEndpoints
 {
     private static int GetActorUserId(HttpContext context)
     {
-        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
-        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
-        return 0;
+        return SecurityHardening.GetActorUserId(context);
     }
 
     public static void MapTaskEndpoints(this WebApplication app)

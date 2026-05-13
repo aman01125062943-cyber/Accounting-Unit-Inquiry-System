@@ -71,10 +71,13 @@ public static class AdabirEndpoints
             }
         });
 
-        group.MapPost("/archive", async (ArchiveBatchRequest request, DatabaseService db) =>
+        group.MapPost("/archive", async (ArchiveBatchRequest request, HttpContext context, DatabaseService db, IConfiguration configuration) =>
         {
             try
             {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/api/adabir/archive");
+                if (protectedResult != null) return protectedResult;
+
                 if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
                     return Results.BadRequest(new { success = false, message = "السبب يجب أن يكون 5 أحرف على الأقل." });
 
@@ -210,10 +213,13 @@ public static class AdabirEndpoints
             }
         });
 
-        group.MapPost("/restore/{id}", async (long id, DatabaseService db) =>
+        group.MapPost("/restore/{id}", async (long id, HttpContext context, DatabaseService db, IConfiguration configuration) =>
         {
             try
             {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/api/adabir/restore/{id}");
+                if (protectedResult != null) return protectedResult;
+
                 using var conn = await db.GetOpenConnectionAsync();
                 var batch = await conn.QueryFirstOrDefaultAsync<ArchiveBatch>(
                     "SELECT * FROM ArchiveBatches WHERE Id = @Id",

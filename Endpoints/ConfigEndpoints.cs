@@ -319,8 +319,11 @@ public static class ConfigEndpoints
         });
         
         // Reset Database Endpoint
-        app.MapDelete("/admin/reset", async (DatabaseService db) => {
+        app.MapDelete("/admin/reset", async (HttpContext context, DatabaseService db, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/admin/reset");
+                if (protectedResult != null) return protectedResult;
+
                 using var conn = db.GetConnection();
                 await conn.OpenAsync();
                 

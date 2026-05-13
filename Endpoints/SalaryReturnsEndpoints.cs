@@ -26,9 +26,7 @@ public static class SalaryReturnsEndpoints
 {
     private static int GetActorUserId(HttpContext context)
     {
-        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
-        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
-        return 0;
+        return SecurityHardening.GetActorUserId(context);
     }
 
     private static async Task<IResult?> RequireDeletePermission(HttpContext context, DatabaseService db)
@@ -125,8 +123,11 @@ public static class SalaryReturnsEndpoints
 
     public static void MapSalaryReturnsEndpoints(this WebApplication app)
     {
-        app.MapPost("/salary-returns/bulk-delete", async (HttpContext context, DatabaseService db) => {
+        app.MapPost("/salary-returns/bulk-delete", async (HttpContext context, DatabaseService db, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/salary-returns/bulk-delete");
+                if (protectedResult != null) return protectedResult;
+
                 var forbidden = await RequireDeletePermission(context, db);
                 if (forbidden != null) return forbidden;
                 var request = await context.Request.ReadFromJsonAsync<BulkSalaryDeleteRequest>();
@@ -708,8 +709,11 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // POST /salary-returns/import — Import data
         // ==========================================
-        app.MapPost("/salary-returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapPost("/salary-returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                 var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/salary-returns/import");
+                 if (protectedResult != null) return protectedResult;
+
                  var forbidden = await RequirePermission(context, db, "action.import", "غير مصرح بتنفيذ الاستيراد");
                  if (forbidden != null) return forbidden;
                  var importData = await context.Request.ReadFromJsonAsync<ImportData>();
@@ -787,8 +791,11 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // DELETE /salary-returns — Delete all
         // ==========================================
-        app.MapDelete("/salary-returns", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapDelete("/salary-returns", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /salary-returns");
+                if (protectedResult != null) return protectedResult;
+
                 var forbidden = await RequireDeletePermission(context, db);
                 if (forbidden != null) return forbidden;
                 using var conn = await db.GetOpenConnectionAsync();
@@ -811,8 +818,11 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // DELETE /salary-returns/{id} — Delete one record
         // ==========================================
-        app.MapDelete("/salary-returns/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapDelete("/salary-returns/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /salary-returns/{id}");
+                if (protectedResult != null) return protectedResult;
+
                 var forbidden = await RequireDeletePermission(context, db);
                 if (forbidden != null) return forbidden;
                 using var conn = await db.GetOpenConnectionAsync();
@@ -1036,7 +1046,10 @@ public static class SalaryReturnsEndpoints
             return Results.File(finalPath, contentType, Path.GetFileName(finalPath));
         });
 
-        app.MapDelete("/salary-returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapDelete("/salary-returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
+            var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /salary-returns/attachment/{id}");
+            if (protectedResult != null) return protectedResult;
+
             var forbidden = await RequireDeletePermission(context, db);
             if (forbidden != null) return forbidden;
             using var conn = await db.GetOpenConnectionAsync();

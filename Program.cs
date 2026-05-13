@@ -44,13 +44,26 @@ builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
 // 1. Services
+var networkModeEnabled = SecurityHardening.ReadBool(builder.Configuration, "NetworkModeEnabled", defaultValue: false);
+var bindUrl = networkModeEnabled ? "http://*:5001" : "http://127.0.0.1:5001";
+var securityMode = networkModeEnabled ? "NetworkMode" : "LocalOnly";
+var allowedOrigins = GetAllowedOrigins(builder.Configuration);
+
+Console.WriteLine($"[SECURITY] BindAddress: {bindUrl}");
+Console.WriteLine($"[SECURITY] Network mode: {securityMode}");
+Console.WriteLine($"[SECURITY] CORS allowed origins: {string.Join(", ", allowedOrigins)}");
+if (string.Equals(builder.Configuration["SettingsPin"], "2027", StringComparison.Ordinal))
+{
+    Console.WriteLine("[SECURITY][WARNING] SettingsPin is still using the default value. Change it before using real data or network mode.");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy => {
-        policy.SetIsOriginAllowed(_ => true) // Allow any origin for SignalR
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials(); // Required for SignalR with specific transports
+        policy.WithOrigins(allowedOrigins)
+               .AllowAnyMethod()
+               .AllowAnyHeader()
+               .AllowCredentials(); // Required for SignalR with specific transports
     });
 });
 
@@ -78,8 +91,7 @@ builder.Services.AddHostedService<HKServer.Services.NotificationDispatcherServic
 builder.Services.AddMemoryCache();
 
 // 5. Open Browser Automatically (Configure Port)
-var url = "http://*:5001";
-builder.WebHost.UseUrls(url);
+builder.WebHost.UseUrls(bindUrl);
 
 var app = builder.Build(); 
 
@@ -114,7 +126,25 @@ app.UseStaticFiles();
 app.MapGet("/api/ping", () => Results.Ok(new { success = true, status = "ok", timestamp = DateTime.UtcNow }));
 
 app.Use(async (context, next) => {
-    if (IsDatabaseRecoveryPath(context.Request.Path))
+    var path = context.Request.Path.Value ?? "";
+    if (IsProtectedDangerousOperation(context.Request.Method, path))
+    {
+        var protectedResult = SecurityHardening.RequireAdminOperationProtection(
+            context,
+            app.Configuration,
+            $"{context.Request.Method} {path}");
+        if (protectedResult != null)
+        {
+            await protectedResult.ExecuteAsync(context);
+            return;
+        }
+    }
+
+    await next();
+});
+
+app.Use(async (context, next) => {
+    if (IsDatabaseRecoveryPath(context.Request))
     {
         await next();
         return;
@@ -139,12 +169,40 @@ app.Use(async (context, next) => {
     await next();
 });
 
-static bool IsDatabaseRecoveryPath(PathString path)
+static bool IsDatabaseRecoveryPath(HttpRequest request)
 {
-    var value = path.Value ?? "";
+    var value = request.Path.Value ?? "";
     return value.Equals("/api/ping", StringComparison.OrdinalIgnoreCase)
         || value.StartsWith("/config", StringComparison.OrdinalIgnoreCase)
-        || value.StartsWith("/api/settings", StringComparison.OrdinalIgnoreCase);
+        || value.StartsWith("/api/settings", StringComparison.OrdinalIgnoreCase)
+        || IsProtectedDangerousOperation(request.Method, value);
+}
+
+static bool IsProtectedDangerousOperation(string method, string path)
+{
+    if (HttpMethods.IsDelete(method))
+    {
+        return path.Equals("/admin/reset", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/returns", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/salary-returns", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/full-returns", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/archive", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("/salary-archive", StringComparison.OrdinalIgnoreCase);
+    }
+
+    if (!HttpMethods.IsPost(method)) return false;
+
+    return path.Equals("/returns/import", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/returns/bulk-delete", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/salary-returns/import", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/salary-returns/bulk-delete", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/full-returns/import", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/archive/restore", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/archive/clear-restore", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/salary-archive/restore", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/salary-archive/clear-restore", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/api/adabir/archive", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/adabir/restore", StringComparison.OrdinalIgnoreCase);
 }
 
 // Serve uploaded files from wwwroot/uploads (for chat attachments etc.)
@@ -235,21 +293,23 @@ app.Lifetime.ApplicationStarted.Register(() => {
         try {
             Console.WriteLine("\n" + new string('=', 50));
             Console.WriteLine("[*] HK Server is running on the following addresses:");
-            Console.WriteLine("    - Local:   http://localhost:5001");
-            
-            // Print all local IP addresses for LAN access
-            var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
-            foreach (var ip in host.AddressList) {
-                if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) {
-                    Console.WriteLine($"    - Network: http://{ip}:5001");
+            Console.WriteLine($"    - Bind:    {bindUrl}");
+            Console.WriteLine($"    - Mode:    {securityMode}");
+            Console.WriteLine("    - Local:   http://127.0.0.1:5001");
+
+            if (networkModeEnabled) {
+                var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
+                foreach (var ip in host.AddressList) {
+                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork) {
+                        Console.WriteLine($"    - Network: http://{ip}:5001");
+                    }
                 }
             }
-            Console.WriteLine("[*] Port 5001 is pre-approved in Windows Firewall.");
             Console.WriteLine(new string('=', 50) + "\n");
 
             Console.WriteLine("[*] Launching Local Browser...");
             Process.Start(new ProcessStartInfo {
-                FileName = "http://localhost:5001",
+                FileName = "http://127.0.0.1:5001",
                 UseShellExecute = true
             });
         } catch (Exception ex) {
@@ -260,3 +320,28 @@ app.Lifetime.ApplicationStarted.Register(() => {
 
 
 app.Run();
+
+static string[] GetAllowedOrigins(IConfiguration configuration)
+{
+    var origins = configuration.GetSection("AllowedOrigins")
+        .GetChildren()
+        .Select(origin => origin.Value)
+        .Where(origin => !string.IsNullOrWhiteSpace(origin))
+        .Select(origin => origin!.Trim().TrimEnd('/'))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    if (origins.Length > 0) return origins;
+
+    var inline = configuration["AllowedOrigins"];
+    if (!string.IsNullOrWhiteSpace(inline))
+    {
+        origins = inline.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(origin => origin.TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (origins.Length > 0) return origins;
+    }
+
+    return new[] { "http://localhost:5001", "http://127.0.0.1:5001" };
+}

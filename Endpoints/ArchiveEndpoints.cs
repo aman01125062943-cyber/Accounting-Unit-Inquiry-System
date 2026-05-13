@@ -16,8 +16,11 @@ public static class ArchiveEndpoints
             return Results.Ok(archive);
         });
 
-        app.MapPost("/archive/restore/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapPost("/archive/restore/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/archive/restore/{id}");
+                if (protectedResult != null) return protectedResult;
+
                 var config = DatabaseService.LoadServerConfig();
                 config.ActiveImportId = id;
                 DatabaseService.SaveServerConfig(config);
@@ -31,8 +34,11 @@ public static class ArchiveEndpoints
             }
         }).DisableAntiforgery();
 
-        app.MapPost("/archive/clear-restore", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapPost("/archive/clear-restore", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
              try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/archive/clear-restore");
+                if (protectedResult != null) return protectedResult;
+
                 var config = DatabaseService.LoadServerConfig();
                 config.ActiveImportId = 0;
                 DatabaseService.SaveServerConfig(config);
@@ -46,8 +52,11 @@ public static class ArchiveEndpoints
             }
         }).DisableAntiforgery();
 
-        app.MapDelete("/archive/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapDelete("/archive/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /archive/{id}");
+                if (protectedResult != null) return protectedResult;
+
                 using var conn = await db.GetOpenConnectionAsync();
                 await conn.ExecuteAsync("PRAGMA foreign_keys = ON; DELETE FROM Archives WHERE Id = @Id", new { Id = id });
                 await db.MarkSearchFilterIndexStaleAsync();
@@ -69,8 +78,11 @@ public static class ArchiveEndpoints
             return Results.Ok(archive);
         });
 
-        app.MapPost("/salary-archive/restore/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapPost("/salary-archive/restore/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/salary-archive/restore/{id}");
+                if (protectedResult != null) return protectedResult;
+
                 var config = DatabaseService.LoadServerConfig();
                 config.ActiveSalaryImportId = id;
                 DatabaseService.SaveServerConfig(config);
@@ -84,8 +96,11 @@ public static class ArchiveEndpoints
             }
         }).DisableAntiforgery();
 
-        app.MapPost("/salary-archive/clear-restore", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapPost("/salary-archive/clear-restore", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
              try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/salary-archive/clear-restore");
+                if (protectedResult != null) return protectedResult;
+
                 var config = DatabaseService.LoadServerConfig();
                 config.ActiveSalaryImportId = 0;
                 DatabaseService.SaveServerConfig(config);
@@ -99,8 +114,11 @@ public static class ArchiveEndpoints
             }
         }).DisableAntiforgery();
 
-        app.MapDelete("/salary-archive/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+        app.MapDelete("/salary-archive/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /salary-archive/{id}");
+                if (protectedResult != null) return protectedResult;
+
                 using var conn = await db.GetOpenConnectionAsync();
                 await conn.ExecuteAsync("PRAGMA foreign_keys = ON; DELETE FROM SalaryArchives WHERE Id = @Id", new { Id = id });
                 await db.MarkSearchFilterIndexStaleAsync();

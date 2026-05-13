@@ -24,9 +24,7 @@ public static class FullReturnsEndpoints
 
     private static int GetActorUserId(HttpContext context)
     {
-        if (int.TryParse(context.Request.Headers["X-User-Id"], out var headerId)) return headerId;
-        if (int.TryParse(context.Request.Query["userId"], out var queryId)) return queryId;
-        return 0;
+        return SecurityHardening.GetActorUserId(context);
     }
 
     public static void MapFullReturnsEndpoints(this WebApplication app)
@@ -260,8 +258,11 @@ public static class FullReturnsEndpoints
             }
         });
 
-        app.MapPost("/full-returns/import", async (HttpContext context, DatabaseService db) => {
+        app.MapPost("/full-returns/import", async (HttpContext context, DatabaseService db, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/full-returns/import");
+                if (protectedResult != null) return protectedResult;
+
                 if (!await db.UserHasPermissionAsync(GetActorUserId(context), "action.import"))
                     return Results.Json(new { success = false, message = "غير مصرح بتنفيذ الاستيراد" }, statusCode: 403);
                 var importData = await context.Request.ReadFromJsonAsync<ImportData>();
@@ -306,8 +307,11 @@ public static class FullReturnsEndpoints
             }
         });
 
-        app.MapDelete("/full-returns", async (HttpContext context, DatabaseService db) => {
+        app.MapDelete("/full-returns", async (HttpContext context, DatabaseService db, IConfiguration configuration) => {
             try {
+                var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /full-returns");
+                if (protectedResult != null) return protectedResult;
+
                 using var conn = await db.GetOpenConnectionAsync();
                 await conn.ExecuteAsync("DELETE FROM FullReturns");
                 await conn.ExecuteAsync(ResetSyncSql, new { Now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") });
@@ -434,7 +438,10 @@ public static class FullReturnsEndpoints
             return Results.Ok(new { success = true });
         }).DisableAntiforgery();
 
-        app.MapDelete("/full-returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db) => {
+        app.MapDelete("/full-returns/attachment/{id}", async (int id, HttpContext context, DatabaseService db, IConfiguration configuration) => {
+            var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "DELETE /full-returns/attachment/{id}");
+            if (protectedResult != null) return protectedResult;
+
             using var conn = await db.GetOpenConnectionAsync();
             var config = DatabaseService.LoadServerConfig();
             string user = context.Request.Query["user"].ToString();
