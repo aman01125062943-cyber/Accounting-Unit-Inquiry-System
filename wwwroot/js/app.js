@@ -6106,7 +6106,13 @@ renderTable(dataToRender = null, append = false) {
         });
 
         const merged = this._stripEditableTechnicalFields({ ...this.editingMainReturnOriginal, ...data });
+        const changed = this._getChangedFields(this.editingMainReturnOriginal, data);
         const editId = this.editingMainReturnId;
+        if (Object.keys(changed).length === 0) {
+            this.showToast('\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0644\u0644\u062d\u0641\u0638', 'info');
+            this.closeEditMainReturnModal();
+            return;
+        }
         const saveButton = formContainer.querySelector('footer button:last-child');
         const previousSaveHtml = saveButton?.innerHTML;
         if (saveButton) {
@@ -6120,14 +6126,14 @@ renderTable(dataToRender = null, append = false) {
             console.log('[SAVE FLOW][returns] before api');
             console.time('[SAVE PERF][returns] api');
             console.log('[SAVE PERF][returns] sending update request', { id: editId });
-            const result = await db.updateReturn(editId, merged);
+            const result = await db.updateReturn(editId, changed);
             console.timeEnd('[SAVE PERF][returns] api');
             console.log('[SAVE FLOW][returns] after api');
             if (result && result.success) {
                 const updatedRow = result.record || { ...merged, id: editId };
                 console.log('[SAVE FLOW][returns] before cache update');
                 console.time('[SAVE PERF][returns] cache+idb+render');
-                await this._upsertEditedCachedRow('returns', editId, updatedRow);
+                await this._upsertEditedCachedRow('returns', editId, updatedRow, { changedKeys: Object.keys(changed) });
                 console.timeEnd('[SAVE PERF][returns] cache+idb+render');
                 console.log('[SAVE FLOW][returns] after cache update');
                 this.showToast('\u062a\u0645 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
@@ -11178,12 +11184,65 @@ App.prototype._stripEditableTechnicalFields = function (row) {
     return clean;
 };
 
-App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
+App.prototype._getChangedFields = function (original, edited) {
+    const changed = {};
+    const before = original || {};
+    Object.entries(edited || {}).forEach(([key, value]) => {
+        if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || String(key).startsWith('_')) return;
+        const previous = before[key] === undefined || before[key] === null ? '' : String(before[key]);
+        const next = value === undefined || value === null ? '' : String(value);
+        if (previous !== next) changed[key] = value;
+    });
+    return changed;
+};
+
+App.prototype._rowEditAffectsFilters = function (changedKeys = []) {
+    const needles = [
+        'status', 'returnstatus', 'settlement', 'attachment', 'upload', 'payment',
+        'month', 'date', 'filecode', 'returncode',
+        'حالة', 'تسوية', 'تاريخ', 'شهر', 'كود', 'رفع', 'سداد'
+    ];
+    return (changedKeys || []).some(key => {
+        const normalized = String(key || '').toLowerCase().replace(/\s+/g, '');
+        return needles.some(needle => normalized.includes(needle));
+    });
+};
+
+App.prototype._hasActiveRowFilters = function (type) {
+    if (type === 'salary') {
+        return !!(
+            (this.salarySearchQuery && String(this.salarySearchQuery).trim()) ||
+            (this.salaryAttachmentFilterValue && this.salaryAttachmentFilterValue !== 'all') ||
+            (this.salarySettlementFilterValue && this.salarySettlementFilterValue !== 'all') ||
+            (this.salaryReturnStatusFilterValue && this.salaryReturnStatusFilterValue !== 'all') ||
+            (this.salaryMonthFilterValue && this.salaryMonthFilterValue !== 'all') ||
+            (this.salaryPaymentDateFilterValue && this.salaryPaymentDateFilterValue !== 'all') ||
+            (document.getElementById('salary-upload-date-filter')?.value || 'all') !== 'all'
+        );
+    }
+
+    return !!(
+        (this.searchQuery && String(this.searchQuery).trim()) ||
+        (this.filterValue && this.filterValue !== 'all' && this.filterValue !== 'All') ||
+        (this.attachmentFilterValue && this.attachmentFilterValue !== 'all') ||
+        (this.settlementFilterValue && this.settlementFilterValue !== 'all') ||
+        (this.returnStatusFilterValue && this.returnStatusFilterValue !== 'all') ||
+        (this.monthFilterValue && this.monthFilterValue !== 'all') ||
+        (this.paymentDateFilterValue && this.paymentDateFilterValue !== 'all') ||
+        this.uploadDateFrom ||
+        this.uploadDateTo
+    );
+};
+
+App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow, options = {}) {
     const cfg = HK_SYNC_CACHE[type];
     if (!cfg) return null;
 
     const processed = this._preprocessCachedRows(type, [{ ...(updatedRow || {}), id }])[0];
     if (!processed) return null;
+    const changedKeys = options.changedKeys || [];
+    const filtersAffected = this._rowEditAffectsFilters(changedKeys);
+    const shouldRequeryCurrentView = filtersAffected || this._hasActiveRowFilters(type);
 
     const updateArray = (rows) => {
         if (!Array.isArray(rows)) return false;
@@ -11204,16 +11263,16 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
         if (type === 'returns') console.time('[SAVE PERF][returns] update returnsCache');
         updateArray(cacheRows);
         if (type === 'returns') console.timeEnd('[SAVE PERF][returns] update returnsCache');
-        if (type === 'returns') console.time('[SAVE PERF][returns] indexeddb');
-        await db.setLocalCache(cfg.dataKey, cacheRows).catch(e => console.warn('[SAVE][' + type + '] IndexedDB update failed:', e));
-        if (type === 'returns') console.timeEnd('[SAVE PERF][returns] indexeddb');
+        if (type === 'returns') console.time('[SAVE PERF][returns] indexeddb-row');
+        await db.setLocalCacheRowPatch(cfg.dataKey, id, processed).catch(e => console.warn('[SAVE][' + type + '] IndexedDB row update failed:', e));
+        if (type === 'returns') console.timeEnd('[SAVE PERF][returns] indexeddb-row');
     }
 
     if (type === 'salary') {
         updateArray(this.salaryReturnsData);
         updateArray(this.filteredSalaryReturns);
-        this._populateSalaryReturnFilterOptions(cacheRows || this.salaryReturnsData || []);
-        if (cacheRows && this.handleLocalSalarySearch) {
+        if (filtersAffected) this._populateSalaryReturnFilterOptions(cacheRows || this.salaryReturnsData || []);
+        if (cacheRows && this.handleLocalSalarySearch && shouldRequeryCurrentView) {
             this.handleLocalSalarySearch(
                 this.salarySearchQuery || '',
                 this.salaryAttachmentFilterValue || 'all',
@@ -11231,8 +11290,8 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow) {
     updateArray(this.filteredReturns);
     if (type === 'returns') console.log('[SAVE FLOW][returns] before render');
     if (type === 'returns') console.time('[SAVE PERF][returns] filters+render');
-    this._populateReturnFilterOptions(cacheRows || this.data || []);
-    if (cacheRows && this.handleLocalSearch) {
+    if (filtersAffected) this._populateReturnFilterOptions(cacheRows || this.data || []);
+    if (cacheRows && this.handleLocalSearch && shouldRequeryCurrentView) {
         this.handleLocalSearch(
             this.searchQuery || '',
             this.filterValue || '',
@@ -11255,7 +11314,13 @@ App.prototype._loadCachedDataset = async function (type) {
     try {
         const cached = await db.getLocalCache(cfg.dataKey);
         if (!Array.isArray(cached) || cached.length === 0) return false;
-        this[cfg.cacheProp] = this._preprocessCachedRows(type, cached);
+        const patches = await db.getLocalCacheRowPatches(cfg.dataKey).catch(() => []);
+        const byId = new Map(cached.map(row => [String(row?.id ?? row?.Id), row]));
+        patches.forEach(row => {
+            const rowId = String(row?.id ?? row?.Id ?? '');
+            if (rowId) byId.set(rowId, row);
+        });
+        this[cfg.cacheProp] = this._preprocessCachedRows(type, Array.from(byId.values()));
         console.log(`[SYNC][${type}] Loaded from cache: ${this[cfg.cacheProp].length}`);
         if (this.currentPage === cfg.page) this._refreshSyncedDatasetView(type);
         return true;
@@ -11269,6 +11334,7 @@ App.prototype._saveCachedDataset = async function (type, latestSyncAt) {
     const cfg = HK_SYNC_CACHE[type];
     if (!cfg) return;
     await db.setLocalCache(cfg.dataKey, this[cfg.cacheProp] || []).catch(e => console.warn(`[SYNC][${type}] cache save failed`, e));
+    await db.clearLocalCacheRowPatches?.(cfg.dataKey).catch(() => {});
     if (latestSyncAt) await db.setLocalCache(cfg.metaKey, latestSyncAt).catch(() => {});
 };
 
@@ -13142,6 +13208,7 @@ App.prototype.editSalaryReturn = async function(id) {
         if (!record) throw new Error('السجل غير موجود');
 
         this.currentSalaryEditId = id;
+        this.currentSalaryEditOriginal = record;
         this.showEditSalaryModal(record);
     } catch (e) {
         this.showToast(e.message, 'error');
@@ -13245,6 +13312,7 @@ App.prototype.showEditSalaryModal = function(row) {
 App.prototype.closeEditSalaryModal = function() {
     document.getElementById('salary-edit-modal-overlay')?.remove();
     this.currentSalaryEditId = null;
+    this.currentSalaryEditOriginal = null;
 };
 
 App.prototype.saveEditSalaryReturn = async function() {
@@ -13258,13 +13326,19 @@ App.prototype.saveEditSalaryReturn = async function() {
         updatedData[input.dataset.key] = input.value;
     });
     const mergedData = this._stripEditableTechnicalFields({ ...(this.currentSalaryEditOriginal || {}), ...updatedData });
+    const changedData = this._getChangedFields(this.currentSalaryEditOriginal || {}, updatedData);
+    if (Object.keys(changedData).length === 0) {
+        this.showToast('\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0644\u0644\u062d\u0641\u0638', 'info');
+        this.closeEditSalaryModal();
+        return;
+    }
 
     this.showLoading();
     try {
-        const result = await db.updateSalaryReturn(id, mergedData);
+        const result = await db.updateSalaryReturn(id, changedData);
         if (result && result.success) {
             const updatedRow = result.record || { ...mergedData, id: id };
-            await this._upsertEditedCachedRow('salary', id, updatedRow);
+            await this._upsertEditedCachedRow('salary', id, updatedRow, { changedKeys: Object.keys(changedData) });
             this.showToast('\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
             this.closeEditSalaryModal();
         } else {

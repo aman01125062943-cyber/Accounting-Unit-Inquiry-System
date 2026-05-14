@@ -93,6 +93,52 @@ public static class ReturnsEndpoints
         return Results.Json(new { success = false, message }, statusCode: 403);
     }
 
+    private static Dictionary<string, object> ReadJsonObject(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, object>();
+        return JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new Dictionary<string, object>();
+    }
+
+    private static string JsonValueToString(object? value)
+    {
+        if (value is null) return "";
+        if (value is JsonElement e)
+        {
+            return e.ValueKind switch
+            {
+                JsonValueKind.Null or JsonValueKind.Undefined => "",
+                JsonValueKind.String => e.GetString() ?? "",
+                _ => e.ToString()
+            };
+        }
+        return value.ToString() ?? "";
+    }
+
+    private static bool PatchAffectsFilterFields(IEnumerable<string> keys)
+    {
+        var filterKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "\u0627\u0644\u062d\u0627\u0644\u0629",
+            "\u062d\u0627\u0644\u0629 \u0627\u0644\u0627\u0631\u062a\u062f\u0627\u062f",
+            "Status",
+            "ReturnStatus",
+            "\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u0648\u064a\u0629",
+            "\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f",
+            "\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u062a\u0639\u0644\u064a\u0629",
+            "\u0627\u0644\u0634\u0647\u0631",
+            "\u0643\u0648\u062f \u0627\u0644\u0645\u0644\u0641",
+            "FileCode",
+            "ReturnCode",
+            "\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0631\u0641\u0639",
+            "UploadDate",
+            "\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644 / \u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0633\u062f\u0627\u062f",
+            "\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0633\u062f\u0627\u062f",
+            "\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062a\u0633\u0648\u064a\u0629",
+            "SettlementDate"
+        };
+        return keys.Any(k => filterKeys.Contains(k));
+    }
+
     public static void MapReturnsEndpoints(this WebApplication app)
     {
         // Lightweight endpoint: Get distinct return statuses for filter dropdown (instant)
@@ -1193,6 +1239,83 @@ app.MapDelete("/returns", async (HttpContext context, DatabaseService db, IHubCo
                 Console.WriteLine($"[SAVE PERF][returns][backend] total {sw.ElapsedMilliseconds}ms id={id}");
                 return Results.Ok(new { success = true, record = updatedRecord });
 
+            } catch (Exception ex) {
+                return Results.Json(new { success = false, message = ex.Message });
+            }
+        });
+
+        app.MapPatch("/returns/{id}", async (int id, HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
+            try {
+                using var reader = new StreamReader(context.Request.Body);
+                var rawPatch = await reader.ReadToEndAsync();
+                if (string.IsNullOrWhiteSpace(rawPatch)) return Results.BadRequest();
+
+                var patch = ReadJsonObject(rawPatch);
+                if (patch.Count == 0) return Results.BadRequest();
+
+                using var conn = await db.GetOpenConnectionAsync();
+                var existingRaw = await conn.QueryFirstOrDefaultAsync<string>("SELECT RawData FROM Returns WHERE Id = @Id", new { Id = id });
+                if (string.IsNullOrWhiteSpace(existingRaw)) {
+                    return Results.NotFound(new { success = false, message = "Record was not found.", id });
+                }
+
+                var merged = ReadJsonObject(existingRaw);
+                foreach (var item in patch) {
+                    if (item.Key == "id" || item.Key == "Id" || item.Key == "AttachmentCount" || item.Key.StartsWith("_")) continue;
+                    merged[item.Key] = item.Value;
+                }
+
+                var settlementKey = "\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f";
+                var settlementNo = JsonValueToString(merged.TryGetValue(settlementKey, out var sVal) ? sVal : null);
+                if (patch.ContainsKey(settlementKey)) {
+                    var hasSettlement = !string.IsNullOrWhiteSpace(settlementNo);
+                    merged["\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u0648\u064a\u0629"] = hasSettlement ? "\u062a\u0645 \u0627\u0644\u062a\u0633\u0648\u064a\u0629" : "\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u062a\u0633\u0648\u064a\u0629";
+                }
+                var accrualNo = JsonValueToString(merged.TryGetValue("\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u062a\u0639\u0644\u064a\u0629", out var aVal) ? aVal : null);
+
+                var rawBody = JsonSerializer.Serialize(merged, new JsonSerializerOptions {
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
+                });
+                string fCode = DatabaseService.ExtractFileCodeDirect(rawBody);
+                string rCode = DatabaseService.ExtractReturnCode(fCode);
+                var updatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+
+                var affectedRows = 0;
+                try {
+                    affectedRows = await conn.ExecuteAsync(@"
+                        UPDATE Returns
+                        SET RawData = @RawData,
+                            ReturnCode = @ReturnCode,
+                            [ط±ظ‚ظ… طھط³ظˆظٹط© ط§ظ„ط³ط¯ط§ط¯] = @SettlementNo,
+                            [ط±ظ‚ظ… طھط³ظˆظٹط© ط§ظ„طھط¹ظ„ظٹط©] = @AccrualNo,
+                            UpdatedAt = @UpdatedAt
+                        WHERE Id = @Id",
+                        new { RawData = rawBody, ReturnCode = rCode, SettlementNo = settlementNo, AccrualNo = accrualNo, UpdatedAt = updatedAt, Id = id }
+                    );
+                } catch {
+                    affectedRows = await conn.ExecuteAsync(
+                        "UPDATE Returns SET RawData = @RawData, ReturnCode = @ReturnCode, UpdatedAt = @UpdatedAt WHERE Id = @Id",
+                        new { RawData = rawBody, ReturnCode = rCode, UpdatedAt = updatedAt, Id = id }
+                    );
+                }
+
+                if (affectedRows == 0) {
+                    return Results.NotFound(new { success = false, message = "Record was not found or was not updated.", id });
+                }
+
+                string user = context.Request.Query["user"].ToString();
+                if (string.IsNullOrWhiteSpace(user)) user = "ظ…ط³طھط®ط¯ظ…";
+                _ = Task.Run(async () => {
+                    try {
+                        await db.AddNotificationEventAsync("Returns", "\u062a\u0639\u062f\u064a\u0644", id, user, PatchAffectsFilterFields(patch.Keys));
+                    } catch {}
+                });
+
+                var updatedRecord = ReadJsonObject(rawBody);
+                updatedRecord["id"] = id;
+                updatedRecord["UpdatedAt"] = updatedAt;
+                updatedRecord["AttachmentCount"] = await conn.ExecuteScalarAsync<int>("SELECT COUNT(DISTINCT Filename) FROM ReturnsImages WHERE ReturnId = @Id", new { Id = id });
+                return Results.Ok(new { success = true, record = updatedRecord });
             } catch (Exception ex) {
                 return Results.Json(new { success = false, message = ex.Message });
             }

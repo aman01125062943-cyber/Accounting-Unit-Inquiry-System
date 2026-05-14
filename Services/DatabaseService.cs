@@ -677,14 +677,14 @@ public class DatabaseService
         Console.WriteLine($"[DB] Schema updated to v{SCHEMA_VERSION}.");
     }
 
-    public async Task AddNotificationEventAsync(string tableName, string operation, long rowId, string user)
+    public async Task AddNotificationEventAsync(string tableName, string operation, long rowId, string user, bool markSearchFilterIndex = true)
     {
         try {
             using var conn = await GetOpenConnectionAsync();
             await conn.ExecuteAsync(@"INSERT INTO NotificationEvents (TableName, Operation, RowId, CreatedBy, CreatedAt) VALUES (@TableName, @Operation, @RowId, @CreatedBy, datetime('now'))",
                 new { TableName = tableName, Operation = operation, RowId = rowId, CreatedBy = user ?? "النظام" }
             );
-            if (AffectsSearchFilterIndex(tableName))
+            if (markSearchFilterIndex && AffectsSearchFilterIndex(tableName))
             {
                 await MarkSearchFilterIndexStaleAsync(conn);
             }

@@ -67,6 +67,61 @@ class Database {
         });
     }
 
+    async setLocalCacheRowPatch(collectionKey, id, row) {
+        if (!this.cacheDb || !collectionKey || id === undefined || id === null) await this.initCache();
+        const key = `${collectionKey}:row:${id}`;
+        return new Promise((resolve, reject) => {
+            const transaction = this.cacheDb.transaction(['cache'], 'readwrite');
+            const store = transaction.objectStore('cache');
+            const request = store.put({ id: String(id), row, updatedAt: Date.now() }, key);
+            request.onsuccess = () => resolve();
+            request.onerror = (e) => reject(e);
+        });
+    }
+
+    async getLocalCacheRowPatches(collectionKey) {
+        if (!this.cacheDb || !collectionKey) await this.initCache();
+        const prefix = `${collectionKey}:row:`;
+        return new Promise((resolve, reject) => {
+            const transaction = this.cacheDb.transaction(['cache'], 'readonly');
+            const store = transaction.objectStore('cache');
+            const patches = [];
+            const request = store.openCursor();
+            request.onsuccess = (e) => {
+                const cursor = e.target.result;
+                if (!cursor) {
+                    resolve(patches);
+                    return;
+                }
+                if (String(cursor.key).startsWith(prefix) && cursor.value?.row) {
+                    patches.push(cursor.value.row);
+                }
+                cursor.continue();
+            };
+            request.onerror = (e) => reject(e);
+        });
+    }
+
+    async clearLocalCacheRowPatches(collectionKey) {
+        if (!this.cacheDb || !collectionKey) await this.initCache();
+        const prefix = `${collectionKey}:row:`;
+        return new Promise((resolve, reject) => {
+            const transaction = this.cacheDb.transaction(['cache'], 'readwrite');
+            const store = transaction.objectStore('cache');
+            const request = store.openCursor();
+            request.onsuccess = (e) => {
+                const cursor = e.target.result;
+                if (!cursor) {
+                    resolve();
+                    return;
+                }
+                if (String(cursor.key).startsWith(prefix)) cursor.delete();
+                cursor.continue();
+            };
+            request.onerror = (e) => reject(e);
+        });
+    }
+
     async initDefaultUsers() {
         // المستخدمين يتم إدارتهم في السيرفر
         return true;
@@ -171,9 +226,18 @@ class Database {
 
             // --- LOCAL ACTION TRACKING ---
             // If this was a modifying request, record the time so we can ignore our own DbChange notifications
-            if (requestOptions.method && ['POST', 'PUT', 'DELETE'].includes(requestOptions.method.toUpperCase())) {
+            if (requestOptions.method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(requestOptions.method.toUpperCase())) {
                 window.dbLastActionTime = Date.now();
-                if (!endpoint.includes('/api/search-index/') && window.app?.markSearchFilterIndexStale) {
+                const isPatch = requestOptions.method.toUpperCase() === 'PATCH';
+                let patchAffectsFilters = true;
+                if (isPatch && typeof requestOptions.body === 'string' && window.app?._rowEditAffectsFilters) {
+                    try {
+                        patchAffectsFilters = window.app._rowEditAffectsFilters(Object.keys(JSON.parse(requestOptions.body) || {}));
+                    } catch {
+                        patchAffectsFilters = true;
+                    }
+                }
+                if (!endpoint.includes('/api/search-index/') && (!isPatch || patchAffectsFilters) && window.app?.markSearchFilterIndexStale) {
                     window.app.markSearchFilterIndexStale(endpoint);
                 }
             }
@@ -314,7 +378,7 @@ class Database {
 
     async updateReturn(id, data) {
         return await this.fetchApi(`/returns/${id}`, {
-            method: 'PUT',
+            method: 'PATCH',
             __skipLoadingWrapper: true,
             body: JSON.stringify(data)
         });
@@ -428,7 +492,8 @@ class Database {
 
     async updateSalaryReturn(id, data) {
         return await this.fetchApi(`/salary-returns/${id}`, {
-            method: 'PUT',
+            method: 'PATCH',
+            __skipLoadingWrapper: true,
             body: JSON.stringify(data)
         });
     }
