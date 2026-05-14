@@ -358,11 +358,15 @@ class Database {
         });
     }
 
-    async deleteAllReturns() {
+    async deleteAllReturns(adminToken) {
         const response = await this.fetchApi('/returns', {
             method: 'DELETE',
             __skipLoadingWrapper: true,
-            __suppressErrorLog: true
+            __suppressErrorLog: true,
+            headers: {
+                'X-Admin-Operation-Token': adminToken,
+                'X-HK-Admin-Token': adminToken
+            }
         });
         return response.success;
     }
@@ -474,11 +478,15 @@ class Database {
         });
     }
 
-    async deleteAllSalaryReturns() {
+    async deleteAllSalaryReturns(adminToken) {
         const response = await this.fetchApi('/salary-returns', {
             method: 'DELETE',
             __skipLoadingWrapper: true,
-            __suppressErrorLog: true
+            __suppressErrorLog: true,
+            headers: {
+                'X-Admin-Operation-Token': adminToken,
+                'X-HK-Admin-Token': adminToken
+            }
         });
         return response.success;
     }

@@ -13435,7 +13435,7 @@ App.prototype.confirmDeleteAll = async function () {
 
     this.showLoading();
     try {
-        const success = await db.deleteAllReturns();
+        const success = await db.deleteAllReturns(inputPwd);
         if (success) {
             this.showToast('تم نقل جميع سجلات الحوافز للأرشيف بنجاح', 'success');
             this.returnsCache = null;
@@ -13490,7 +13490,7 @@ App.prototype.confirmDeleteAllSalary = async function () {
 
     this.showLoading();
     try {
-        const success = await db.deleteAllSalaryReturns();
+        const success = await db.deleteAllSalaryReturns(inputPwd);
         if (success) {
             this.showToast('تم نقل جميع سجلات المرتبات للأرشيف بنجاح', 'success');
             this.salaryReturnsCache = null;
