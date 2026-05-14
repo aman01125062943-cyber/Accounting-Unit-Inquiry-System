@@ -755,11 +755,8 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // POST /salary-returns/import — Import data
         // ==========================================
-        app.MapPost("/salary-returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub, IConfiguration configuration) => {
+        app.MapPost("/salary-returns/import", async (HttpContext context, DatabaseService db, IHubContext<NotificationHub> hub) => {
             try {
-                 var protectedResult = SecurityHardening.RequireAdminOperationProtection(context, configuration, "/salary-returns/import");
-                 if (protectedResult != null) return protectedResult;
-
                  var forbidden = await RequirePermission(context, db, "action.import", "غير مصرح بتنفيذ الاستيراد");
                  if (forbidden != null) return forbidden;
                  var importData = await context.Request.ReadFromJsonAsync<ImportData>();
