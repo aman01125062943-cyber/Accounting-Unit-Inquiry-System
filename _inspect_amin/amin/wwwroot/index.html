@@ -507,6 +507,14 @@
                                         <div class="unified-search-input-group">
                                             <input type="text" id="unified-search-input" placeholder="ادخل الاسم، الرقم القومي، أو أي بيانات للبحث السريع..." autocomplete="off">
                                         </div>
+                                        <div class="unified-settlement-filter">
+                                            <label for="unified-settlement-status">حالة التسوية</label>
+                                            <select id="unified-settlement-status" onchange="app.handleUnifiedSettlementStatusChange(this.value)">
+                                                <option value="not_settled" selected>لم يتم التسوية</option>
+                                                <option value="settled">تم التسوية</option>
+                                                <option value="all">الكل</option>
+                                            </select>
+                                        </div>
                                         <div class="unified-actions-inline">
                                             <button class="btn-unified-main" onclick="app.runUnifiedSearch()" title="بحث سريع">
                                                 <i class="fas fa-bolt" style="margin-left:8px;"></i> بحث سريع
@@ -669,95 +677,113 @@
                         </div>
                         
                         <!-- 2. Interactive Filters Wrapper -->
-                        <div class="smart-filters-master-container" style="width: 100%; margin-bottom: 20px; background: rgba(255, 255, 255, 0.02); padding: 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+                        <div class="smart-filters-master-container" style="width: 100%; margin-bottom: 25px; background: rgba(13, 22, 35, 0.45); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); padding: 22px; border-radius: 16px; border: 1px solid rgba(0, 240, 255, 0.15); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4); direction: rtl;">
 
-                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
-                                
-                                <!-- Right Section: File Controls -->
-                                <div style="display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; min-width: 180px;">
-                                    <button class="btn btn-outline" onclick="app.downloadSmartPaymentTemplate()" style="height: 34px; border-radius: 50px; display: flex; align-items: center; gap: 8px; border-color: rgba(16, 185, 129, 0.3); color: #10b981; padding: 0 15px; font-weight: 600; background: rgba(16, 185, 129, 0.05); font-size: 0.8rem;" title="تحميل قالب الإكسيل">
+                            <!-- Row 1: File Operations & Actions -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 18px; margin-bottom: 18px;">
+                                <!-- Right Side: Upload and Download Template -->
+                                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex-grow: 1;">
+                                    <button class="btn btn-outline" onclick="app.downloadSmartPaymentTemplate()" style="height: 38px; border-radius: 50px; display: flex; align-items: center; gap: 8px; border-color: rgba(16, 185, 129, 0.4); color: #10b981; padding: 0 18px; font-weight: 700; background: rgba(16, 185, 129, 0.08); font-size: 0.78rem; transition: all 0.3s; outline: none; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);" title="تحميل قالب الإكسيل" onmouseover="this.style.background='rgba(16, 185, 129, 0.15)'" onmouseout="this.style.background='rgba(16, 185, 129, 0.08)'">
                                         <i class="fas fa-file-download"></i>
-                                        <span>نموذج السداد.xlsx</span>
+                                        <span>تحميل قالب السداد</span>
                                     </button>
                                     
                                     <div id="smart-payment-upload-card" onclick="document.getElementById('smart-payment-file').click()" 
-                                         style="height: 44px; background: linear-gradient(135deg, rgba(0, 240, 255, 0.05) 0%, rgba(0, 240, 255, 0.1) 100%); border: 1px dashed rgba(0, 240, 255, 0.4); border-radius: 50px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s ease; padding: 0 20px; gap: 10px;">
+                                         style="height: 38px; background: linear-gradient(135deg, rgba(0, 240, 255, 0.06) 0%, rgba(0, 240, 255, 0.12) 100%); border: 1px dashed rgba(0, 240, 255, 0.45); border-radius: 50px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s ease; padding: 0 20px; gap: 10px; min-width: 220px; box-shadow: 0 2px 8px rgba(0, 240, 255, 0.05);"
+                                         onmouseover="this.style.borderColor='rgba(0, 240, 255, 0.8)'; this.style.background='rgba(0, 240, 255, 0.12)'" onmouseout="this.style.borderColor='rgba(0, 240, 255, 0.45)'; this.style.background='linear-gradient(135deg, rgba(0, 240, 255, 0.06) 0%, rgba(0, 240, 255, 0.12) 100%)'">
                                         <input type="file" id="smart-payment-file" style="display: none;" onchange="app.handleSmartPaymentFile(this)">
-                                        <i class="fas fa-cloud-upload-alt" style="color: #00f0ff; font-size: 1.1rem;"></i>
-                                        <div style="display: flex; flex-direction: column; line-height: 1.1;">
-                                            <span style="color: #fff; font-size: 0.75rem; font-weight: 700;">رفع ملف المطابقة</span>
-                                            <span id="smart-upload-text" style="color: #94a3b8; font-size: 0.6rem;">اضغط هنا للرفع</span>
+                                        <i class="fas fa-cloud-upload-alt" style="color: #00f0ff; font-size: 1.05rem;"></i>
+                                        <div style="display: flex; flex-direction: column; line-height: 1.1; text-align: right;">
+                                            <span style="color: #fff; font-size: 0.78rem; font-weight: 700;">رفع ملف المطابقة</span>
+                                            <span id="smart-upload-text" style="color: #94a3b8; font-size: 0.6rem;">اضغط هنا لاختيار الملف</span>
                                         </div>
                                     </div>
-                                    <div id="smart-payment-status-header" style="font-size: 10px; color: #00f0ff; font-weight: 600; text-align: center; margin-top: -2px;"></div>
+                                    <div id="smart-payment-status-header" style="font-size: 12px; color: #00f0ff; font-weight: 700; min-width: 150px; margin-right: 5px;"></div>
                                 </div>
 
-                                <!-- Center Section: Core Filters (Grouped) -->
-                                <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap; flex-grow: 1; justify-content: center; padding: 0 20px;">
-                                    <!-- Match Method -->
-                                    <div style="display: flex; align-items: center; gap: 12px;">
-                                        <span style="color: #94a3b8; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">الطريقة:</span>
-                                        <div class="smart-match-methods" style="display: flex; gap: 4px; background: rgba(0, 240, 255, 0.03); padding: 4px; border-radius: 50px; border: 1px solid rgba(0, 240, 255, 0.1);">
-                                            <div class="match-mode-chip active" data-value="الاسم" onclick="app.setSmartMatchMethod('الاسم', this)" 
-                                                 style="padding: 6px 18px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; transition: all 0.3s; color: #fff; font-weight: 800;">مطابقة بالاسم</div>
-                                            <div class="match-mode-chip" data-value="الرقم القومي" onclick="app.setSmartMatchMethod('الرقم القومي', this)" 
-                                                 style="padding: 6px 18px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; transition: all 0.3s; color: #94a3b8; font-weight: 600;">بالرقم القومي</div>
-                                        </div>
-                                    </div>
-
-
-
-                                    <!-- Status Filter -->
-                                    <div style="display: flex; align-items: center; gap: 12px;">
-                                        <span style="color: #94a3b8; font-size: 0.75rem; font-weight: 600;">الحالة:</span>
-                                        <div class="smart-status-chips-row" style="display: flex; gap: 4px; background: rgba(255,255,255,0.02); padding: 4px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.05);">
-                                            <div class="smart-filter-card active" data-value="الكل" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 15px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 800;">الكل</div>
-                                            <div class="smart-filter-card" data-value="تم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 15px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 600;">تم التسوية</div>
-                                            <div class="smart-filter-card" data-value="لم يتم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 6px 18px; border-radius: 50px; font-size: 0.75rem; cursor: pointer; font-weight: 600;">لم يتم التسوية</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Left Section: Actions -->
-                                    <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
-                                        <!-- New File Code Filter -->
-                                        <div style="position: relative;">
-                                            <select id="smart-file-code-filter" onchange="app.runSmartPaymentMatch()" 
-                                                    style="min-width: 280px; height: 34px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(0, 240, 255, 0.4); border-radius: 50px; color: #00f0ff; padding: 0 15px; outline: none; font-size: 0.75rem; cursor: pointer; appearance: none; font-weight: bold; box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);">
-                                                <option value="">-- كل أكواد الملفات --</option>
-                                            </select>
-                                            <i class="fas fa-file-code" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 0.7rem; color: #00f0ff; pointer-events: none;"></i>
-                                        </div>
-
-                                        <div style="position: relative;">
-                                            <select id="smart-month-filter" onchange="app.runSmartPaymentMatch()" 
-                                                    style="width: 100px; height: 34px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50px; color: #fff; padding: 0 12px; outline: none; font-size: 0.75rem; cursor: pointer; appearance: none;">
-                                                <option value="">كل الأشهر</option>
-                                            </select>
-                                            <i class="fas fa-chevron-down" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.6rem; color: #94a3b8; pointer-events: none;"></i>
-                                        </div>
+                                <!-- Left Side: Match Action Button -->
+                                <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
                                     <button id="btn-smart-match" class="btn btn-info hidden" 
-                                            style="height: 34px; border-radius: 50px; padding: 0 15px; font-size: 0.75rem; font-weight: 800; display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #00f0ff 0%, #00d0ff 100%); border: none; box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);" 
+                                            style="height: 38px; border-radius: 50px; padding: 0 22px; font-size: 0.8rem; font-weight: 800; display: flex; align-items: center; gap: 8px; background: linear-gradient(135deg, #00f0ff 0%, #00d0ff 100%); border: none; color: #000; box-shadow: 0 0 20px rgba(0, 240, 255, 0.35); transition: all 0.3s;"
                                             onclick="app.runSmartPaymentMatch()">
-                                        <i class="fas fa-bolt"></i> مطابقة
+                                        <i class="fas fa-bolt"></i>
+                                        <span>بدء المطابقة</span>
                                     </button>
                                 </div>
+                            </div>
 
-                                <!-- 6. Execution Flow (Integrated Row) -->
-                                <div id="smart-execute-group" class="hidden" style="width: 100%; margin-top: 15px; padding-top: 15px; border-top: 1px dashed rgba(16, 185, 129, 0.3); display: flex; align-items: center; justify-content: space-between;">
-                                    <div style="display: flex; align-items: center; gap: 10px; color: #34d399; font-weight: 700; font-size: 0.85rem;">
-                                        <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);">
-                                            <i class="fas fa-check-double" style="font-size: 0.75rem;"></i>
+                            <!-- Row 2: Search, Methods & Filter Controls -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 15px; flex-wrap: wrap;">
+                                
+                                <!-- Right Side: Mode & Status Chips -->
+                                <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; flex-grow: 1;">
+                                    <!-- Match Method -->
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="color: #94a3b8; font-size: 0.75rem; font-weight: 700;">طريقة المطابقة:</span>
+                                        <div class="smart-match-methods" style="display: flex; gap: 3px; background: rgba(0, 240, 255, 0.03); padding: 3px; border-radius: 50px; border: 1px solid rgba(0, 240, 255, 0.1);">
+                                            <div class="match-mode-chip active" data-value="الاسم" onclick="app.setSmartMatchMethod('الاسم', this)" 
+                                                 style="padding: 5px 14px; border-radius: 50px; font-size: 0.72rem; cursor: pointer; transition: all 0.3s; color: #fff; font-weight: 800;">مطابقة بالاسم</div>
+                                            <div class="match-mode-chip" data-value="الرقم القومي" onclick="app.setSmartMatchMethod('الرقم القومي', this)" 
+                                                 style="padding: 5px 14px; border-radius: 50px; font-size: 0.72rem; cursor: pointer; transition: all 0.3s; color: #94a3b8; font-weight: 600;">بالرقم القومي</div>
                                         </div>
-                                        <span>جاهز لتنفيذ التسوية النهائية للسجلات المتطابقة</span>
-                                    </div>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button id="btn-smart-execute-active-tab" class="btn btn-success btn-sm" style="border-radius: 50px; min-width: 160px; height: 36px; font-size: 0.85rem; font-weight: 800; background: #10b981; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);" onclick="app.executeSmartPayment('active')">
-                                            <i class="fas fa-check-circle" style="margin-left: 8px;"></i>
-                                            تنفيذ السداد
-                                        </button>
                                     </div>
 
+                                    <!-- Status Filter -->
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="color: #94a3b8; font-size: 0.75rem; font-weight: 700;">فلترة بالحالة:</span>
+                                        <div class="smart-status-chips-row" style="display: flex; gap: 3px; background: rgba(255,255,255,0.01); padding: 3px; border-radius: 50px; border: 1px solid rgba(255,255,255,0.04);">
+                                            <div class="smart-filter-card" data-value="الكل" onclick="app.updateSmartStatusFilter(this)" style="padding: 5px 12px; border-radius: 50px; font-size: 0.72rem; cursor: pointer; font-weight: 600; border: 1px solid rgba(255,255,255,0.05); color: #94a3b8; transition: all 0.3s;">الكل</div>
+                                            <div class="smart-filter-card" data-value="تم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 5px 12px; border-radius: 50px; font-size: 0.72rem; cursor: pointer; font-weight: 600; border: 1px solid rgba(255,255,255,0.05); color: #94a3b8; transition: all 0.3s;">تم التسوية</div>
+                                            <div class="smart-filter-card active" data-value="لم يتم التسوية" onclick="app.updateSmartStatusFilter(this)" style="padding: 5px 12px; border-radius: 50px; font-size: 0.72rem; cursor: pointer; font-weight: 800; border: 1px solid rgba(0, 240, 255, 0.4); color: #fff; background: linear-gradient(135deg, rgba(0, 240, 255, 0.4) 0%, rgba(0, 240, 255, 0.6) 100%); box-shadow: 0 4px 12px rgba(0, 240, 255, 0.2); transition: all 0.3s;">لم يتم التسوية</div>
+                                            <div class="smart-filter-card" data-value="بيانات غير موجودة" onclick="app.updateSmartStatusFilter(this)" style="padding: 5px 14px; border-radius: 50px; font-size: 0.72rem; cursor: pointer; font-weight: 600; border: 1px solid rgba(255,255,255,0.05); color: #94a3b8; transition: all 0.3s;">بيانات غير موجودة</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Left Side: Search & Dropdowns -->
+                                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                                    <!-- Search Input -->
+                                    <div style="position: relative;">
+                                        <input type="text" id="smart-filter-search" oninput="app.applySmartLocalFilters()" 
+                                               placeholder="ابحث بالاسم أو الرقم القومي أو الحساب..." 
+                                               style="width: 220px; height: 32px; background: rgba(13, 22, 35, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50px; color: #fff; padding: 0 12px 0 28px; outline: none; font-size: 0.72rem; transition: border-color 0.3s; text-align: right; direction: rtl;">
+                                        <i class="fas fa-search" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.7rem; color: #94a3b8; pointer-events: none;"></i>
+                                    </div>
+
+                                    <!-- File Code Selector -->
+                                    <div style="position: relative;">
+                                        <select id="smart-file-code-filter" onchange="app.runSmartPaymentMatch()" 
+                                                style="min-width: 180px; height: 32px; background: rgba(13, 22, 35, 0.95); border: 1px solid rgba(0, 240, 255, 0.25); border-radius: 50px; color: #00f0ff; padding: 0 12px 0 28px; outline: none; font-size: 0.72rem; cursor: pointer; appearance: none; -webkit-appearance: none; font-weight: bold; box-shadow: 0 1px 6px rgba(0, 240, 255, 0.05); transition: border-color 0.3s;">
+                                            <option value="">-- كل أكواد الملفات --</option>
+                                        </select>
+                                        <i class="fas fa-file-code" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.7rem; color: #00f0ff; pointer-events: none;"></i>
+                                    </div>
+
+                                    <!-- Month Selector -->
+                                    <div style="position: relative;">
+                                        <select id="smart-month-filter" onchange="app.runSmartPaymentMatch()" 
+                                                style="width: 130px; height: 38px; background: rgba(13, 22, 35, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 50px; color: #fff; padding: 0 15px 0 30px; outline: none; font-size: 0.75rem; cursor: pointer; appearance: none; -webkit-appearance: none; transition: border-color 0.3s;">
+                                            <option value="">كل الأشهر</option>
+                                        </select>
+                                        <i class="fas fa-chevron-down" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 0.65rem; color: #94a3b8; pointer-events: none;"></i>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <!-- Row 3: Execution Controls -->
+                            <div id="smart-execute-group" class="hidden" style="width: 100%; margin-top: 18px; padding-top: 18px; border-top: 1px dashed rgba(16, 185, 129, 0.3); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+                                <div style="display: flex; align-items: center; gap: 10px; color: #34d399; font-weight: 700; font-size: 0.85rem;">
+                                    <div style="width: 30px; height: 30px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);">
+                                        <i class="fas fa-check-double" style="font-size: 0.8rem;"></i>
+                                    </div>
+                                    <span>جاهز لتنفيذ التسوية النهائية للسجلات المتطابقة</span>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                    <button id="btn-smart-execute-active-tab" class="btn btn-success btn-sm" style="border-radius: 50px; min-width: 160px; height: 38px; font-size: 0.82rem; font-weight: 800; background: #10b981; border: none; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35); color: #fff; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px;" onclick="app.executeSmartPayment('active')" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(16, 185, 129, 0.45)'" onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 15px rgba(16, 185, 129, 0.35)'">
+                                        <i class="fas fa-check-circle" style="font-size: 0.9rem;"></i>
+                                        <span>تنفيذ السداد</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1449,121 +1475,122 @@
                 <section id="page-settings" class="page-content hidden">
 
                     <!-- Settings Tabs Navigation -->
-                    <div class="tabs-nav mb-4">
-                        <button class="btn btn-tab active" onclick="app.switchSettingsTab('db')"
+                    <div class="tabs-nav settings-tabs-nav mb-4">
+                        <button class="btn btn-tab active" onclick="app.switchSettingsTab('general')"
+                            id="tab-settings-general">عام</button>
+                        <button class="btn btn-tab" onclick="app.switchSettingsTab('db')"
                             id="tab-settings-db">قاعدة البيانات</button>
+                        <button class="btn btn-tab" onclick="app.switchSettingsTab('print')"
+                            id="tab-settings-print">الطباعة والترويسة</button>
                         <button class="btn btn-tab" onclick="app.switchSettingsTab('users')"
-                            id="tab-settings-users">المستخدمين والأمان</button>
+                            id="tab-settings-users">المستخدمون والصلاحيات</button>
+                        <button class="btn btn-tab settings-protected-tab" onclick="app.switchSettingsTab('security')"
+                            id="tab-settings-security">الأمان والتشغيل</button>
+                        <button class="btn btn-tab settings-protected-tab" onclick="app.switchSettingsTab('maintenance')"
+                            id="tab-settings-maintenance">الصيانة</button>
+                        <button class="btn btn-tab settings-protected-tab" onclick="app.switchSettingsTab('advanced')"
+                            id="tab-settings-advanced">متقدم</button>
                     </div>
 
-                    <!-- Tab 1: Database & Sync -->
-                    <div id="settings-tab-db" class="settings-tab-content">
-                        <div class="table-container mb-4">
-                            <div class="table-header">
-                                <h3 class="table-title">الاتصال بقاعدة البيانات</h3>
-                            </div>
-                            <div class="modal-body">
-                                <div class="form-group">
-                                    <label class="form-label">مسار قاعدة البيانات (المجلد المشترك)</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" id="db-path" class="form-input" dir="ltr"
-                                            placeholder="مثال: Z:\HiaaPay_Data">
-                                        <button class="btn btn-secondary" id="browse-db-path-btn"
-                                            onclick="app.browseDbPath()" title="اختيار مجلد">📂</button>
-                                        <button class="btn btn-secondary" id="test-db-path-btn"
-                                            onclick="app.testDbConnection()">Test Connection</button>
-                                        <button class="btn btn-primary" id="save-db-path-btn"
-                                            onclick="app.saveDbPath()">Connect & Save</button>
-                                    </div>
-                                    <p class="text-muted mt-2" id="db-connection-status">حالة الاتصال: <span
-                                            class="badge badge-warning">جاري التحقق...</span></p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">مسار أرشيف الصور (Network Share for Images)</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" id="archive-path" class="form-input" dir="ltr"
-                                            placeholder="مثال: \\Server\Share\Images">
-                                        <button class="btn btn-primary" onclick="app.saveArchivePath()">Save
-                                            Path</button>
+                    <!-- General -->
+                    <div id="settings-tab-general" class="settings-tab-content">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الإعدادات العامة</h3>
+                                        <p class="settings-card-description">خيارات عامة لا تغيّر قاعدة البيانات أو الصلاحيات.</p>
                                     </div>
                                 </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">مسار المزامنة التلقائية (Auto Sync Source)</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="text" id="autosync-path" class="form-input" dir="ltr"
-                                            placeholder="مثال: C:\Users\User\Downloads">
-                                        <button class="btn btn-secondary" id="browse-autosync-path-btn"
-                                            onclick="app.browseAutoSyncPath()" title="اختيار مجلد">📂</button>
-                                        <button class="btn btn-primary" onclick="app.saveAutoSyncPath()">Save
-                                            Path</button>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">عنوان خادم الإشعارات (اختياري)</label>
+                                        <p class="text-muted settings-help-text">اتركه فارغاً للاعتماد على الخادم الحالي. استخدم عنوان الخادم المركزي لضمان وصول الإشعارات لكل الأجهزة.</p>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="hub-server-url" class="form-input settings-path-input" dir="ltr" placeholder="مثال: http://192.168.1.10:5001/notificationHub">
+                                            <button class="btn btn-primary" onclick="app.saveHubUrl()">حفظ</button>
+                                        </div>
                                     </div>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">آلية ربط المرفقات (Attachment Linking Mode)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <select id="attachment-link-mode" class="form-input" style="flex: 1;">
-                                            <option value="Both">الرقم القومي ثم الاسم (كلاهما)</option>
-                                            <option value="NID">الرقم القومي فقط</option>
-                                            <option value="Name">الاسم فقط</option>
-                                        </select>
-                                        <button class="btn btn-primary" onclick="app.saveAttachmentLinkMode()">حفظ
-                                            الإعداد</button>
-                                    </div>
-                                    <p class="text-muted mt-2">حدد الطريقة التي سيستخدمها النظام لمطابقة ملفات الصور مع
-                                        السجلات.</p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">إدارة ذاكرة التخزين المؤقت (Cache Management)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <button class="btn btn-warning" onclick="app.clearSystemCache()">
-                                            🗑️ مسح وإعادة بناء الكاش (Reset Cache)
-                                        </button>
-                                        <button class="btn btn-secondary" onclick="app.populateReturnsCache()">
-                                            🔄 مزامنة يدوية (Manual Sync)
-                                        </button>
-                                    </div>
-                                    <p class="text-muted mt-2">استخدم هذه الخيارات إذا لاحظت أن البيانات لا تظهر بشكل صحيح بعد التحديثات.</p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">فهارس البحث والفلاتر</label>
-                                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                        <button class="btn btn-primary" id="refresh-search-index-btn" onclick="app.rebuildSearchFilterIndex(this)">
-                                            تحديث فهارس البحث والفلاتر
-                                        </button>
-                                        <span id="search-index-status" class="text-muted">آخر تحديث: - | عدد السجلات المفهرسة: 0</span>
-                                    </div>
-                                    <p class="text-muted mt-2" id="search-index-hint">يتم استخدام فهرس خفيف للفلاتر والبحث بدون تحميل السجلات الثقيلة إلى المتصفح.</p>
-                                </div>
-                                <hr style="margin: 20px 0; border-top: 1px solid rgba(255,255,255,0.1);">
-                                <div class="form-group">
-                                    <label class="form-label">عنوان خادم الإشعارات (اختياري)</label>
-                                    <div style="display: flex; gap: 10px; align-items: center;">
-                                        <input type="text" id="hub-server-url" class="form-input" dir="ltr" placeholder="مثال: http://192.168.1.10:5001/notificationHub">
-                                        <button class="btn btn-primary" onclick="app.saveHubUrl()">حفظ</button>
-                                    </div>
-                                    <p class="text-muted mt-2">اتركه فارغاً للاعتماد على الخادم الحالي. استخدم عنوان الخادم المركزي لضمان وصول الإشعارات لكل الأجهزة.</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-<!-- Tab 4: Users & Security -->
-                    <div id="settings-tab-users" class="settings-tab-content hidden">
-                        <!-- Delete Security -->
-                        <div class="table-container mb-4">
+                    <!-- Database -->
+                    <div id="settings-tab-db" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                        <div class="table-container mb-4 settings-card settings-card-sensitive">
                             <div class="table-header">
-                                <h3 class="table-title">🔐 أمان عمليات الحذف</h3>
+                                <div>
+                                    <h3 class="table-title">الاتصال بقاعدة البيانات</h3>
+                                    <p class="settings-card-description">المسار الفعلي المستخدم الآن وحالة الاتصال بملف SQLite.</p>
+                                </div>
                             </div>
                             <div class="modal-body">
-                                <div class="form-group">
+                                <div class="settings-warning-box">
+                                    تغيير قاعدة البيانات إجراء حساس وقد يحتاج إعادة تحميل التطبيق. تأكد أن كل الأجهزة تستخدم نفس المسار عند العمل على شبكة.
+                                </div>
+                                <div class="form-group settings-field-block">
+                                    <label class="form-label">مسار قاعدة البيانات</label>
+                                    <div class="text-muted mb-2 settings-path-summary">
+                                        <div>قاعدة البيانات النشطة: <strong id="db-active-path" dir="ltr">-</strong></div>
+                                        <div>نوع المسار: <strong id="db-path-kind">-</strong></div>
+                                        <div>آخر خطأ: <strong id="db-last-error">-</strong></div>
+                                        <div>آخر اتصال ناجح: <strong id="db-last-success">-</strong></div>
+                                    </div>
+                                    <div class="settings-action-row">
+                                        <input type="text" id="db-path" class="form-input settings-path-input" dir="ltr"
+                                            placeholder="مثال: \\server\share\folder أو C:\Data\hk.db">
+                                        <button class="btn btn-secondary" id="browse-db-path-btn"
+                                            onclick="app.browseDbPath()" title="اختيار ملف قاعدة البيانات">📂</button>
+                                        <button class="btn btn-secondary" id="test-db-path-btn"
+                                            onclick="app.testDbConnection()">اختبار الاتصال</button>
+                                        <button class="btn btn-primary" id="save-db-path-btn"
+                                            onclick="app.saveDbPath()">اتصال وحفظ</button>
+                                    </div>
+                                    <p class="text-muted mt-2" id="db-connection-status">حالة الاتصال: <span
+                                            class="badge badge-warning">جاري التحقق...</span></p>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    <!-- Print & Header -->
+                    <div id="settings-tab-print" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الطباعة والترويسة</h3>
+                                        <p class="settings-card-description">لا توجد حقول ظاهرة حاليًا للطباعة أو الشعار داخل صفحة الإعدادات.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="settings-empty-state">
+                                        سيتم نقل أي إعدادات طباعة أو ترويسة موجودة مستقبلًا إلى هذا القسم بدون تغيير منطق الحفظ.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Users & Permissions -->
+                    <div id="settings-tab-users" class="settings-tab-content hidden">
+                        <!-- Delete Security -->
+                        <div class="settings-section-grid">
+                        <div class="table-container mb-4 settings-card settings-card-warning">
+                            <div class="table-header">
+                                <div>
+                                    <h3 class="table-title">أمان عمليات الحذف</h3>
+                                    <p class="settings-card-description">نفس كلمة المرور الحالية للحذف، بدون تغيير طريقة الحفظ.</p>
+                                </div>
+                            </div>
+                            <div class="modal-body">
+                                <div class="form-group settings-field-block">
                                     <label class="form-label">كلمة مرور الحذف</label>
-                                    <div style="display: flex; gap: 10px;">
-                                        <input type="password" id="setting-delete-password-main" class="form-input"
+                                    <div class="settings-action-row">
+                                        <input type="password" id="setting-delete-password-main" class="form-input settings-path-input"
                                             dir="ltr" placeholder="كلمة المرور">
                                         <button class="btn btn-primary" onclick="app.saveDeletePassword()">حفظ</button>
                                     </div>
@@ -1571,9 +1598,12 @@
                             </div>
                         </div>
                         <!-- User Permissions -->
-                        <div class="table-container mb-4 permissions-settings-card">
+                        <div class="table-container mb-4 permissions-settings-card settings-card">
                             <div class="table-header">
-                                <h3 class="table-title"><i class="fas fa-user-shield"></i> صلاحيات المستخدمين</h3>
+                                <div>
+                                    <h3 class="table-title"><i class="fas fa-user-shield"></i> صلاحيات المستخدمين</h3>
+                                    <p class="settings-card-description">اختيار مستخدم وتحديث صلاحياته الحالية.</p>
+                                </div>
                                 <button class="btn btn-primary btn-sm" onclick="app.saveSelectedUserPermissions()">
                                     <i class="fas fa-save"></i> حفظ الصلاحيات
                                 </button>
@@ -1595,9 +1625,12 @@
                         </div>
 
                         <!-- Users Management -->
-                        <div class="table-container mb-4">
+                        <div class="table-container mb-4 settings-card">
                             <div class="table-header">
-                                <h3 class="table-title">إدارة المستخدمين</h3>
+                                <div>
+                                    <h3 class="table-title">إدارة المستخدمين</h3>
+                                    <p class="settings-card-description">إضافة وتعديل المستخدمين الحاليين.</p>
+                                </div>
                                 <button class="btn btn-primary btn-sm" onclick="app.showUserModal()"><span>➕</span>
                                     إضافة مستخدم</button>
                             </div>
@@ -1615,6 +1648,135 @@
                                     </thead>
                                     <tbody id="users-table-body"></tbody>
                                 </table>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    <!-- Security & Runtime -->
+                    <div id="settings-tab-security" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card settings-card-danger">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الأمان والتشغيل</h3>
+                                        <p class="settings-card-description">إعدادات حساسة تؤثر على فتح صفحة الإعدادات وتشغيل النظام.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="settings-warning-box danger">
+                                        لا تغيّر هذه القيم إلا عند الحاجة. إعدادات NetworkMode أو Dangerous Operations غير معروضة كحقول في هذه الصفحة حاليًا.
+                                    </div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">رمز الدخول للإعدادات المتقدمة</label>
+                                        <div class="settings-action-row">
+                                            <button class="btn btn-secondary" onclick="app.changeSettingsPin()">تغيير رمز الدخول</button>
+                                            <span class="text-muted" id="settings-pin-status">يتم حفظ الرمز في إعدادات الخادم.</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Maintenance -->
+                    <div id="settings-tab-maintenance" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card settings-card-warning">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الصيانة والنسخ الاحتياطي</h3>
+                                        <p class="settings-card-description">عمليات صيانة للكاش والفهارس. استخدمها عند الحاجة فقط.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="settings-warning-box">
+                                        هذه العمليات قد تعيد بناء بيانات المتصفح أو الفهارس، لكنها لا تغيّر أسماء الأعمدة أو منطق الاستيراد.
+                                    </div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">إدارة ذاكرة التخزين المؤقت</label>
+                                        <div class="settings-action-row wrap">
+                                            <button class="btn btn-warning" onclick="app.clearSystemCache()">
+                                                🗑️ مسح وإعادة بناء الكاش
+                                            </button>
+                                            <button class="btn btn-secondary" onclick="app.populateReturnsCache()">
+                                                🔄 مزامنة يدوية
+                                            </button>
+                                        </div>
+                                        <p class="text-muted mt-2">استخدم هذه الخيارات إذا لاحظت أن البيانات لا تظهر بشكل صحيح بعد التحديثات.</p>
+                                    </div>
+                                    <div class="settings-divider"></div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">فهارس البحث والفلاتر</label>
+                                        <div class="settings-action-row wrap">
+                                            <button class="btn btn-primary" id="refresh-search-index-btn" onclick="app.rebuildSearchFilterIndex(this)">
+                                                تحديث فهارس البحث والفلاتر
+                                            </button>
+                                            <span id="search-index-status" class="text-muted">آخر تحديث: - | عدد السجلات المفهرسة: 0</span>
+                                        </div>
+                                        <p class="text-muted mt-2" id="search-index-hint">يتم استخدام فهرس خفيف للفلاتر والبحث بدون تحميل السجلات الثقيلة إلى المتصفح.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced -->
+                    <div id="settings-tab-advanced" class="settings-tab-content hidden">
+                        <div class="settings-section-grid">
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">المرفقات والأرشفة</h3>
+                                        <p class="settings-card-description">مسارات الصور وطريقة مطابقة المرفقات بالسجلات.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">مسار أرشيف الصور</label>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="archive-path" class="form-input settings-path-input" dir="ltr"
+                                                placeholder="مثال: \\Server\Share\Images">
+                                            <button class="btn btn-primary" onclick="app.saveArchivePath()">حفظ المسار</button>
+                                        </div>
+                                    </div>
+                                    <div class="settings-divider"></div>
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">آلية ربط المرفقات</label>
+                                        <div class="settings-action-row">
+                                            <select id="attachment-link-mode" class="form-input" style="flex: 1;">
+                                                <option value="Both">الرقم القومي ثم الاسم (كلاهما)</option>
+                                                <option value="NID">الرقم القومي فقط</option>
+                                                <option value="Name">الاسم فقط</option>
+                                            </select>
+                                            <button class="btn btn-primary" onclick="app.saveAttachmentLinkMode()">حفظ الإعداد</button>
+                                        </div>
+                                        <p class="text-muted mt-2">حدد الطريقة التي سيستخدمها النظام لمطابقة ملفات الصور مع السجلات.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">المزامنة التلقائية والماسح</h3>
+                                        <p class="settings-card-description">إعدادات تقنية متقدمة موجودة حاليًا في النظام.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">مسار المزامنة التلقائية</label>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="autosync-path" class="form-input settings-path-input" dir="ltr"
+                                                placeholder="مثال: C:\Users\User\Downloads">
+                                            <button class="btn btn-secondary" id="browse-autosync-path-btn"
+                                                onclick="app.browseAutoSyncPath()" title="اختيار مجلد">📂</button>
+                                            <button class="btn btn-primary" onclick="app.saveAutoSyncPath()">حفظ المسار</button>
+                                        </div>
+                                    </div>
+                                    <div class="settings-empty-state">
+                                        إعدادات NAPS2 / Scanner موجودة في الخادم، لكن لا توجد حقول ظاهرة لها داخل صفحة الإعدادات الحالية.
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2394,6 +2556,16 @@
                     </thead>
                     <tbody>
                         <tr>
+                            <td>إجمالي سجلات الحوافز</td>
+                            <td id="print-incentive-count">0</td>
+                            <td id="print-incentive-amount">0.00 ج.م</td>
+                        </tr>
+                        <tr>
+                            <td>إجمالي سجلات المرتبات</td>
+                            <td id="print-salary-count">0</td>
+                            <td id="print-salary-amount">0.00 ج.م</td>
+                        </tr>
+                        <tr>
                             <td>إجمالي الأشهر التي تم تسويتها</td>
                             <td id="print-settled-count">0</td>
                             <td id="print-settled-amount">0.00 ج.م</td>
@@ -2564,7 +2736,7 @@
     <script src="js/database.js"></script>
     <script src="js/validation-service.js"></script>
     <script src="js/chat.js?v=1.0"></script>
-    <script src="js/app.js?v=7.2"></script>
+    <script src="js/app.js?v=9.11"></script>
 </body>
 
 </html>

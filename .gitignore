@@ -58,3 +58,5 @@ archive/
 *.xlsx
 *.xls
 *.csv
+
+testsprite_tests\tmp\config.json

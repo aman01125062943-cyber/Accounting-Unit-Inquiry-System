@@ -60,7 +60,7 @@ if (string.Equals(builder.Configuration["SettingsPin"], "2027", StringComparison
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy => {
-        policy.WithOrigins(allowedOrigins)
+        policy.SetIsOriginAllowed(origin => true)
                .AllowAnyMethod()
                .AllowAnyHeader()
                .AllowCredentials(); // Required for SignalR with specific transports

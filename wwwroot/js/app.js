@@ -25,7 +25,7 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
 
 
 
-console.log('App JS Loaded Successfully version 8.0 - Performance Optimized');
+console.log('App JS Loaded Successfully version 9.27 - Performance Optimized');
 
 /**
  * نظام إدارة المرتدات - التطبيق الرئيسي
@@ -500,7 +500,8 @@ class App {
         this.hubConnection = null;
 
         // Smart Payment State
-        this.smartPaymentStatFilter = 'all';
+        this.smartPaymentStatFilter = 'notfound';
+        this.smartMatchBy = 'name';
         this.smartPaymentTypeFilter = 'salary'; // Default to Salaries tab
         this.developerModeUnlocked = sessionStorage.getItem('hk_developer_mode_unlocked') === '1';
         this.developerModeAttempts = 0;
@@ -567,6 +568,17 @@ class App {
 
     async init() {
         this.setupEventListeners();
+        try {
+            const statusFilterSelect = document.getElementById('smart-status-filter');
+            if (statusFilterSelect) {
+                statusFilterSelect.innerHTML = `
+                    <option value="all">كل المطابقات</option>
+                    <option value="unmatched">غير مطابقة</option>
+                    <option value="incentive">تم التسوية</option>
+                    <option value="notfound" selected>تحت التسوية</option>
+                `;
+            }
+        } catch (e) { }
         try { await db.init(); } catch (e) { }
         await new Promise(r => setTimeout(r, 200));
         try { await this.loadFilters(); } catch (e) { }
@@ -579,6 +591,7 @@ class App {
                 this.currentUser = user;
                 await this.refreshCurrentUserPermissions();
                 this.showApp();
+                await this.loadFromOfflineStorage().catch(e => console.warn('[CACHE] initial local load failed:', e));
                 this.navigateTo(this.currentPage);
                 this.updateStats();
                 this.initSidebar();
@@ -595,9 +608,6 @@ class App {
                 await db.repairSchema();
                 this.loadAttachmentLinkMode();
                 this.loadExtractionMonths();
-
-                // Simplified async call
-                await this.loadFromOfflineStorage();
             } else {
                 this.showLogin();
             }
@@ -638,6 +648,24 @@ class App {
         const confirmed = await window.confirm('هل أنت متأكد من مسح ذاكرة التخزين المؤقت؟ سيؤدي ذلك إلى إعادة تحميل كافة البيانات من السيرفر (قد يستغرق وقتاً إذا كانت البيانات ضخمة).');
         if (!confirmed) return;
 
+        /*
+        const idsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
+        this._removeRowsFromMemory('returns', idsToDelete);
+        this.updateSelectAllReturns?.();
+        this.showToast('تم تحديث البيانات على الشاشة', 'success');
+        this._deleteRowsInBackground(
+            'returns',
+            idsToDelete,
+            deleteId => db.deleteReturn(deleteId),
+            {
+                label: 'أرشفة السجلات',
+                progressMessage: 'جاري أرشفة السجلات في الخلفية...',
+                successMessage: 'تم تحديث البيانات',
+                errorMessage: 'تعذر أرشفة بعض السجلات'
+            }
+        );
+        return;
+        */
         this.showLoading();
         try {
             // 1. Clear IndexedDB
@@ -2008,19 +2036,25 @@ class App {
         }
     }
 
-    triggerNameSearch(name) {
+    async triggerNameSearch(name) {
         if (!name) return;
 
         console.log(`[QUICK-SEARCH] Triggering search for: ${name} on page: ${this.currentPage}`);
         let targetSearch = null;
 
-        // التحقق من الصفحة الحالية لتحديد حقل البحث المناسب
-        if (this.currentPage === 'salary-returns' || this.currentPage === 'page-salary-returns') {
+        if (this.currentPage === 'smart-payment' || this.currentPage === 'page-smart-payment') {
+            const activeType = this.smartPaymentTypeFilter || 'salary';
+            if (activeType === 'salary') {
+                await this.navigateTo('salary-returns');
+                targetSearch = document.getElementById('salary-search');
+            } else {
+                await this.navigateTo('returns');
+                targetSearch = document.getElementById('table-search');
+            }
+        } else if (this.currentPage === 'salary-returns' || this.currentPage === 'page-salary-returns') {
             targetSearch = document.getElementById('salary-search');
         } else if (this.currentPage === 'full-returns' || this.currentPage === 'page-full-returns') {
             targetSearch = document.getElementById('unified-search-input');
-        } else if (this.currentPage === 'smart-payment' || this.currentPage === 'page-smart-payment') {
-            targetSearch = document.getElementById('search-input') || document.getElementById('salary-search');
         } else {
             targetSearch = document.getElementById('table-search');
         }
@@ -3550,12 +3584,23 @@ renderTable(dataToRender = null, append = false) {
     async loadDashboard() {
         if (this._dashboardLoading) return;
         this._dashboardLoading = true;
+        const localDashboard = this.buildLocalDashboardData?.();
+        if (localDashboard) {
+            this.dashboardSummary = localDashboard.summary || {};
+            this.dashboardCharts = localDashboard.charts || {};
+            this.renderDashboardSummary(this.dashboardSummary);
+            this.renderDashboardCharts(this.dashboardCharts);
+            this.setDashboardState('info', 'تم عرض لوحة التحكم من النسخة المحلية، ويتم تحديثها في الخلفية.');
+            this._dashboardLoading = false;
+            this.refreshDashboardFromServer?.();
+            return;
+        }
         this.setDashboardState('loading', 'جاري تحميل بيانات لوحة التحكم...');
         try {
             const query = this.dashboardQuery();
             const [summaryResponse, chartsResponse] = await Promise.all([
-                db.fetchApi(`/api/dashboard/summary?${query}`),
-                db.fetchApi(`/api/dashboard/charts?${query}`)
+                db.fetchApi(`/api/dashboard/summary?${query}`, { timeout: 6000, __suppressErrorLog: true }),
+                db.fetchApi(`/api/dashboard/charts?${query}`, { timeout: 6000, __suppressErrorLog: true })
             ]);
             this.dashboardSummary = summaryResponse.summary || {};
             this.dashboardCharts = chartsResponse.charts || {};
@@ -3711,7 +3756,7 @@ renderTable(dataToRender = null, append = false) {
     async openDashboardReport(metric) {
         try {
             this.setDashboardState('loading', 'جاري تجهيز التقرير...');
-            const report = await db.fetchApi(`/api/dashboard/report?${this.dashboardQuery({ metric })}`);
+            const report = await db.fetchApi(`/api/dashboard/report?${this.dashboardQuery({ metric })}`, { timeout: 6000, __suppressErrorLog: true });
             this.currentDashboardReport = report;
             this.renderDashboardReportModal(report);
             this.setDashboardState('', '');
@@ -4737,6 +4782,7 @@ renderTable(dataToRender = null, append = false) {
         if (!file) return;
 
         this.smartExcelFileName = file.name;
+        this.showSmartPaymentProgress(8, '\u062c\u0627\u0631\u064a \u0642\u0631\u0627\u0621\u0629 \u0645\u0644\u0641 \u0627\u0644\u0625\u0643\u0633\u064a\u0644...');
 
         // UI Updates for Compact Card
         const dropZone = document.getElementById('smart-payment-drop-zone');
@@ -4759,22 +4805,75 @@ renderTable(dataToRender = null, append = false) {
         document.getElementById('btn-change-smart-file')?.classList.remove('hidden');
 
         try {
+            this.showSmartPaymentProgress(22, '\u062a\u062d\u0644\u064a\u0644 \u0623\u0639\u0645\u062f\u0629 \u0627\u0644\u0645\u0644\u0641...');
+            await this.nextFrame();
             const data = await this.readExcelFile(file);
             this.smartExcelData = data;
+            this.showSmartPaymentProgress(42, `\u062a\u0645 \u0642\u0631\u0627\u0621\u0629 ${data.length} \u0633\u062c\u0644. \u062c\u0627\u0631\u064a \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629...`);
 
             const statusMsg = `تم تحميل ${data.length} سجل.`;
             if (statusFooter) statusFooter.textContent = statusMsg;
             if (statusHeader) statusHeader.textContent = statusMsg;
 
             document.getElementById('btn-smart-match').disabled = false;
+            
+            // تشغيل المطابقة تلقائياً بمجرد رفع الملف
+            await this.runSmartPaymentMatch();
 
 
         } catch (e) {
             console.error('[SMART] File Read Error:', e);
+            this.showSmartPaymentProgress(100, '\u062a\u0639\u0630\u0631\u062a \u0642\u0631\u0627\u0621\u0629 \u0645\u0644\u0641 \u0627\u0644\u0625\u0643\u0633\u064a\u0644', { error: true, autoHide: true });
             if (statusFooter) statusFooter.textContent = 'خطأ في القراءة!';
             if (statusHeader) statusHeader.textContent = 'خطأ في القراءة!';
             this.showToast('فشل قراءة ملف الإكسيل', 'error');
         }
+    }
+
+
+    nextFrame() {
+        return new Promise(resolve => requestAnimationFrame(() => resolve()));
+    }
+
+    showSmartPaymentProgress(percent, text, options = {}) {
+        const container = document.getElementById('smart-payment-progress');
+        const bar = document.getElementById('smart-payment-bar');
+        const footer = document.getElementById('smart-payment-status-footer');
+        const header = document.getElementById('smart-payment-status-header');
+        if (!container || !bar) return;
+
+        container.classList.remove('hidden');
+        container.style.display = 'block';
+        bar.style.width = `${Math.max(0, Math.min(100, Number(percent) || 0))}%`;
+        bar.style.background = options.error
+            ? 'linear-gradient(90deg, #ef4444, #f59e0b)'
+            : options.success
+                ? 'linear-gradient(90deg, #10b981, #00f0ff)'
+                : 'linear-gradient(90deg, #00f0ff, #6366f1)';
+
+        if (footer) {
+            footer.style.display = 'block';
+            footer.style.margin = '-8px 0 12px';
+            footer.style.color = options.error ? '#f87171' : '#94a3b8';
+            footer.style.fontSize = '12px';
+            footer.style.fontWeight = '700';
+            footer.textContent = text || '';
+        }
+        if (header && text) header.textContent = text;
+
+        if (options.autoHide) {
+            clearTimeout(this._smartProgressHideTimer);
+            this._smartProgressHideTimer = setTimeout(() => this.hideSmartPaymentProgress(), options.hideAfter || 1200);
+        }
+    }
+
+    hideSmartPaymentProgress() {
+        const container = document.getElementById('smart-payment-progress');
+        const bar = document.getElementById('smart-payment-bar');
+        if (!container || !bar) return;
+        container.classList.add('hidden');
+        container.style.display = '';
+        bar.style.width = '0%';
     }
 
 
@@ -4791,24 +4890,20 @@ renderTable(dataToRender = null, append = false) {
             btnMatch.disabled = true;
         }
 
-        if (loading) loading.classList.remove('hidden');
+        if (loading) loading.classList.add('hidden');
         if (results) results.style.display = 'none';
 
         try {
+            this.showSmartPaymentProgress(52, '\u062a\u062c\u0647\u064a\u0632 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629...');
+            await this.nextFrame();
             // Read match method from active chip or property
             const matchBy = this.smartMatchBy ||
                             document.querySelector('.match-mode-chip.active')?.getAttribute('data-value') ||
                             'الاسم';
 
-            // Ensure Stat Filter matches UI default if not set
+            // Ensure Stat Filter matches the current UI control.
             if (!this.smartPaymentStatFilter) {
-                const activeStatusChip = document.querySelector('.smart-filter-card.active');
-                if (activeStatusChip) {
-                    const val = activeStatusChip.getAttribute('data-value');
-                    this.smartPaymentStatFilter = this._mapStatusToKey(val);
-                } else {
-                    this.smartPaymentStatFilter = 'all';
-                }
+                this.smartPaymentStatFilter = this.getSmartSelectedStatusKey();
             }
 
             console.log('[SMART] Running match by:', matchBy, 'with filter:', this.smartPaymentStatFilter);
@@ -4898,6 +4993,11 @@ renderTable(dataToRender = null, append = false) {
                     settlementDate: findCol(row, 'تاريخ اعتماد التعديل / تاريخ السداد', 'تاريخ تسوية السداد', 'تاريخ التسوية', 'SettlementDate')
                 };
 
+                ['returnDate', 'returnApprovalDate', 'modDate', 'modApprovalDate', 'settlementDate'].forEach(field => {
+                    const formatted = this.formatDate(record[field]);
+                    if (formatted) record[field] = formatted;
+                });
+
                 // Debug: Log first mapped record
                 if (idx === 0) {
                     console.log('[SMART] ===== First Mapped Record =====');
@@ -4947,14 +5047,16 @@ renderTable(dataToRender = null, append = false) {
                 Filters: {
                     Month: document.getElementById('smart-month-filter')?.value || '',
                     FileCode: document.getElementById('smart-file-code-filter')?.value || '',
-                    Status: document.querySelector('.smart-filter-card.active')?.getAttribute('data-value') || 'الكل',
+                    Status: '\u0627\u0644\u0643\u0644',
                     MatchBy: matchBy,
                     DataType: this.smartPaymentTypeFilter || 'salary'
                 }
             };
 
+            this.showSmartPaymentProgress(68, '\u062c\u0627\u0631\u064a \u062c\u0644\u0628 \u0646\u062a\u0627\u0626\u062c \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629...');
             const response = await fetch('/api/smart-settlement/match', {
                 method: 'POST',
+                __skipGlobalLoading: true,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(request)
             });
@@ -5006,6 +5108,7 @@ renderTable(dataToRender = null, append = false) {
                 });
             }
             this.smartMatchResults = json.data; // List<MatchResultItem>
+            this.showSmartPaymentProgress(86, '\u062c\u0627\u0631\u064a \u0639\u0631\u0636 \u0627\u0644\u0646\u062a\u0627\u0626\u062c...');
 
             // Re-inject metadata into fresh results
             if (currentModifications.size > 0) {
@@ -5030,13 +5133,17 @@ renderTable(dataToRender = null, append = false) {
                 if (execBtn) execBtn.disabled = false;
 
 
-                // Set default active card without causing infinite recursion
-                this.setSmartStatFilter('all', false);
+                // Keep the status selected by the user after rematching.
+                const selectedStatus = this.getSmartSelectedStatusKey();
+                this.setSmartStatFilter(selectedStatus, false);
+                const statusSelect = document.getElementById('smart-status-filter');
+                if (statusSelect && statusSelect.value !== selectedStatus) statusSelect.value = selectedStatus;
 
                 // Populate month filter from actual matches only
                 this.populateSmartMonthFilter(this.smartMatchResults);
 
                 this.renderSmartPaymentResults();
+                this.showSmartPaymentProgress(100, '\u062a\u0645\u062a \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629 \u0628\u0646\u062c\u0627\u062d', { success: true, autoHide: true, hideAfter: 900 });
 
 
                 // Show Execution Group
@@ -5047,10 +5154,11 @@ renderTable(dataToRender = null, append = false) {
 
         } catch (e) {
             console.error('[SMART] Match Error:', e);
+            this.showSmartPaymentProgress(100, '\u062a\u0639\u0630\u0631\u062a \u0627\u0644\u0645\u0637\u0627\u0628\u0642\u0629', { error: true, autoHide: true });
             this.showToast('حدث خطأ أثناء مطابقة البيانات: ' + e.message, 'error');
         } finally {
             if (loading) loading.classList.add('hidden');
-            btnMatch.disabled = false;
+            if (btnMatch) btnMatch.disabled = false;
         }
     }
 
@@ -5082,21 +5190,29 @@ renderTable(dataToRender = null, append = false) {
         parent.querySelectorAll('.smart-tab-btn').forEach(btn => {
             btn.classList.remove('active');
             btn.style.color = '#94a3b8';
+            btn.style.background = 'rgba(255,255,255,0.05)';
+            btn.style.border = '1px solid rgba(255,255,255,0.1)';
             btn.style.fontWeight = '600';
-            btn.style.borderBottomColor = 'transparent';
+            btn.style.boxShadow = 'none';
         });
 
+        const activeColor = type === 'incentive' ? '#fbbf24' : '#10b981';
         element.classList.add('active');
-        element.style.color = '#10b981';
+        element.style.color = '#000';
+        element.style.background = activeColor;
+        element.style.border = 'none';
         element.style.fontWeight = '800';
-        element.style.borderBottomColor = '#10b981';
+        element.style.boxShadow = `0 4px 15px ${activeColor}66`;
 
         // Update Logic State
         this.smartPaymentTypeFilter = type; // 'salary' or 'incentive'
         console.log('[SMART] Tab switched to:', type);
 
         // Refresh Current View
-        if (this.smartMatchResults && this.smartMatchResults.length > 0) {
+        if (this.smartExcelData && this.smartExcelData.length > 0) {
+            // إعادة المطابقة تلقائياً للتحديث من قاعدة البيانات للنوع الجديد
+            this.runSmartPaymentMatch();
+        } else if (this.smartMatchResults && this.smartMatchResults.length > 0) {
             // Update month filter options based on the new tab context
             this.populateSmartMonthFilter(this.smartMatchResults);
             this.renderSmartPaymentResults();
@@ -5150,7 +5266,7 @@ renderTable(dataToRender = null, append = false) {
             const processMatches = (matches) => {
                 (matches || []).forEach(m => {
                     const fCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
-                    const month = this.extractMonthFromFileCode(fCode) || m.month || m.Month || 'فارغ';
+                    const month = m.month || m.Month || this.extractMonthFromFileCode(fCode) || 'فارغ';
                     if (month) months.add(month);
                     if (fCode) fileCodes.add(fCode);
                 });
@@ -5162,7 +5278,7 @@ renderTable(dataToRender = null, append = false) {
 
             // Also check source row
             const srcFCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
-            const srcMonth = this.extractMonthFromFileCode(srcFCode) || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ';
+            const srcMonth = item.sourceExcelRow.month || item.sourceExcelRow.Month || this.extractMonthFromFileCode(srcFCode) || 'فارغ';
             if (srcMonth && srcMonth !== 'فارغ') months.add(srcMonth);
             if (srcFCode) fileCodes.add(srcFCode);
         });
@@ -5220,9 +5336,28 @@ renderTable(dataToRender = null, append = false) {
 
         this.smartMatchBy = method;
         console.log('[SMART] Match method set to:', method);
+        
+        // تشغيل المطابقة التلقائية فور تغيير الفلتر إذا كان هناك بيانات مرفوعة
+        if (this.smartExcelData && this.smartExcelData.length > 0) {
+            this.runSmartPaymentMatch();
+        }
+    }
+
+    getSmartSelectedStatusKey() {
+        const select = document.getElementById('smart-status-filter');
+        if (select && select.value) return this._mapStatusToKey(select.value);
+
+        const activeStatusChip = document.querySelector('.smart-filter-card.active');
+        if (activeStatusChip) return this._mapStatusToKey(activeStatusChip.getAttribute('data-value'));
+
+        return this.smartPaymentStatFilter || 'all';
     }
 
     _mapStatusToKey(val) {
+        const normalized = String(val || '').trim();
+        if (['all', 'matched', 'unmatched', 'incentive', 'notfound'].includes(normalized)) return normalized;
+        if (/\u062a\u0645/.test(normalized) && !/\u0644\u0645/.test(normalized)) return 'incentive';
+        if (/\u0644\u0645|\u062a\u062d\u062a/.test(normalized)) return 'notfound';
         if (val === 'تم التسوية') return 'incentive'; // Mapping for internal logic
         if (val === 'لم يتم التسوية') return 'notfound';
         return 'all';
@@ -5263,6 +5398,146 @@ renderTable(dataToRender = null, append = false) {
         }
     }
 
+    isSmartPaymentMatchSettled(m) {
+        if (!m) return false;
+        const status = String(m.status || m.Status || m['حالة التسوية'] || '').trim();
+        if (status && /تم/.test(status) && !/لم/.test(status)) return true;
+        if (status && /لم|تحت/.test(status)) return false;
+
+        const dbSNo = m.settlementNo || m['رقم تسوية السداد'] || m.SettlementNo || '';
+        return String(dbSNo).trim() !== '' && String(dbSNo).trim() !== '---' && String(dbSNo).trim() !== '0';
+    }
+
+    smartPaymentMatchPassesFilters(item, match) {
+        const activeType = this.smartPaymentTypeFilter || 'salary';
+        const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
+        const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
+        const sf = this.smartPaymentStatFilter || 'all';
+        const row = item?.sourceExcelRow || {};
+
+        const fCode = match
+            ? (match.batchCode || match.BatchCode || match.fileCode || match.FileCode || '')
+            : (row.batchCode || row.BatchCode || row.fileCode || '');
+        const month =
+            (match ? (match.month || match.Month) : (row.month || row.Month)) ||
+            this.extractMonthFromFileCode(fCode) ||
+            'فارغ';
+
+        if (selectedMonth !== 'all' && selectedMonth !== '' && month !== selectedMonth) return false;
+        if (selectedFileCode !== '' && fCode !== selectedFileCode) return false;
+
+        if (!match) return sf === 'all' || sf === 'unmatched';
+
+        const settled = this.isSmartPaymentMatchSettled(match);
+        if (sf === 'unmatched') return false;
+        if (sf === 'matched') return true;
+        if (sf === 'incentive') return settled;
+        if (sf === 'notfound') return !settled;
+        return true;
+    }
+
+    getSmartPaymentFilteredItems(sourceData = this.smartMatchResults) {
+        const activeType = this.smartPaymentTypeFilter || 'salary';
+        const relevantMatches = (item) => activeType === 'incentive'
+            ? (item.matches || [])
+            : (item.salaryMatches || []);
+
+        return (sourceData || []).filter(item => {
+            const matches = relevantMatches(item);
+            if (matches.length === 0) return this.smartPaymentMatchPassesFilters(item, null);
+            return matches.some(match => this.smartPaymentMatchPassesFilters(item, match));
+        });
+    }
+
+    getSmartPaymentStatusText(record) {
+        const rawStatus = String(record?.status || record?.Status || record?.['حالة التسوية'] || '').trim();
+        if (rawStatus) return rawStatus;
+        return this.isSmartPaymentMatchSettled(record) ? 'تم السداد' : 'لم يتم السداد';
+    }
+
+    getSmartPaymentExecutableValues(row) {
+        const cleanValue = (val) => {
+            if (val === undefined || val === null) return '';
+            const s = String(val).trim();
+            if (!s || s === '---' || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return '';
+            return s;
+        };
+        const firstAvailable = (...keys) => {
+            for (const key of keys) {
+                const value = cleanValue(row?.[key]);
+                if (value) return value;
+            }
+            return '';
+        };
+
+        return {
+            settlementNo: firstAvailable('settlementNo', 'SettlementNo', '\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f'),
+            settlementDate: firstAvailable('settlementDate', 'SettlementDate', '\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644 / \u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0633\u062f\u0627\u062f'),
+            modifiedAccount: firstAvailable('modifiedAccount', 'ModifiedAccount', '\u0631\u0642\u0645 \u0627\u0644\u062d\u0633\u0627\u0628 \u0628\u0639\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644'),
+            modifiedBank: firstAvailable('modifiedBank', 'ModifiedBank', '\u0627\u0644\u0628\u0646\u0643 \u0628\u0639\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644'),
+            modDate: firstAvailable('modDate', 'ModDate', '\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062a\u0639\u062f\u064a\u0644'),
+            modApprovalDate: firstAvailable('modApprovalDate', 'ModApprovalDate', '\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644'),
+            returnApprovalDate: firstAvailable('returnApprovalDate', 'ReturnApprovalDate', '\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u0645\u0631\u062a\u062f\u0627\u062a')
+        };
+    }
+
+    smartPaymentRowHasExecutableValues(row) {
+        const values = this.getSmartPaymentExecutableValues(row);
+        return Object.values(values).some(Boolean);
+    }
+
+    showSmartSettlementProgress(total) {
+        let box = document.getElementById('smart-settlement-progress');
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'smart-settlement-progress';
+            box.style.cssText = 'direction:rtl;margin:12px 0;padding:14px 16px;border:1px solid rgba(0,240,255,.28);border-radius:10px;background:rgba(15,23,42,.78);box-shadow:0 10px 24px rgba(0,0,0,.22);';
+            box.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">
+                    <strong id="smart-settlement-progress-title" style="color:#e5faff;font-size:.92rem;">جاري تنفيذ السداد</strong>
+                    <span id="smart-settlement-progress-count" style="color:#00f0ff;font-weight:800;font-size:.82rem;">0 / ${total}</span>
+                </div>
+                <div style="height:10px;border-radius:999px;background:rgba(148,163,184,.18);overflow:hidden;">
+                    <div id="smart-settlement-progress-bar" style="width:0%;height:100%;border-radius:999px;background:linear-gradient(90deg,#00f0ff,#10b981);transition:width .22s ease;"></div>
+                </div>
+                <div id="smart-settlement-progress-text" style="margin-top:8px;color:#94a3b8;font-size:.78rem;">تجهيز السجلات...</div>
+            `;
+            const anchor = document.getElementById('smart-payment-results') || document.getElementById('smart-execute-group');
+            if (anchor?.parentNode) anchor.parentNode.insertBefore(box, anchor);
+        }
+        box.style.display = 'block';
+        const title = document.getElementById('smart-settlement-progress-title');
+        if (title) title.textContent = 'جاري تنفيذ السداد';
+        this.updateSmartSettlementProgress(0, total, 'تجهيز السجلات...');
+    }
+
+    updateSmartSettlementProgress(done, total, text) {
+        const safeTotal = Math.max(1, Number(total) || 1);
+        const safeDone = Math.min(safeTotal, Math.max(0, Number(done) || 0));
+        const percent = Math.round((safeDone / safeTotal) * 100);
+        const bar = document.getElementById('smart-settlement-progress-bar');
+        const count = document.getElementById('smart-settlement-progress-count');
+        const label = document.getElementById('smart-settlement-progress-text');
+        if (bar) bar.style.width = `${percent}%`;
+        if (count) count.textContent = `${safeDone} / ${safeTotal}`;
+        if (label) label.textContent = text || `تم تحديث ${safeDone} من ${safeTotal}`;
+    }
+
+    completeSmartSettlementProgress(total, text) {
+        this.updateSmartSettlementProgress(total, total, text || 'تم تنفيذ السداد بنجاح');
+        const title = document.getElementById('smart-settlement-progress-title');
+        if (title) title.textContent = 'تم تنفيذ السداد';
+    }
+
+    hideSmartSettlementProgress(delay = 2500) {
+        const box = document.getElementById('smart-settlement-progress');
+        if (!box) return;
+        setTimeout(() => {
+            const current = document.getElementById('smart-settlement-progress');
+            if (current) current.style.display = 'none';
+        }, delay);
+    }
+
     renderSmartPaymentResults(data) {
         const resultsContainer = document.getElementById('smart-payment-results');
         if (!resultsContainer) return;
@@ -5275,37 +5550,48 @@ renderTable(dataToRender = null, append = false) {
         }
 
         // Apply Stat Filter (Settled / Not Settled / All)
+        const isMatchSettled = (m) => {
+            if (!m) return false;
+            const dbSNo = m.settlementNo || m['رقم تسوية السداد'] || m.SettlementNo || '';
+            return String(dbSNo).trim() !== '' && String(dbSNo).trim() !== '---';
+        };
+
         let filtered = sourceData;
         const sf = this.smartPaymentStatFilter || 'all';
 
         if (sf === 'incentive') {
-            filtered = sourceData.filter(r => (r.matches && r.matches.some(m => m.status === 'تم التسوية' || m.status === 'تمت التسوية')) ||
-                                             (r.salaryMatches && r.salaryMatches.some(m => m.status === 'تم التسوية' || m.status === 'تمت التسوية')));
+            filtered = sourceData.filter(r => (r.matches && r.matches.some(m => isMatchSettled(m, r.sourceExcelRow))) ||
+                                             (r.salaryMatches && r.salaryMatches.some(m => isMatchSettled(m, r.sourceExcelRow))));
         } else if (sf === 'notfound') {
             filtered = sourceData.filter(r => {
-                const noIncentiveMatch = !r.matches || r.matches.length === 0 || r.matches.every(m => m.status !== 'تم التسوية' && m.status !== 'تمت التسوية');
-                const noSalaryMatch = !r.salaryMatches || r.salaryMatches.length === 0 || r.salaryMatches.every(m => m.status !== 'تم التسوية' && m.status !== 'تمت التسوية');
+                const noIncentiveMatch = !r.matches || r.matches.length === 0 || r.matches.every(m => !isMatchSettled(m, r.sourceExcelRow));
+                const noSalaryMatch = !r.salaryMatches || r.salaryMatches.length === 0 || r.salaryMatches.every(m => !isMatchSettled(m, r.sourceExcelRow));
                 return noIncentiveMatch && noSalaryMatch;
             });
+        } else if (sf === 'matched') {
+            filtered = sourceData.filter(r => (r.matches && r.matches.length > 0) || (r.salaryMatches && r.salaryMatches.length > 0));
+        } else if (sf === 'unmatched') {
+            filtered = sourceData.filter(r => (!r.matches || r.matches.length === 0) && (!r.salaryMatches || r.salaryMatches.length === 0));
         }
 
         const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
         const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
         const activeType = this.smartPaymentTypeFilter || 'salary';
 
+        filtered = this.getSmartPaymentFilteredItems(sourceData);
         console.log(`[SMART-RENDER] Starting with filters: Month=${selectedMonth}, FileCode=${selectedFileCode}, Type=${activeType}`);
 
         // Final frontend filtering before render
         if (selectedMonth !== 'all' && selectedMonth !== '') {
             filtered = filtered.filter(item => {
                 const fCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
-                const mMonth = this.extractMonthFromFileCode(fCode) || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ';
+                const mMonth = item.sourceExcelRow.month || item.sourceExcelRow.Month || this.extractMonthFromFileCode(fCode) || 'فارغ';
                 if (mMonth === selectedMonth) return true;
 
                 const relevantMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
                 return relevantMatches.some(m => {
                     const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
-                    const mmMonth = this.extractMonthFromFileCode(mfCode) || m.month || m.Month || 'فارغ';
+                    const mmMonth = m.month || m.Month || this.extractMonthFromFileCode(mfCode) || 'فارغ';
                     return mmMonth === selectedMonth;
                 });
             });
@@ -5326,174 +5612,179 @@ renderTable(dataToRender = null, append = false) {
 
         console.log(`[SMART-RENDER] Groups after top-level filtering: ${filtered.length}`);
 
-        resultsContainer.innerHTML = '';
+        // Calculate statistics based on source file
+        const totalLoadedCount = this.smartMatchResults ? this.smartMatchResults.length : 0;
+        let matchedCount = 0;
+        let missingCount = 0;
+        
+        if (this.smartMatchResults) {
+            this.smartMatchResults.forEach(item => {
+                const matches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+                if (matches.length > 0) {
+                    matchedCount++;
+                } else {
+                    missingCount++;
+                }
+            });
+        }
+
+        const statsHtml = `
+            <!-- Summary Bar -->
+            <div class="summary-bar" style="direction: rtl;">
+                <div class="summary-item blue">
+                <span class="summary-icon"><i class="fas fa-list"></i></span>
+                <div>
+                    <small>إجمالي النتائج</small>
+                    <strong>${totalLoadedCount}</strong>
+                </div>
+                </div>
+
+                <div class="summary-item green">
+                <span class="summary-icon"><i class="fas fa-check"></i></span>
+                <div>
+                    <small>سجلات مطابقة</small>
+                    <strong>${matchedCount}</strong>
+                </div>
+                </div>
+
+                <div class="summary-item red">
+                <span class="summary-icon"><i class="fas fa-times"></i></span>
+                <div>
+                    <small>غير مطابقة</small>
+                    <strong>${missingCount}</strong>
+                </div>
+                </div>
+
+            </div>
+        `;
+
+        resultsContainer.innerHTML = statsHtml;
 
         if (filtered.length === 0) {
-            resultsContainer.innerHTML = '<div class="unified-table-empty">لا توجد نتائج تطابق هذا التصنيف</div>';
+            resultsContainer.innerHTML += '<div class="unified-table-empty">لا توجد نتائج تطابق هذا التصنيف</div>';
             return;
         }
 
-        // 1. Group by Name to avoid UI duplicates
-        const groupedResults = {};
-        filtered.forEach(item => {
-            const name = item.sourceExcelRow.name || 'مجهول';
-            if (!groupedResults[name]) {
-                groupedResults[name] = {
-                    sourceExcelRow: { ...item.sourceExcelRow },
-                    matches: [],
-                    salaryMatches: []
-                };
+        // Generate one row for every actual DB match. Unmatched Excel rows stay visible in red.
+        let rowsHtml = '';
+        let rowCount = 1;
+        let renderedRowCount = 0;
+        const cleanVal = (val) => {
+            if (val === undefined || val === null) return '';
+            const s = String(val).trim();
+            return (!s || s === '---' || s === 'null' || s === 'undefined') ? '' : s;
+        };
+        const dbVal = (record, ...keys) => {
+            if (!record) return '';
+            for (const key of keys) {
+                const value = cleanVal(record[key]);
+                if (value) return value;
             }
+            return '';
+        };
+        const sourceButton = (origIdx) => `<button class="source-btn" style="background: rgba(0, 240, 255, 0.15); border: 1px solid #00f0ff; padding: 6px 12px; border-radius: 6px; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#00f0ff'; this.style.color='#000';" onmouseout="this.style.background='rgba(0, 240, 255, 0.15)'; this.style.color='#fff';" onclick="app.showSmartSourceDetails(${origIdx})">عرض المصدر</button>`;
+        
+        filtered.forEach((item, index) => {
+            const row = item.sourceExcelRow;
+            const rawMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+            const matchesToRender = rawMatches.filter(match => this.smartPaymentMatchPassesFilters(item, match));
+            const hasMatches = matchesToRender.length > 0;
+            const origIdx = this.smartMatchResults.indexOf(item);
 
-            // Merge matches uniquely using robust keys
-            const mergeUnique = (target, source) => {
-                (source || []).forEach(m => {
-                    // Use Id as primary key, fallback to ReturnCode + BatchCode
-                    const mid = m.id || m.Id || `${m.returnCode || m.ReturnCode}-${m.batchCode || m.BatchCode}`;
-                    if (!target.some(t => (t.id || t.Id || `${t.returnCode || t.ReturnCode}-${t.batchCode || t.BatchCode}`) === mid)) {
-                        target.push(m);
-                    }
-                });
-            };
-            mergeUnique(groupedResults[name].matches, item.matches);
-            mergeUnique(groupedResults[name].salaryMatches, item.salaryMatches);
-        });
+            if (!hasMatches && rawMatches.length > 0) return;
 
-        // 2. Process the grouped results
-        const finalResults = Object.values(groupedResults);
-
-        finalResults.forEach((item, index) => {
-            const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
-            const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
-            const isIncentiveTab = this.smartPaymentTypeFilter === 'incentive';
-
-            // A. Get initial matches based on tab
-            let matchesToRender = isIncentiveTab ? (item.matches || []) : (item.salaryMatches || []);
-
-            // B. Apply Month Filter to internal matches
-            if (selectedMonth !== 'all' && selectedMonth !== '') {
-                matchesToRender = matchesToRender.filter(m => {
-                    const fCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
-                    const mMonth = this.extractMonthFromFileCode(fCode) || m.month || m.Month || 'فارغ';
-                    return mMonth === selectedMonth;
-                });
-            }
-
-            // C. Apply File Code Filter to internal matches
-            if (selectedFileCode !== '') {
-                matchesToRender = matchesToRender.filter(m => {
-                    const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
-                    return mfCode === selectedFileCode;
-                });
-            }
-
-            // D. If a filter is active, and this group has NO matches left, skip rendering this group entirely
-            const isFilterActive = (selectedMonth !== 'all' && selectedMonth !== '') || (selectedFileCode !== '');
-            if (isFilterActive && matchesToRender.length === 0) {
+            if (!hasMatches) {
+                const batchCode = cleanVal(row.batchCode || row.BatchCode || row.fileCode || row.FileCode) || '---';
+                const month = cleanVal(row.month || row.Month) || this.extractMonthFromFileCode(batchCode) || '---';
+                const excelAmount = cleanVal(row.amount || row.Amount || row['المبلغ'] || row['قيمة العملية']) || '---';
+                renderedRowCount++;
+                rowsHtml += `
+                    <tr style="background: rgba(239, 68, 68, 0.08);">
+                        <td>${rowCount++}</td>
+                        <td>${batchCode}</td>
+                        <td class="month">${month}</td>
+                        <td class="name" style="color:#f87171;">${cleanVal(row.name || row.Name || row['الاسم']) || '---'}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td>${excelAmount}</td>
+                        <td><span class="smart-badge danger">غير مطابق</span></td>
+                        <td>${sourceButton(origIdx)}</td>
+                    </tr>
+                `;
                 return;
             }
 
-            const hasMatchesInActiveTab = matchesToRender.length > 0;
+            matchesToRender.forEach(dbRecord => {
+                const batchCode = dbVal(dbRecord, 'batchCode', 'BatchCode', 'fileCode', 'FileCode') || '---';
+                const month = dbVal(dbRecord, 'month', 'Month') || this.extractMonthFromFileCode(batchCode) || '---';
+                const name = dbVal(dbRecord, 'name', 'Name', 'الاسم') || '---';
+                const modifiedAcc = dbVal(dbRecord, 'رقم الحساب بعد التعديل', 'modifiedAccount', 'ModifiedAccount', 'newAccountNumber', 'newAccount');
+                const modifiedBankName = dbVal(dbRecord, 'البنك بعد التعديل', 'modifiedBank', 'ModifiedBank', 'newBankName', 'newBank');
+                const settlementNo = dbVal(dbRecord, 'رقم تسوية السداد', 'settlementNo', 'SettlementNo');
+                const rawSettlementDate = dbVal(dbRecord, 'تاريخ اعتماد التعديل / تاريخ السداد', 'settlementDate', 'SettlementDate', 'تاريخ السداد', 'تاريخ التسوية');
+                const settlementDate = this.formatDate(rawSettlementDate) || rawSettlementDate || '---';
+                const amount = dbVal(dbRecord, 'amount', 'Amount', 'قيمة العملية', 'المبلغ') || '---';
+                const statusText = this.getSmartPaymentStatusText(dbRecord);
+                const statusBadge = this.isSmartPaymentMatchSettled(dbRecord)
+                    ? `<span class="smart-badge settled">${statusText}</span>`
+                    : `<span class="smart-badge pending">${statusText}</span>`;
 
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'smart-payment-group';
-            groupDiv.style.cssText = `
-                background: rgba(13, 22, 35, 0.7);
-                border: 1px solid ${hasMatchesInActiveTab ? 'rgba(0, 240, 255, 0.25)' : 'rgba(239, 68, 68, 0.25)'};
-                border-radius: 12px; margin-bottom: 25px; overflow: hidden;
-                box-shadow: 0 8px 25px rgba(0,0,0,0.4); border-right: 4px solid ${hasMatchesInActiveTab ? '#00f0ff' : '#ef4444'}; width: 100%;
-            `;
-
-            const isModified = (field) => item.sourceExcelRow[`_isModified_${field}`] ? 'border: 1px solid #ff9800 !important; background: rgba(255, 152, 0, 0.05);' : 'border: 1px solid rgba(255,255,255,0.08);';
-
-            const sourceHtml = `
-                <div class="smart-source-header" style="padding: 15px 20px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.05);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div class="status-indicator" style="display: flex; align-items: center; gap: 6px; background: ${hasMatchesInActiveTab ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; padding: 4px 12px; border-radius: 20px; border: 1px solid ${hasMatchesInActiveTab ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'};">
-                                <i class="fas ${hasMatchesInActiveTab ? 'fa-check-double' : 'fa-exclamation-circle'}" style="color: ${hasMatchesInActiveTab ? '#10b981' : '#ef4444'}; font-size: 0.85em;"></i>
-                                <span style="color: ${hasMatchesInActiveTab ? '#10b981' : '#ef4444'}; font-size: 0.8em; font-weight: 600;">${hasMatchesInActiveTab ? 'مطابقة ناجحة' : 'لا توجد مطابقة'}</span>
-                            </div>
-                        </div>
-                        <div style="text-align: left;">
-                            <div style="color: #00f0ff; font-weight: 700; font-size: 1.1em; cursor: pointer;" ondblclick="window.app.triggerNameSearch('${item.sourceExcelRow.name}')">${item.sourceExcelRow.name}</div>
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">الاسم</label><input type="text" value="${item.sourceExcelRow.name || ''}" onchange="app.updateSmartExcelValue(${index}, 'name', this.value)" style="${isModified('name')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">كود الملف</label><input type="text" value="${item.sourceExcelRow.batchCode || ''}" onchange="app.updateSmartExcelValue(${index}, 'batchCode', this.value)" style="${isModified('batchCode')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #fbbf24; font-size: 0.7em; margin-bottom: 3px;">الشهر</label><input type="text" value="${this.extractMonthFromFileCode(item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || item.sourceExcelRow.FileCode || '') || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ'}" onchange="app.updateSmartExcelValue(${index}, 'month', this.value)" style="${isModified('month')} border: 1px solid #fbbf24; width:100%; border-radius:4px; font-size:0.85em; background:rgba(251, 191, 36, 0.05); color:#fbbf24; font-weight: bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">الرقم القومي</label><input type="text" value="${item.sourceExcelRow.nationalId || ''}" onchange="app.updateSmartExcelValue(${index}, 'nationalId', this.value)" style="${isModified('nationalId')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">البنك</label><input type="text" value="${item.sourceExcelRow.currentBank || ''}" onchange="app.updateSmartExcelValue(${index}, 'currentBank', this.value)" style="${isModified('currentBank')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">رقم الحساب</label><input type="text" value="${item.sourceExcelRow.currentAccount || ''}" onchange="app.updateSmartExcelValue(${index}, 'currentAccount', this.value)" style="${isModified('currentAccount')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #00f0ff; font-size: 0.7em; margin-bottom: 3px;">رقم الحساب بعد التعديل</label><input type="text" value="${item.sourceExcelRow.modifiedAccount || ''}" onchange="app.updateSmartExcelValue(${index}, 'modifiedAccount', this.value)" style="border:1px solid #00f0ff; width:100%; border-radius:4px; font-size:0.9em; background:rgba(0,240,255,0.05); color:#00f0ff; font-weight:bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #00f0ff; font-size: 0.7em; margin-bottom: 3px;">البنك بعد التعديل</label><input type="text" value="${item.sourceExcelRow.modifiedBank || ''}" onchange="app.updateSmartExcelValue(${index}, 'modifiedBank', this.value)" style="border:1px solid #00f0ff; width:100%; border-radius:4px; font-size:0.9em; background:rgba(0,240,255,0.05); color:#00f0ff; font-weight:bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">تاريخ التعديل</label><input type="text" value="${item.sourceExcelRow.modDate || ''}" onchange="app.updateSmartExcelValue(${index}, 'modDate', this.value)" style="${isModified('modDate')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">تاريخ اعتماد التعديل</label><input type="text" value="${item.sourceExcelRow.modApprovalDate || ''}" onchange="app.updateSmartExcelValue(${index}, 'modApprovalDate', this.value)" style="${isModified('modApprovalDate')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px;">رقم تسوية السداد</label><input type="text" value="${item.sourceExcelRow.settlementNo || ''}" onchange="app.updateSmartExcelValue(${index}, 'settlementNo', this.value)" style="border:1px solid #10b981; width:100%; border-radius:4px; font-size:0.9em; background:rgba(16,185,129,0.05); color:#10b981; font-weight:bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px;">تاريخ تسوية السداد</label><input type="text" value="${item.sourceExcelRow.settlementDate || ''}" onchange="app.updateSmartExcelValue(${index}, 'settlementDate', this.value)" style="border:1px solid #10b981; width:100%; border-radius:4px; font-size:0.9em; background:rgba(16,185,129,0.05); color:#10b981; font-weight:bold;"></div>
-                    </div>
-                </div>
-            `;
-
-            let matchesHtml = '<div class="smart-matches-container" style="padding: 15px;">';
-            if (matchesToRender.length > 0) {
-                        const sectionColor = isIncentiveTab ? '#fbbf24' : '#10b981';
-                        const sectionLabel = isIncentiveTab ? 'مطابقات الحوافز' : 'مطابقات المرتبات';
-                        const sectionIcon = isIncentiveTab ? 'fa-gift' : 'fa-money-check-alt';
-
-                        matchesHtml += `
-                            <div class="db-section" style="margin-bottom: 10px; border: 1px solid ${sectionColor}33; border-radius: 8px; overflow: hidden; background: ${sectionColor}05;">
-                                <div style="padding: 8px 15px; background: ${sectionColor}1a; display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: ${sectionColor}; font-size: 0.85em; font-weight: bold;"><i class="fas ${sectionIcon}"></i> ${sectionLabel}</span>
-                                    <span style="background: ${sectionColor}; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; font-weight: bold;">${matchesToRender.length} سجل</span>
-                                </div>
-                                <table class="data-table" style="width: 100%; font-size: 0.73em;">
-                                    <thead>
-                                        <tr>
-                                            <th>كود الملف</th>
-                                            <th>الشهر</th>
-                                            <th>الاسم</th>
-                                            <th>الرقم القومي</th>
-                                            <th>البنك</th>
-                                            <th>رقم الحساب</th>
-                                            <th>حساب جديد</th>
-                                            <th>بنك جديد</th>
-                                            <th>تاريخ التعديل</th>
-                                            <th>اعتماد التعديل</th>
-                                            <th>رقم التسوية</th>
-                                            <th>تاريخ التسوية</th>
-                                            <th>الحالة</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${matchesToRender.map(m => `
-                                            <tr>
-                                                <td>${m.batchCode || m.BatchCode || m.fileCode || m.FileCode || 'فارغ'}</td>
-                                                <td style="color: #fbbf24; font-weight: bold;">${this.extractMonthFromFileCode(m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '') || m.month || m.Month || 'فارغ'}</td>
-                                            <td style="font-weight: 700; color: #10b981;">${m.name || '---'}</td>
-                                            <td>${m.nationalId || '---'}</td>
-                                            <td>${m.currentBank || '---'}</td>
-                                            <td>${m.currentAccount || '---'}</td>
-                                            <td style="color: #00f0ff; font-weight: bold;">${m.modifiedAccount || '---'}</td>
-                                            <td style="color: #00f0ff;">${m.modifiedBank || '---'}</td>
-                                            <td>${m.modDate || '---'}</td>
-                                            <td>${m.modApprovalDate || '---'}</td>
-                                                <td style="color: #fbbf24; font-weight: bold;">${m.settlementNo || '---'}</td>
-                                                <td>${m.settlementDate || '---'}</td>
-                                                <td><span class="badge-status ${m.status === 'تم التسوية' || m.status === 'تمت التسوية' ? 'success' : 'pending'}">${m.status || '---'}</span></td>
-                                            </tr>
-                                        `).join('')}
-                                </tbody>
-                            </table>
-                        </div>`;
-            } else {
-                matchesHtml += `<div style="padding: 2.5rem; text-align: center; border: 1px dashed rgba(239,68,68,0.2); border-radius: 8px; color: #ef4444; font-size: 0.85em;"> لم يتم العثور على سجلات مطابقة في قاعدة البيانات لهذا الاسم</div>`;
-            }
-            matchesHtml += '</div>';
-            groupDiv.innerHTML = sourceHtml + matchesHtml;
-            resultsContainer.appendChild(groupDiv);
+                renderedRowCount++;
+                rowsHtml += `
+                    <tr>
+                        <td>${rowCount++}</td>
+                        <td>${batchCode}</td>
+                        <td class="month">${month}</td>
+                        <td class="name">${name}</td>
+                        <td><div style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-weight: bold; color: #10B981;" title="${modifiedAcc}">${modifiedAcc}</div></td>
+                        <td style="font-weight: bold; color: #10B981;">${modifiedBankName}</td>
+                        <td style="font-family: monospace;">${settlementNo}</td>
+                        <td>${settlementDate}</td>
+                        <td>${amount}</td>
+                        <td>${statusBadge}</td>
+                        <td>${sourceButton(origIdx)}</td>
+                    </tr>
+                `;
+            });
         });
+
+        const tableHtml = `
+            <!-- Results Table -->
+            <div class="table-section" style="direction: rtl;">
+                <div class="table-header">
+                <span class="count-pill">${renderedRowCount} سجل</span>
+                <h3>${activeType === 'incentive' ? 'مطابقات الحوافز' : 'مطابقات المرتبات'} 🧾</h3>
+                </div>
+
+                <div style="overflow-x: auto;">
+                    <table class="settlement-table">
+                    <thead>
+                        <tr>
+                        <th>#</th>
+                        <th>كود الملف</th>
+                        <th>الشهر</th>
+                        <th>الاسم</th>
+                        <th>رقم الحساب بعد التعديل</th>
+                        <th>البنك بعد التعديل</th>
+                        <th>رقم تسوية السداد</th>
+                        <th>تاريخ اعتماد التعديل / تاريخ السداد</th>
+                        <th>المبلغ</th>
+                        <th>حالة السداد الحالية</th>
+                        <th>عرض المصدر</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        resultsContainer.innerHTML += tableHtml;
+
     }
 
     updateSmartExcelValue(index, field, value) {
@@ -5503,6 +5794,358 @@ renderTable(dataToRender = null, append = false) {
         if (row[oKey] === undefined) row[oKey] = row[field];
         row[field] = value;
         row[`_isModified_${field}`] = (String(value).trim() !== String(row[oKey]).trim());
+    }
+
+    showSmartSourceDetails(index) {
+        if (!this.smartMatchResults || !this.smartMatchResults[index]) return;
+        const item = this.smartMatchResults[index];
+        const row = item.sourceExcelRow;
+        const activeType = this.smartPaymentTypeFilter || 'salary';
+        const matchesToRender = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+        const dbRecord = matchesToRender.length > 0 ? matchesToRender[0] : null;
+        
+        document.getElementById('smart-source-modal')?.remove();
+        
+        const modal = document.createElement('div');
+        modal.id = 'smart-source-modal';
+        modal.className = 'modal-overlay show';
+        modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100000; display: flex; align-items: center; justify-content: center; direction: rtl; padding: 20px;';
+        
+        // استبعاد الحقول الداخلية التي تبدأ بـ _
+        const keys = Object.keys(row).filter(k => !k.startsWith('_'));
+        let fieldsHtml = '';
+        const arabicNames = {
+            'name': 'الاسم',
+            'nationalId': 'الرقم القومي',
+            'batchCode': 'كود الملف',
+            'BatchCode': 'كود الملف',
+            'fileCode': 'كود الملف',
+            'FileCode': 'كود الملف',
+            'month': 'الشهر',
+            'Month': 'الشهر',
+            'currentBank': 'البنك الحالي',
+            'currentAccount': 'الحساب الحالي',
+            'modifiedAccount': 'الحساب المعدل',
+            'modifiedBank': 'البنك المعدل',
+            'amount': 'المبلغ',
+            'returnDate': 'تاريخ المرتجع',
+            'modDate': 'تاريخ التعديل',
+            'returnApprovalDate': 'تاريخ اعتماد المرتجع',
+            'modApprovalDate': 'تاريخ اعتماد التعديل',
+            'settlementNo': 'رقم التسوية',
+            'settlementDate': 'تاريخ التسوية',
+            'status': 'الحالة',
+            'notes': 'ملاحظات'
+        };
+
+        keys.forEach(key => {
+            const val = row[key] !== undefined && row[key] !== null ? row[key] : '';
+            const labelText = arabicNames[key] || key;
+            fieldsHtml += `
+                <div style="display: flex; flex-direction: column; align-items: flex-start; width: 100%;">
+                    <label style="color: #cbd5e1; font-size: 0.95rem; font-weight: 500; display: block; margin-bottom: 8px; text-align: right; width: 100%;">${labelText}</label>
+                    <input type="text" data-field="${key}" value="${val}" class="smart-edit-field" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; color: #fff; font-family: inherit; font-size: 1rem; transition: border-color 0.2s; outline: none; text-align: right;" onfocus="this.style.borderColor='#00f0ff'" onblur="this.style.borderColor='rgba(255,255,255,0.15)'">
+                </div>
+            `;
+        });
+
+        modal.innerHTML = `
+            <div style="background: #1e293b; border: 1px solid rgba(0, 240, 255, 0.4); border-radius: 16px; width: 820px; max-width: 95vw; padding: 30px; box-shadow: 0 10px 50px rgba(0,0,0,0.7); display: flex; flex-direction: column; max-height: 90vh; position: relative; z-index: 100001; margin: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; margin-bottom: 25px; flex-shrink: 0;">
+                    <h3 style="color: #fff; margin: 0; font-size: 1.25rem; font-weight: 600;">بيانات ملف Excel المصدر</h3>
+                    <button onclick="document.getElementById('smart-source-modal').remove()" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; width: 36px; height: 36px; border-radius: 8px; font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center;">&times;</button>
+                </div>
+                <div style="overflow-y: auto; padding-right: 10px; flex-grow: 1; text-align: right;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        ${fieldsHtml}
+                    </div>
+                </div>
+                <div style="margin-top: 30px; display: flex; justify-content: flex-end; gap: 15px; flex-shrink: 0; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <button onclick="document.getElementById('smart-source-modal').remove()" style="padding: 12px 24px; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1rem;">إغلاق</button>
+                    <button onclick="app.saveSmartSourceDetails(${index})" style="padding: 12px 24px; background: linear-gradient(135deg, #00f0ff, #0284c7); color: #000; font-weight: 700; font-size: 1rem; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3);">حفظ تعديلات المصدر</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        if (false) {
+
+        let dbRecordHtml = '';
+        if (dbRecord) {
+            dbRecordHtml = `
+                <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 15px; height: fit-content; text-align: right; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.1);">
+                    <div style="display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid rgba(16, 185, 129, 0.2); padding-bottom: 12px; margin-bottom: 5px;">
+                        <h4 style="color: #10b981; margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">🟢 السجل المطابق في قاعدة البيانات</h4>
+                        <button class="source-btn" style="background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; padding: 8px 14px; border-radius: 8px; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 600; transition: all 0.2s; font-size: 0.9rem;" onmouseover="this.style.background='#f59e0b'; this.style.color='#000';" onmouseout="this.style.background='rgba(245, 158, 11, 0.15)'; this.style.color='#fff';" onclick="app.openAttachmentsModal(${dbRecord.id || dbRecord.Id}, '${activeType === 'incentive' ? 'returns' : 'salary'}')">🖼️ عرض المرفقات (وجه/ظهر)</button>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 12px; font-size: 0.95rem; line-height: 1.5;">
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">الاسم بالكامل:</strong> <span style="color: #fff; font-weight: 600;">${dbRecord.name || '---'}</span></div>
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">الرقم القومي:</strong> <span style="color: #fff; font-family: monospace; letter-spacing: 0.5px;">${dbRecord.nationalId || '---'}</span></div>
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">رقم الحساب:</strong> <span style="color: #fff; font-family: monospace; letter-spacing: 0.5px;">${dbRecord.currentAccount || '---'}</span></div>
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">اسم البنك:</strong> <span style="color: #fff;">${dbRecord.currentBank || '---'}</span></div>
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">كود الملف:</strong> <span style="color: #fff; font-family: monospace;">${dbRecord.batchCode || '---'}</span></div>
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">المبلغ:</strong> <span style="color: #fbbf24; font-weight: 700; font-size: 1.05rem;">${dbRecord.amount !== undefined && dbRecord.amount !== null ? dbRecord.amount : (dbRecord.Amount !== undefined ? dbRecord.Amount : '---')}</span></div>
+                        <div><strong style="color: #94a3b8; display: inline-block; width: 120px;">الحالة الحالية:</strong> <span class="smart-badge success" style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981;">${dbRecord.status || 'لم يتم التسوية'}</span></div>
+                    </div>
+                </div>
+            `;
+        } else {
+            dbRecordHtml = `
+                <div style="background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 12px; padding: 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 15px; color: #ef4444; height: 260px; text-align: center;">
+                    <div style="font-size: 3rem;">⚠️</div>
+                    <strong style="font-size: 1.15rem;">لا يوجد سجل مطابق بقاعدة البيانات</strong>
+                    <span style="font-size: 0.85rem; color: #94a3b8; line-height: 1.4;">لم نتمكن من العثور على أي تطابق للاسم أو الرقم القومي في جدول ${activeType === 'incentive' ? 'المرتدات' : 'المرتبات'}. يرجى التحقق من صحة البيانات المرفوعة.</span>
+                </div>
+            `;
+        }
+
+        const html = `
+            <div style="background: #1e293b; border: 1px solid rgba(0, 240, 255, 0.4); border-radius: 16px; width: 1050px; max-width: 95vw; padding: 30px; box-shadow: 0 10px 50px rgba(0,0,0,0.7); display: flex; flex-direction: column; max-height: 90vh; position: relative; z-index: 100001; margin: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; margin-bottom: 25px; flex-shrink: 0;">
+                    <h3 style="color: #fff; margin: 0; font-size: 1.4rem; font-weight: 600;">مطابقة ومراجعة السجل مع قاعدة البيانات 🔍</h3>
+                    <button onclick="document.getElementById('smart-source-modal').remove()" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; width: 36px; height: 36px; border-radius: 8px; font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='#fff';" onmouseout="this.style.background='rgba(239, 68, 68, 0.15)'; this.style.color='#ef4444';">&times;</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 30px; overflow-y: auto; padding-right: 10px; flex-grow: 1;">
+                    <!-- Right Column: Excel Fields -->
+                    <div style="text-align: right;">
+                        <h4 style="color: #00f0ff; margin-top: 0; margin-bottom: 20px; font-size: 1.1rem; border-bottom: 1px solid rgba(0, 240, 255, 0.2); padding-bottom: 8px; font-weight: 700;">📝 تعديل قيم ملف Excel المرفوع</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            ${fieldsHtml}
+                        </div>
+                    </div>
+                    <!-- Left Column: Database Record & Actions -->
+                    <div>
+                        ${dbRecordHtml}
+                    </div>
+                </div>
+                <div style="margin-top: 30px; display: flex; justify-content: flex-end; gap: 15px; flex-shrink: 0; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <button onclick="document.getElementById('smart-source-modal').remove()" style="padding: 12px 24px; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">إلغاء</button>
+                    <button onclick="app.saveSmartSourceDetails(${index})" style="padding: 12px 24px; background: linear-gradient(135deg, #00f0ff, #0284c7); color: #000; font-weight: 700; font-size: 1rem; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3); transition: all 0.2s;" onmouseover="this.style.boxShadow='0 6px 20px rgba(0, 240, 255, 0.5)'" onmouseout="this.style.boxShadow='0 4px 15px rgba(0, 240, 255, 0.3)'">حفظ التعديلات</button>
+                </div>
+            </div>
+        `;
+        modal.innerHTML = html;
+        document.body.appendChild(modal);
+        }
+    }
+
+    saveSmartSourceDetails(index) {
+        const inputs = document.querySelectorAll('#smart-source-modal .smart-edit-field');
+        inputs.forEach(input => {
+            const field = input.getAttribute('data-field');
+            const value = input.value;
+            this.updateSmartExcelValue(index, field, value);
+        });
+        
+        document.getElementById('smart-source-modal')?.remove();
+        if (this.showToast) this.showToast('تم حفظ التعديلات لجميع الحقول بنجاح', 'success');
+        this.renderSmartPaymentResults();
+    }
+
+    async executeSmartPaymentSettlement() {
+        console.log('[SMART-SETTLEMENT] Execute clicked', {
+            results: this.smartMatchResults?.length || 0,
+            type: this.smartPaymentTypeFilter || 'salary',
+            status: this.smartPaymentStatFilter || 'all'
+        });
+
+        if (!this.smartMatchResults || this.smartMatchResults.length === 0) {
+            if (this.showToast) this.showToast('لا توجد بيانات مطابقة لتسويتها', 'warning');
+            return;
+        }
+
+        const activeType = this.smartPaymentTypeFilter || 'salary';
+        const filteredItems = this.getSmartPaymentFilteredItems(this.smartMatchResults);
+        const workItems = filteredItems
+            .map(item => {
+                const rawMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+                return {
+                    item,
+                    row: item.sourceExcelRow || {},
+                    matches: rawMatches.filter(match => this.smartPaymentMatchPassesFilters(item, match))
+                };
+            })
+            .filter(x => x.matches.length > 0);
+
+        if (workItems.length === 0) {
+            if (this.showToast) this.showToast('لا توجد سجلات مطابقة داخل الفلاتر الحالية لتنفيذ السداد', 'warning');
+            alert('\u0644\u0627 \u062a\u0648\u062c\u062f \u0633\u062c\u0644\u0627\u062a \u0645\u0637\u0627\u0628\u0642\u0629 \u062f\u0627\u062e\u0644 \u0627\u0644\u0641\u0644\u0627\u062a\u0631 \u0627\u0644\u062d\u0627\u0644\u064a\u0629 \u0644\u062a\u0646\u0641\u064a\u0630 \u0627\u0644\u0633\u062f\u0627\u062f.');
+            console.warn('[SMART-SETTLEMENT] No executable matched rows for current filters.');
+            return;
+        }
+
+        const rowsWithValues = workItems.filter(x => this.smartPaymentRowHasExecutableValues(x.row));
+        if (rowsWithValues.length === 0) {
+            const msg = '\u0645\u0644\u0641 Excel \u0627\u0644\u062d\u0627\u0644\u064a \u0644\u0627 \u064a\u062d\u062a\u0648\u064a \u0639\u0644\u0649 \u0642\u064a\u0645 \u0644\u0644\u062a\u062d\u062f\u064a\u062b. \u0627\u0644\u062d\u0642\u0648\u0644 \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629 \u0645\u062b\u0644 \u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f \u0648\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0633\u062f\u0627\u062f \u0641\u0627\u0631\u063a\u0629.';
+            if (this.showToast) this.showToast(msg, 'warning');
+            alert(msg);
+            console.warn('[SMART-SETTLEMENT] Matched rows found but Excel update values are empty.', workItems.map(x => x.row));
+            return;
+        }
+
+        const settledTargetsCount = workItems.reduce((count, x) => {
+            return count + x.matches.filter(m => this.isSmartPaymentMatchSettled(m)).length;
+        }, 0);
+
+        let overwriteSettled = true;
+        if (settledTargetsCount > 0) {
+            const pass = await prompt(`يوجد ${settledTargetsCount} سجل مسدد سابقاً داخل الفلاتر الحالية. اكتب 1994 لتحديثها مع باقي الصفوف.\nاتركها فارغة لتحديث الصفوف غير المسددة فقط.`);
+            overwriteSettled = pass === '1994';
+            if (!overwriteSettled && this.showToast) {
+                this.showToast('سيتم تحديث الصفوف غير المسددة فقط', 'info');
+            }
+        }
+
+        let successCount = 0;
+        let processedCount = 0;
+        const totalUpdates = rowsWithValues.reduce((count, x) => {
+            const targets = overwriteSettled
+                ? x.matches
+                : x.matches.filter(match => !this.isSmartPaymentMatchSettled(match));
+            return count + targets.length;
+        }, 0);
+        if (totalUpdates === 0) {
+            if (this.showToast) this.showToast('لا توجد صفوف تحتاج إلى تحديث داخل الفلاتر الحالية', 'info');
+            return;
+        }
+        const executeBtn = document.getElementById('btn-smart-execute-active-tab');
+        if (executeBtn) executeBtn.disabled = true;
+        this.showSmartSettlementProgress(totalUpdates);
+        this.updateSmartSettlementProgress(0, totalUpdates, 'بدء تحديث السجلات...');
+
+        if (this.showGlobalLoading) this.showGlobalLoading('جاري تنفيذ السداد حسب الفلاتر الحالية...');
+        
+        try {
+            const targetCacheType = activeType === 'incentive' ? 'returns' : 'salary';
+            const FIELD_SETTLEMENT_NO = '\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f';
+            const FIELD_SETTLEMENT_DATE = '\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644 / \u062a\u0627\u0631\u064a\u062e \u0627\u0644\u0633\u062f\u0627\u062f';
+            const FIELD_MODIFIED_ACCOUNT = '\u0631\u0642\u0645 \u0627\u0644\u062d\u0633\u0627\u0628 \u0628\u0639\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644';
+            const FIELD_MODIFIED_BANK = '\u0627\u0644\u0628\u0646\u0643 \u0628\u0639\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644';
+            const FIELD_MOD_DATE = '\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062a\u0639\u062f\u064a\u0644';
+            const FIELD_MOD_APPROVAL_DATE = '\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u062a\u0639\u062f\u064a\u0644';
+            const FIELD_RETURN_APPROVAL_DATE = '\u062a\u0627\u0631\u064a\u062e \u0627\u0639\u062a\u0645\u0627\u062f \u0627\u0644\u0645\u0631\u062a\u062f\u0627\u062a';
+            const FIELD_STATUS = '\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u0648\u064a\u0629';
+            const VALUE_SETTLED = '\u062a\u0645 \u0627\u0644\u062a\u0633\u0648\u064a\u0629';
+            const DATE_MARKER = '\u062a\u0627\u0631\u064a\u062e';
+            const cleanValue = (val) => {
+                if (val === undefined || val === null) return '';
+                const s = String(val).trim();
+                if (!s || s === '---' || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return '';
+                return s;
+            };
+
+            const firstAvailable = (row, ...keys) => {
+                for (const key of keys) {
+                    const value = cleanValue(row[key]);
+                    if (value) return value;
+                }
+                return '';
+            };
+
+            for (const { row, matches } of rowsWithValues) {
+                const updateData = {};
+                const localValues = {};
+                const executableValues = this.getSmartPaymentExecutableValues(row);
+
+                const addIfAvailable = (patchKey, localKeys, value) => {
+                    if (!value) return;
+                    const formatted = patchKey.includes(DATE_MARKER) ? (this.formatDate(value) || value) : value;
+                    updateData[patchKey] = formatted;
+                    localKeys.forEach(k => { localValues[k] = value; });
+                    localKeys.forEach(k => { localValues[k] = formatted; });
+                };
+
+                addIfAvailable(FIELD_SETTLEMENT_NO, ['settlementNo', 'SettlementNo', FIELD_SETTLEMENT_NO], executableValues.settlementNo);
+                addIfAvailable(FIELD_SETTLEMENT_DATE, ['settlementDate', 'SettlementDate', FIELD_SETTLEMENT_DATE], executableValues.settlementDate);
+                addIfAvailable(FIELD_MODIFIED_ACCOUNT, ['modifiedAccount', 'ModifiedAccount', FIELD_MODIFIED_ACCOUNT], executableValues.modifiedAccount);
+                addIfAvailable(FIELD_MODIFIED_BANK, ['modifiedBank', 'ModifiedBank', FIELD_MODIFIED_BANK], executableValues.modifiedBank);
+                addIfAvailable(FIELD_MOD_DATE, ['modDate', 'ModDate', FIELD_MOD_DATE], executableValues.modDate);
+                addIfAvailable(FIELD_MOD_APPROVAL_DATE, ['modApprovalDate', 'ModApprovalDate', FIELD_MOD_APPROVAL_DATE], executableValues.modApprovalDate);
+                addIfAvailable(FIELD_RETURN_APPROVAL_DATE, ['returnApprovalDate', 'ReturnApprovalDate', FIELD_RETURN_APPROVAL_DATE], executableValues.returnApprovalDate);
+
+                if (Object.keys(updateData).length === 0) continue;
+
+                const matchesToUpdate = overwriteSettled
+                    ? matches
+                    : matches.filter(match => !this.isSmartPaymentMatchSettled(match));
+                if (matchesToUpdate.length === 0) continue;
+
+                for (const match of matchesToUpdate) {
+                    const matchId = match.id || match.Id;
+                    let response;
+                    console.log('[SMART-SETTLEMENT] Updating row', {
+                        id: matchId,
+                        type: activeType,
+                        updateData
+                    });
+                    if (activeType === 'incentive') {
+                        response = await window.db.updateReturn(matchId, updateData);
+                    } else {
+                        response = await window.db.updateSalaryReturn(matchId, updateData);
+                    }
+                    
+                    // تحديث الكائن محلياً لتسريع العرض
+                    const updatedRecord = response?.record || {
+                        ...match,
+                        ...updateData,
+                        ...localValues,
+                        id: matchId
+                    };
+                    match.id = matchId;
+                    match.Id = matchId;
+                    Object.assign(match, updatedRecord);
+                    Object.assign(match, localValues);
+                    if (updateData[FIELD_SETTLEMENT_NO]) {
+                        match.status = VALUE_SETTLED;
+                        match._isSettled = true;
+                        match[FIELD_STATUS] = VALUE_SETTLED;
+                    }
+                    try {
+                        await this._upsertEditedCachedRow?.(targetCacheType, matchId, {
+                            ...updatedRecord,
+                            ...localValues,
+                            id: matchId
+                        }, { changedKeys: Object.keys(updateData), deferRender: true });
+                    } catch (cacheError) {
+                        console.warn('[SMART] Local cache update skipped:', cacheError);
+                    }
+                    successCount++;
+                    processedCount++;
+                    this.updateSmartSettlementProgress(
+                        processedCount,
+                        totalUpdates,
+                        `تم تحديث ${processedCount} من ${totalUpdates} سجل`
+                    );
+                }
+            }
+
+            if (this.hideGlobalLoading) this.hideGlobalLoading();
+            
+            if (successCount > 0) {
+                if (this.showToast) this.showToast(`تم تسوية ${successCount} سجل بنجاح.`, 'success');
+                this.completeSmartSettlementProgress(totalUpdates, `تم تحديث ${successCount} سجل بنجاح`);
+                if (this.smartPaymentStatFilter === 'notfound') {
+                    this.smartPaymentStatFilter = 'incentive';
+                    const statusSelect = document.getElementById('smart-status-filter');
+                    if (statusSelect) statusSelect.value = 'incentive';
+                }
+                this.renderSmartPaymentResults();
+                this.hideSmartSettlementProgress();
+                this._syncDataset?.(targetCacheType, { force: true }).catch(() => {});
+            } else {
+                const msg = '\u0644\u0627 \u062a\u0648\u062c\u062f \u0642\u064a\u0645 \u0645\u062a\u0627\u062d\u0629 \u0645\u0646 Excel \u0644\u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0633\u062c\u0644\u0627\u062a \u062f\u0627\u062e\u0644 \u0627\u0644\u0641\u0644\u0627\u062a\u0631 \u0627\u0644\u062d\u0627\u0644\u064a\u0629.';
+                if (this.showToast) this.showToast(msg, 'info');
+                alert(msg);
+                this.updateSmartSettlementProgress(processedCount, totalUpdates, 'لم يتم تحديث أي سجل');
+            }
+            
+        } catch (error) {
+            console.error('[SMART] Error executing settlement:', error);
+            if (this.hideGlobalLoading) this.hideGlobalLoading();
+            if (this.showToast) this.showToast('حدث خطأ أثناء تنفيذ التسوية', 'error');
+            this.updateSmartSettlementProgress(processedCount, totalUpdates || 1, 'حدث خطأ أثناء التنفيذ');
+        } finally {
+            if (executeBtn) executeBtn.disabled = false;
+        }
     }
 
     _renderSmartSubTable(items, head, body, badge, empty) {
@@ -5567,17 +6210,22 @@ renderTable(dataToRender = null, append = false) {
             }
 
             // Target fields setup exactly as they are sent to backend
+            const returnDate = getVal(src.returnDate, src.ReturnDate);
+            const returnApprovalDate = getVal(src.returnApprovalDate, src.ReturnApprovalDate);
+            const modDate = getVal(src.modDate, src.ModDate);
+            const modApprovalDate = getVal(src.modApprovalDate, src.ModApprovalDate);
+            const settlementDate = getVal(src.settlementDate, src.SettlementDate);
             const updatePayload = {
                 BatchCode: getVal(src.batchCode, src.BatchCode),
                 NationalId: getVal(src.nationalId, src.NationalId),
                 NewAccount: getVal(src.modifiedAccount, src.ModifiedAccount),
                 NewBank: getVal(src.modifiedBank, src.ModifiedBank),
-                ReturnDate: getVal(src.returnDate, src.ReturnDate),
-                ReturnApprovalDate: getVal(src.returnApprovalDate, src.ReturnApprovalDate),
-                ModDate: getVal(src.modDate, src.ModDate),
-                ModApprovalDate: getVal(src.modApprovalDate, src.ModApprovalDate),
+                ReturnDate: this.formatDate(returnDate) || returnDate,
+                ReturnApprovalDate: this.formatDate(returnApprovalDate) || returnApprovalDate,
+                ModDate: this.formatDate(modDate) || modDate,
+                ModApprovalDate: this.formatDate(modApprovalDate) || modApprovalDate,
                 SettlementNo: getVal(src.settlementNo, src.SettlementNo),
-                SettlementDate: getVal(src.settlementDate, src.SettlementDate)
+                SettlementDate: this.formatDate(settlementDate) || settlementDate
             };
 
             // Incentive matches
@@ -5753,6 +6401,24 @@ renderTable(dataToRender = null, append = false) {
 
         if (!confirmed) return;
 
+        const idsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
+        this._removeRowsFromMemory('returns', idsToDelete);
+        this.updateSelectAllReturns?.();
+        this.showToast('تم تحديث البيانات على الشاشة', 'success');
+        this._deleteRowsInBackground(
+            'returns',
+            idsToDelete,
+            deleteId => db.deleteReturn(deleteId),
+            {
+                label: 'أرشفة السجلات',
+                progressMessage: 'جاري أرشفة السجلات في الخلفية...',
+                successMessage: 'تم تحديث البيانات',
+                errorMessage: 'تعذر أرشفة بعض السجلات'
+            }
+        );
+        return;
+
+        /*
         this.showLoading();
         try {
             const idsToDelete = Array.from(checkedBoxes).map(cb => cb.value);
@@ -5779,6 +6445,7 @@ renderTable(dataToRender = null, append = false) {
             this.hideLoading();
             this.updateSelectAllReturns();
         }
+        */
     }
 
     async deleteReturn(id) {
@@ -5794,6 +6461,21 @@ renderTable(dataToRender = null, append = false) {
             liteMode: true
         });
         if (!confirmed) return;
+        this._removeRowsFromMemory('returns', [id]);
+        this.showToast('تم تحديث البيانات على الشاشة', 'success');
+        this._deleteRowsInBackground(
+            'returns',
+            [id],
+            deleteId => db.deleteReturn(deleteId),
+            {
+                label: 'أرشفة السجل',
+                progressMessage: 'جاري أرشفة السجل في الخلفية...',
+                successMessage: 'تم تحديث البيانات',
+                errorMessage: 'تعذر أرشفة السجل'
+            }
+        );
+        return;
+        /*
         try {
             const success = await db.deleteReturn(id);
             if (success) {
@@ -5807,6 +6489,7 @@ renderTable(dataToRender = null, append = false) {
             if (error?.status === 403) this.showDeleteForbidden(error);
             else this.showToast('خطأ: ' + error.message, 'error');
         }
+        */
     }
 
     async editReturn(id) {
@@ -6120,39 +6803,32 @@ renderTable(dataToRender = null, append = false) {
             saveButton.classList.add('btn-loading');
         }
         this.isSavingReturns = true;
-        const saveStartedAt = performance.now();
-        try {
-            console.log('[SAVE FLOW][returns] start', { id: editId });
-            console.log('[SAVE FLOW][returns] before api');
-            console.time('[SAVE PERF][returns] api');
-            console.log('[SAVE PERF][returns] sending update request', { id: editId });
-            const result = await db.updateReturn(editId, changed);
-            console.timeEnd('[SAVE PERF][returns] api');
-            console.log('[SAVE FLOW][returns] after api');
-            if (result && result.success) {
-                const updatedRow = result.record || { ...merged, id: editId };
-                console.log('[SAVE FLOW][returns] before cache update');
-                console.time('[SAVE PERF][returns] cache+idb+render');
-                await this._upsertEditedCachedRow('returns', editId, updatedRow, { changedKeys: Object.keys(changed) });
-                console.timeEnd('[SAVE PERF][returns] cache+idb+render');
-                console.log('[SAVE FLOW][returns] after cache update');
-                this.showToast('\u062a\u0645 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
-                this.closeEditMainReturnModal();
-            } else {
-                this.showToast('\u0641\u0634\u0644 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644: ' + (result?.message || ''), 'error');
-            }
-        } catch (error) {
-            this.showToast('\u062e\u0637\u0623: ' + error.message, 'error');
-        } finally {
-            this.isSavingReturns = false;
-            console.log('[SAVE PERF][returns] total', Math.round(performance.now() - saveStartedAt) + 'ms');
-            console.log('[SAVE FLOW][returns] end');
-            if (saveButton) {
-                saveButton.disabled = false;
-                saveButton.classList.remove('btn-loading');
-                if (previousSaveHtml !== undefined) saveButton.innerHTML = previousSaveHtml;
-            }
-        }
+        const optimisticRow = { ...merged, id: editId };
+        this._applyEditedRowInMemory('returns', editId, optimisticRow);
+        this.renderTable?.();
+        this.closeEditMainReturnModal();
+        this.showToast('\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0641\u0648\u0631\u0627\u064b', 'success');
+        this.showToast('تم تحديث السجل على الشاشة، جاري الحفظ في الخلفية', 'success');
+        this.isSavingReturns = false;
+
+        const bg = this.beginBackgroundMutation('جاري حفظ التعديل في الخلفية...');
+        db.updateReturn(editId, changed)
+            .then(async result => {
+                if (result && result.success) {
+                    const updatedRow = result.record || optimisticRow;
+                    await this._upsertEditedCachedRow('returns', editId, updatedRow, { changedKeys: Object.keys(changed), deferRender: true });
+                    bg.success('تم تحديث البيانات');
+                    this.showToast('تم حفظ التعديل نهائياً', 'success');
+                } else {
+                    bg.error('تعذر حفظ التعديل في قاعدة البيانات: ' + (result?.message || ''));
+                    this.showToast('فشل حفظ التعديل في قاعدة البيانات: ' + (result?.message || ''), 'error');
+                }
+            })
+            .catch(error => {
+                bg.error('تعذر حفظ التعديل في الخلفية: ' + error.message);
+                this._syncDataset?.('returns', { force: true, full: true, skipCheck: true }).catch(() => {});
+                this.showToast('فشل حفظ التعديل في الخلفية: ' + error.message, 'error');
+            });
     }
 
     async deleteAllReturns() {
@@ -8443,15 +9119,40 @@ renderTable(dataToRender = null, append = false) {
         if (!val) return '';
 
         let dateObj;
+        const raw = String(val).trim();
+
+        if (!raw) return '';
 
         // Handle Excel Serial Numbers if they still come through as numbers
-        if (typeof val === 'number' && val > 20000 && val < 60000) {
-            dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
+        const numericVal = typeof val === 'number'
+            ? val
+            : (/^\d{5}(\.\d+)?$/.test(raw) ? Number(raw) : NaN);
+        if (Number.isFinite(numericVal) && numericVal > 20000 && numericVal < 60000) {
+            dateObj = new Date(Math.round((numericVal - 25569) * 86400 * 1000));
         } else if (val instanceof Date) {
             dateObj = val;
         } else {
-            // Try parsing string
-            dateObj = new Date(val);
+            const dateParts = raw.match(/^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/);
+            if (dateParts) {
+                let d, m, y;
+                if (dateParts[1].length === 4) {
+                    y = Number(dateParts[1]);
+                    m = Number(dateParts[2]);
+                    d = Number(dateParts[3]);
+                } else {
+                    d = Number(dateParts[1]);
+                    m = Number(dateParts[2]);
+                    y = Number(dateParts[3]);
+                }
+                dateObj = new Date(y, m - 1, d);
+            }
+        }
+
+        if (!dateObj) {
+            dateObj = new Date(raw);
+        } else {
+            const validParts = dateObj.getFullYear() >= 1900 && dateObj.getFullYear() <= 2100;
+            if (!validParts) return val;
         }
 
         if (isNaN(dateObj.getTime())) {
@@ -10798,27 +11499,94 @@ App.prototype.hideLoading = function () {
     if (loader) loader.classList.add('hidden');
 };
 
-App.prototype.showToast = function (message, type = 'info') {
+App.prototype.showToast = function (message, type = 'info', options = {}) {
+    const text = String(message || '');
+    let container = document.getElementById('app-toast-center');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'app-toast-center';
+        container.style.cssText = `
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2147483647;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+            width: min(460px, calc(100vw - 28px));
+        `;
+        document.body.appendChild(container);
+    }
+
+    const colors = {
+        success: { bg: '#063f32', border: '#10b981', icon: '✓' },
+        error: { bg: '#4a1015', border: '#ef4444', icon: '!' },
+        warning: { bg: '#452b09', border: '#f59e0b', icon: '!' },
+        info: { bg: '#0b2d55', border: '#3b82f6', icon: 'i' }
+    };
+    const theme = colors[type] || colors.info;
     const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', 'status');
     toast.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6'};
-        color: white;
-        padding: 12px 24px;
-        border-radius: 8px;
-        z-index: 9999;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        animation: toast-in 0.3s ease-out;
+        direction: rtl;
+        width: 100%;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 11px 14px;
+        border-radius: 10px;
+        border: 1px solid ${theme.border};
+        background: ${theme.bg};
+        color: #f8fafc;
+        box-shadow: 0 16px 35px rgba(0,0,0,.35);
+        font: 700 13px/1.5 Cairo, Tahoma, sans-serif;
+        opacity: 0;
+        transform: translateY(-10px) scale(.98);
+        transition: opacity .18s ease, transform .18s ease;
+        pointer-events: auto;
     `;
-    toast.textContent = message;
-    document.body.appendChild(toast);
+    toast.innerHTML = `
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:${theme.border};color:#06111f;font-weight:900;flex:0 0 auto;">${theme.icon}</span>
+        <span style="flex:1;min-width:0;overflow-wrap:anywhere;">${this.escapeHtml ? this.escapeHtml(text) : text}</span>
+    `;
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0) scale(1)';
+    });
+
+    const duration = Number(options.duration || (type === 'error' ? 5200 : 2600));
     setTimeout(() => {
-        toast.style.animation = 'toast-out 0.3s ease-in forwards';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px) scale(.98)';
+        setTimeout(() => toast.remove(), 220);
+    }, duration);
+};
+
+App.prototype.beginBackgroundMutation = function (message = 'جاري تحديث البيانات في الخلفية...') {
+    window.showGlobalLoading?.(message);
+    let finished = false;
+    const finish = () => {
+        if (finished) return false;
+        finished = true;
+        window.hideGlobalLoading?.();
+        return true;
+    };
+
+    return {
+        success: (successMessage = 'تم تحديث البيانات') => {
+            if (!finish()) return;
+            this.showToast(successMessage, 'success');
+        },
+        error: (errorMessage = 'تعذر تحديث البيانات') => {
+            if (!finish()) return;
+            this.showToast(errorMessage, 'error');
+        }
+    };
 };
 
 App.prototype.normalizeArabic = function (text) {
@@ -11079,17 +11847,157 @@ App.prototype.harmonizeImportedRows = function (rows) {
     });
 };
 
-App.prototype.loadFromOfflineStorage = async function () {
-    console.log('[CACHE] Initializing IndexedDB persistent storage...');
-    await Promise.all([
-        this._loadCachedDataset?.('returns'),
-        this._loadCachedDataset?.('salary')
-    ]);
-    this.startBackgroundSync();
-    await this.refreshSearchFilterIndex().catch(e => console.warn('[SearchIndex] initial load failed:', e));
+App.prototype.buildLocalDashboardData = function () {
+    const salaryRows = Array.isArray(this.salaryReturnsCache) ? this.salaryReturnsCache : [];
+    const returnRows = Array.isArray(this.returnsCache) ? this.returnsCache : [];
+    if (!salaryRows.length && !returnRows.length) return null;
+
+    const filters = this.getDashboardFilters?.() || {};
+    const selectedMonth = filters.month && filters.month !== 'all' ? filters.month : null;
+    const selectedSource = filters.source && filters.source !== 'all' ? filters.source : 'all';
+    const selectedStatus = filters.status && filters.status !== 'all' ? String(filters.status).toLowerCase() : null;
+
+    const amountOf = (row, type) => {
+        if (Number.isFinite(Number(row?._amount))) return Number(row._amount);
+        const value = type === 'salary'
+            ? this.getUnifiedSalaryAmountValue?.(row)
+            : this.findValue?.(row, ['قيمة العملية', 'المبلغ', 'ProcessValue', 'Amount', 'amount', 'Transaction Amount', 'Transaction Value']);
+        return this.parseAmount ? this.parseAmount(value) : Number(value || 0);
+    };
+    const monthOf = (row, type) => type === 'salary'
+        ? (this._extractMonthFromRow?.(row) || 'فارغ')
+        : (this._getMonthFilterValue?.(row) || 'فارغ');
+    const isSettled = row => {
+        if (row?._isSettled === true) return true;
+        const val = row?.['رقم تسوية السداد'] ?? row?.SettlementNo ?? row?.settlementNo ?? row?.['حالة التسوية'];
+        return val !== null && val !== undefined && String(val).trim() !== '' && !/لم|not/i.test(String(val));
+    };
+    const statusOf = row => String(row?._normStatus || row?.['الحالة'] || row?.Status || row?.ReturnStatus || '').toLowerCase();
+    const includeRow = (row, type) => {
+        if (selectedSource === 'salary' && type !== 'salary') return false;
+        if ((selectedSource === 'incentive' || selectedSource === 'returns') && type !== 'returns') return false;
+        if (selectedMonth && monthOf(row, type) !== selectedMonth) return false;
+        if (selectedStatus) {
+            const settled = isSettled(row);
+            const status = statusOf(row);
+            if (selectedStatus.includes('unsettled') && settled) return false;
+            else if (selectedStatus.includes('settled') && !settled) return false;
+            if (selectedStatus.includes('returned') && !/مرتد|return/.test(status)) return false;
+            if (selectedStatus.includes('rejected') && !/مرفوض|reject/.test(status)) return false;
+        }
+        return true;
+    };
+
+    const typedRows = [
+        ...salaryRows.filter(row => includeRow(row, 'salary')).map(row => ({ row, type: 'salary' })),
+        ...returnRows.filter(row => includeRow(row, 'returns')).map(row => ({ row, type: 'returns' }))
+    ];
+    const summary = {
+        salaryCount: typedRows.filter(x => x.type === 'salary').length,
+        incentiveCount: typedRows.filter(x => x.type === 'returns').length,
+        totalAmount: 0,
+        paidAmount: 0,
+        accruedAmount: 0,
+        pendingAmount: 0,
+        pendingCount: 0,
+        settledCount: 0,
+        returnedCount: 0,
+        rejectedCount: 0,
+        archiveCount: 0,
+        todayCount: 0,
+        thisMonthCount: 0
+    };
+
+    const byMonth = new Map();
+    const amountByMonth = new Map();
+    typedRows.forEach(({ row, type }) => {
+        const amount = amountOf(row, type);
+        const settled = isSettled(row);
+        const status = statusOf(row);
+        const month = monthOf(row, type) || 'فارغ';
+        summary.totalAmount += amount;
+        if (settled) {
+            summary.settledCount++;
+            summary.paidAmount += amount;
+        } else {
+            summary.pendingCount++;
+            summary.pendingAmount += amount;
+        }
+        if (/مرتد|return/.test(status)) summary.returnedCount++;
+        if (/مرفوض|reject/.test(status)) summary.rejectedCount++;
+        if (!byMonth.has(month)) byMonth.set(month, { month, salary: 0, incentive: 0 });
+        byMonth.get(month)[type === 'salary' ? 'salary' : 'incentive']++;
+        amountByMonth.set(month, (amountByMonth.get(month) || 0) + amount);
+    });
+
+    const sortByMonth = (a, b) => String(a.month || a[0]).localeCompare(String(b.month || b[0]));
+    return {
+        summary,
+        charts: {
+            returnedRejected: [
+                { metric: 'returned', label: 'Returned', value: summary.returnedCount },
+                { metric: 'rejected', label: 'Rejected', value: summary.rejectedCount }
+            ],
+            sourceByMonth: Array.from(byMonth.values()).sort(sortByMonth).slice(-12),
+            amountByMonth: Array.from(amountByMonth.entries()).map(([month, value]) => ({ month, value })).sort(sortByMonth).slice(-12),
+            settlement: [
+                { metric: 'paid', label: 'تم التسوية', value: summary.settledCount, amount: summary.paidAmount },
+                { metric: 'unsettled', label: 'تحت التسوية', value: summary.pendingCount, amount: summary.pendingAmount }
+            ],
+            archives: []
+        }
+    };
 };
 
-const AUTO_SYNC_INTERVAL_MS = 60000;
+App.prototype.refreshDashboardFromServer = function () {
+    const now = Date.now();
+    if (this._dashboardServerRefreshAt && now - this._dashboardServerRefreshAt < 60000) return;
+    this._dashboardServerRefreshAt = now;
+    setTimeout(async () => {
+        if (this.currentPage !== 'dashboard') return;
+        try {
+            const query = this.dashboardQuery?.() || '';
+            const [summaryResponse, chartsResponse] = await Promise.all([
+                db.fetchApi(`/api/dashboard/summary?${query}`, { timeout: 5000, __skipLoadingWrapper: true, __suppressErrorLog: true }),
+                db.fetchApi(`/api/dashboard/charts?${query}`, { timeout: 5000, __skipLoadingWrapper: true, __suppressErrorLog: true })
+            ]);
+            this.dashboardSummary = summaryResponse.summary || this.dashboardSummary || {};
+            this.dashboardCharts = chartsResponse.charts || this.dashboardCharts || {};
+            this.renderDashboardSummary(this.dashboardSummary);
+            this.renderDashboardCharts(this.dashboardCharts);
+            this.setDashboardState?.('', '');
+        } catch (error) {
+            console.warn('[Dashboard] Background refresh skipped:', error?.message || error);
+        }
+    }, 8000);
+};
+
+App.prototype.loadFromOfflineStorage = async function () {
+    if (this._offlineStorageLoadedPromise) return this._offlineStorageLoadedPromise;
+
+    this._offlineStorageLoadedPromise = (async () => {
+        console.log('[CACHE] Loading IndexedDB snapshot first...');
+        await Promise.all([
+            this._loadCachedDataset?.('returns'),
+            this._loadCachedDataset?.('salary')
+        ]);
+        this._offlineStorageLoaded = true;
+
+        this.ensureOfflineCacheIdentity()
+            .catch(e => console.warn('[CACHE] identity check deferred/failed:', e))
+            .finally(() => {
+                this.startBackgroundSync();
+                this.refreshSearchFilterIndex?.().catch(e => console.warn('[SearchIndex] background refresh failed:', e));
+            });
+
+        return true;
+    })();
+
+    return this._offlineStorageLoadedPromise;
+};
+
+const AUTO_SYNC_INTERVAL_MS = 120000;
+const HK_CACHE_IDENTITY_KEY = 'hk_cache_identity_v1';
 const HK_SYNC_CACHE = {
     returns: {
         dataKey: 'returns_data_v4',
@@ -11115,6 +12023,85 @@ const HK_SYNC_CACHE = {
         changes: since => db.getFullReturnChanges(since),
         sync: since => db.syncFullReturns(since)
     }
+};
+
+App.prototype.ensureOfflineCacheIdentity = async function () {
+    try {
+        const config = await db.fetchApi('/config', {
+            __skipLoadingWrapper: true,
+            __suppressErrorLog: true
+        });
+        const identity = [
+            window.location.origin,
+            config?.DatabasePath || config?.databasePath || '',
+            config?.ActiveImportId ?? config?.activeImportId ?? '',
+            config?.ActiveSalaryImportId ?? config?.activeSalaryImportId ?? ''
+        ].join('|');
+        if (!identity.trim()) return;
+
+        const previous = await db.getLocalCache(HK_CACHE_IDENTITY_KEY).catch(() => null);
+        let hasLegacyRows = false;
+        if (!previous) {
+            for (const cfg of Object.values(HK_SYNC_CACHE)) {
+                const cachedRows = await db.getLocalCache(cfg.dataKey).catch(() => null);
+                if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+                    hasLegacyRows = true;
+                    break;
+                }
+            }
+        }
+        if ((previous && previous !== identity) || hasLegacyRows) {
+            console.warn('[CACHE] Database identity changed. Clearing stale offline rows.');
+            for (const cfg of Object.values(HK_SYNC_CACHE)) {
+                await db.clearLocalCache(cfg.dataKey).catch(() => {});
+                await db.clearLocalCache(cfg.metaKey).catch(() => {});
+                await db.clearLocalCacheRowPatches?.(cfg.dataKey).catch(() => {});
+            }
+            this.returnsCache = null;
+            this.salaryReturnsCache = null;
+            this.fullReturnsCache = null;
+            this.data = [];
+            this.salaryReturnsData = [];
+            this._returnsLastSyncAttemptAt = 0;
+            this._salaryLastSyncAttemptAt = 0;
+            this._fullLastSyncAttemptAt = 0;
+        }
+        await db.setLocalCache(HK_CACHE_IDENTITY_KEY, identity).catch(() => {});
+    } catch (error) {
+        console.warn('[CACHE] Unable to verify database identity:', error);
+    }
+};
+
+App.prototype._applyDerivedSettlementStatus = function (row) {
+    if (!row) return row;
+    const settlementKeys = [
+        '\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f',
+        '\u0631\u0642\u0645 \u0627\u0633\u062a\u0645\u0627\u0631\u0629 \u0627\u0639\u0627\u062f\u0629 \u0627\u0644\u062a\u062d\u0648\u064a\u0644 / \u0627\u0644\u062a\u0633\u0648\u064a\u0629',
+        'SettlementNo',
+        'settlementNo',
+        'PaymentSettlementNo'
+    ];
+    const statusKeys = [
+        '\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u0648\u064a\u0629',
+        'SettlementStatus',
+        'settlementStatus'
+    ];
+
+    const settlementNo = this.findValue ? this.findValue(row, settlementKeys) : settlementKeys.map(k => row[k]).find(Boolean);
+    const hasSettlement = settlementNo !== null && settlementNo !== undefined && String(settlementNo).trim() !== '';
+    const status = hasSettlement ? '\u062a\u0645 \u0627\u0644\u062a\u0633\u0648\u064a\u0629' : '\u0644\u0645 \u064a\u062a\u0645 \u0627\u0644\u062a\u0633\u0648\u064a\u0629';
+
+    row['\u062d\u0627\u0644\u0629 \u0627\u0644\u062a\u0633\u0648\u064a\u0629'] = status;
+    row.SettlementStatus = status;
+    row.settlementStatus = status;
+    row._isSettled = hasSettlement;
+
+    const standardSettlementKey = '\u0631\u0642\u0645 \u062a\u0633\u0648\u064a\u0629 \u0627\u0644\u0633\u062f\u0627\u062f';
+    if ((row[standardSettlementKey] === undefined || row[standardSettlementKey] === null || String(row[standardSettlementKey]).trim() === '') && hasSettlement) {
+        row[standardSettlementKey] = settlementNo;
+    }
+
+    return row;
 };
 
 App.prototype._preprocessReturnCacheRows = function (rows) {
@@ -11170,7 +12157,8 @@ App.prototype._preprocessCachedRows = function (type, rows) {
             return row;
         });
     }
-    return type === 'salary' ? this._preprocessSalaryCacheRows(rows) : this._preprocessReturnCacheRows(rows);
+    const processedRows = type === 'salary' ? this._preprocessSalaryCacheRows(rows) : this._preprocessReturnCacheRows(rows);
+    return processedRows.map(row => this._applyDerivedSettlementStatus(row));
 };
 
 App.prototype._stripEditableTechnicalFields = function (row) {
@@ -11205,6 +12193,129 @@ App.prototype._rowEditAffectsFilters = function (changedKeys = []) {
     return (changedKeys || []).some(key => {
         const normalized = String(key || '').toLowerCase().replace(/\s+/g, '');
         return needles.some(needle => normalized.includes(needle));
+    });
+};
+
+App.prototype._applyEditedRowInMemory = function (type, id, updatedRow) {
+    const processed = this._preprocessCachedRows(type, [{ ...(updatedRow || {}), id }])[0];
+    if (!processed) return null;
+
+    const updateArray = (rows) => {
+        if (!Array.isArray(rows)) return;
+        const idx = rows.findIndex(row => String(row?.id ?? row?.Id) === String(id));
+        if (idx >= 0) {
+            if (processed.AttachmentCount === undefined && rows[idx].AttachmentCount !== undefined) {
+                processed.AttachmentCount = rows[idx].AttachmentCount;
+            }
+            rows[idx] = processed;
+        } else {
+            rows.push(processed);
+        }
+    };
+
+    const cfg = HK_SYNC_CACHE[type];
+    if (cfg && Array.isArray(this[cfg.cacheProp])) updateArray(this[cfg.cacheProp]);
+
+    if (type === 'salary') {
+        updateArray(this.salaryReturnsData);
+        updateArray(this.filteredSalaryReturns);
+    } else {
+        updateArray(this.data);
+        updateArray(this.filteredReturns);
+    }
+
+    return processed;
+};
+
+App.prototype._removeRowsFromMemory = function (type, ids, options = {}) {
+    const idSet = new Set((Array.isArray(ids) ? ids : [ids]).map(id => String(id)));
+    const cfg = HK_SYNC_CACHE[type];
+    let removed = 0;
+
+    const removeFrom = (rows) => {
+        if (!Array.isArray(rows)) return 0;
+        let count = 0;
+        for (let i = rows.length - 1; i >= 0; i--) {
+            const rowId = rows[i]?.id ?? rows[i]?.Id ?? rows[i]?.ID;
+            if (idSet.has(String(rowId))) {
+                rows.splice(i, 1);
+                count++;
+            }
+        }
+        return count;
+    };
+
+    if (cfg) removed += removeFrom(this[cfg.cacheProp]);
+
+    if (type === 'salary') {
+        removeFrom(this.salaryReturnsData);
+        removeFrom(this.filteredSalaryReturns);
+        idSet.forEach(id => this.selectedSalaryReturns?.delete?.(id));
+        if (!options.deferRender) {
+            if (this.handleLocalSalarySearch) {
+                this.handleLocalSalarySearch(
+                    this.salarySearchQuery || '',
+                    this.salaryAttachmentFilterValue || 'all',
+                    this.salaryPagination?.currentPage || this.paginationSalary?.currentPage || 1,
+                    this.rowsPerPage || 50,
+                    false
+                );
+            } else {
+                this.renderSalaryTable?.();
+            }
+        }
+    } else {
+        removeFrom(this.data);
+        removeFrom(this.filteredReturns);
+        idSet.forEach(id => this.selectedReturns?.delete?.(id));
+        if (!options.deferRender) {
+            if (this.handleLocalSearch) {
+                this.handleLocalSearch(
+                    this.searchQuery || '',
+                    this.filterValue || '',
+                    this.attachmentFilterValue || 'all',
+                    this.pagination?.currentPage || 1,
+                    this.rowsPerPage || 50,
+                    false
+                );
+            } else {
+                this.filterAndRenderTable?.();
+            }
+        }
+    }
+
+    if (cfg && Array.isArray(this[cfg.cacheProp])) {
+        db.setLocalCache(cfg.dataKey, this[cfg.cacheProp]).catch(e => console.warn(`[CACHE][${type}] local delete save failed`, e));
+        idSet.forEach(id => {
+            db.setLocalCacheRowPatch?.(cfg.dataKey, id, { id, _deleted: true }).catch(() => {});
+        });
+    }
+
+    return removed;
+};
+
+App.prototype._deleteRowsInBackground = function (type, ids, deleteFn, options = {}) {
+    const idList = (Array.isArray(ids) ? ids : [ids]).filter(id => id !== undefined && id !== null);
+    if (!idList.length) return;
+
+    const label = options.label || 'تحديث البيانات';
+    const bg = this.beginBackgroundMutation(options.progressMessage || `جاري ${label} في الخلفية...`);
+
+    (async () => {
+        let successCount = 0;
+        for (const id of idList) {
+            const result = await deleteFn(id);
+            if (result !== false) successCount++;
+        }
+        if (successCount === idList.length) {
+            bg.success(options.successMessage || 'تم تحديث البيانات');
+        } else {
+            throw new Error(`تم تنفيذ ${successCount} من ${idList.length}`);
+        }
+    })().catch(error => {
+        console.error(`[BACKGROUND][${type}] delete failed:`, error);
+        bg.error(options.errorMessage || 'تعذر تحديث البيانات، جاري إعادة المزامنة');
+        this._syncDataset?.(type, { force: true, full: true, skipCheck: true }).catch(() => {});
     });
 };
 
@@ -11243,6 +12354,7 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow, opt
     const changedKeys = options.changedKeys || [];
     const filtersAffected = this._rowEditAffectsFilters(changedKeys);
     const shouldRequeryCurrentView = filtersAffected || this._hasActiveRowFilters(type);
+    const deferRender = options.deferRender === true;
 
     const updateArray = (rows) => {
         if (!Array.isArray(rows)) return false;
@@ -11271,6 +12383,7 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow, opt
     if (type === 'salary') {
         updateArray(this.salaryReturnsData);
         updateArray(this.filteredSalaryReturns);
+        if (deferRender) return processed;
         if (filtersAffected) this._populateSalaryReturnFilterOptions(cacheRows || this.salaryReturnsData || []);
         if (cacheRows && this.handleLocalSalarySearch && shouldRequeryCurrentView) {
             this.handleLocalSalarySearch(
@@ -11289,6 +12402,7 @@ App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow, opt
     updateArray(this.data);
     updateArray(this.filteredReturns);
     if (type === 'returns') console.log('[SAVE FLOW][returns] before render');
+    if (deferRender) return processed;
     if (type === 'returns') console.time('[SAVE PERF][returns] filters+render');
     if (filtersAffected) this._populateReturnFilterOptions(cacheRows || this.data || []);
     if (cacheRows && this.handleLocalSearch && shouldRequeryCurrentView) {
@@ -11318,7 +12432,9 @@ App.prototype._loadCachedDataset = async function (type) {
         const byId = new Map(cached.map(row => [String(row?.id ?? row?.Id), row]));
         patches.forEach(row => {
             const rowId = String(row?.id ?? row?.Id ?? '');
-            if (rowId) byId.set(rowId, row);
+            if (!rowId) return;
+            if (row._deleted) byId.delete(rowId);
+            else byId.set(rowId, row);
         });
         this[cfg.cacheProp] = this._preprocessCachedRows(type, Array.from(byId.values()));
         console.log(`[SYNC][${type}] Loaded from cache: ${this[cfg.cacheProp].length}`);
@@ -11386,6 +12502,16 @@ App.prototype._syncDataset = async function (type, options = {}) {
         return;
     }
     if (this[`_${type}Syncing`] && !options.force) return;
+
+    if (!options.force && !options.full && !options.forceSave) {
+        const throttleKey = `_${type}LastSyncAttemptAt`;
+        const now = Date.now();
+        if (this[throttleKey] && now - this[throttleKey] < 15000) {
+            return;
+        }
+        this[throttleKey] = now;
+    }
+
     this[`_${type}Syncing`] = true;
 
     try {
@@ -11423,22 +12549,41 @@ App.prototype._syncDataset = async function (type, options = {}) {
             this._refreshSyncedDatasetView(type);
         }
     } catch (e) {
-        console.error(`[SYNC][${type}] Sync failed:`, e);
+        if (e?.isTimeout) {
+            this[`_${type}LastSyncAttemptAt`] = Date.now() + 45000;
+            console.info(`[SYNC][${type}] Background sync postponed: server is busy`);
+        } else {
+            console.warn(`[SYNC][${type}] Background sync skipped:`, e?.message || e);
+        }
     } finally {
         this[`_${type}Syncing`] = false;
     }
 };
 
+App.prototype.runBackgroundSyncCycle = async function () {
+    if (this._backgroundSyncCycleRunning) return;
+    this._backgroundSyncCycleRunning = true;
+    try {
+        await this._syncDataset('returns').catch(() => {});
+        await this._syncDataset('salary').catch(() => {});
+        if (this.currentPage === 'full-returns') {
+            await this._syncDataset('full').catch(() => {});
+        }
+    } finally {
+        this._backgroundSyncCycleRunning = false;
+    }
+};
+
 App.prototype.startBackgroundSync = async function () {
-    this._syncDataset('returns').catch(() => {});
-    this._syncDataset('salary').catch(() => {});
-    if (this.currentPage === 'full-returns') this._syncDataset('full').catch(() => {});
+    if (!this._initialBackgroundSyncTimer) {
+        this._initialBackgroundSyncTimer = setTimeout(() => {
+            this.runBackgroundSyncCycle?.();
+        }, 12000);
+    }
     if (this._autoSyncTimer) return;
     this._autoSyncTimer = setInterval(() => {
         if (document.hidden) return;
-        this._syncDataset('returns').catch(() => {});
-        this._syncDataset('salary').catch(() => {});
-        if (this.currentPage === 'full-returns') this._syncDataset('full').catch(() => {});
+        this.runBackgroundSyncCycle?.();
     }, AUTO_SYNC_INTERVAL_MS);
 };
 
@@ -12184,6 +13329,7 @@ App.prototype.getSalaryField = function (row, fieldName, fallbacks = []) {
 };
 
 App.prototype.getSalaryCellValue = function (row, header, rowIndex = 0, options = {}) {
+    if (row && this._applyDerivedSettlementStatus) this._applyDerivedSettlementStatus(row);
     const offset = Number(options.offset || 0);
     let val = this.getSalaryField(row, header);
 
@@ -12465,6 +13611,25 @@ App.prototype.deleteSelectedSalaryReturns = async function () {
 
     const isConfirm = await window.confirm(`هل أنت متأكد من أرشفة ${checkedBoxes.length} سجل من المرتبات؟ سيتم إخفاؤها من هنا وبقاؤها في الأرشيف.`);
     if (isConfirm) {
+        const ids = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+        this._removeRowsFromMemory('salary', ids);
+        const btn = document.getElementById('btn-salary-delete-selected');
+        if (btn) btn.style.display = 'none';
+        this.showToast('تم تحديث البيانات على الشاشة', 'success');
+        this._deleteRowsInBackground(
+            'salary',
+            ids,
+            deleteId => db.deleteSalaryReturn(deleteId),
+            {
+                label: 'أرشفة سجلات المرتبات',
+                progressMessage: 'جاري أرشفة سجلات المرتبات في الخلفية...',
+                successMessage: 'تم تحديث البيانات',
+                errorMessage: 'تعذر أرشفة بعض سجلات المرتبات'
+            }
+        );
+        return;
+
+        /*
         this.showLoading();
         try {
             const ids = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
@@ -12481,6 +13646,7 @@ App.prototype.deleteSelectedSalaryReturns = async function () {
         } finally {
             this.hideLoading();
         }
+        */
     }
 };
 
@@ -13174,6 +14340,22 @@ App.prototype.exportSalaryToExcel = async function () {
 App.prototype.deleteSalaryReturn = async function (id) {
     const isConfirm = await window.confirm("هل أنت متأكد من حذف هذا السجل للمرتبات؟");
     if (isConfirm) {
+        this._removeRowsFromMemory('salary', [id]);
+        this.showToast('تم تحديث البيانات على الشاشة', 'success');
+        this._deleteRowsInBackground(
+            'salary',
+            [id],
+            deleteId => db.deleteSalaryReturn(deleteId),
+            {
+                label: 'أرشفة سجل المرتبات',
+                progressMessage: 'جاري أرشفة سجل المرتبات في الخلفية...',
+                successMessage: 'تم تحديث البيانات',
+                errorMessage: 'تعذر أرشفة سجل المرتبات'
+            }
+        );
+        return;
+
+        /*
         this.showLoading();
         try {
             await db.deleteSalaryReturn(id);
@@ -13184,6 +14366,7 @@ App.prototype.deleteSalaryReturn = async function (id) {
         } finally {
             this.hideLoading();
         }
+        */
     }
 };
 
@@ -13333,22 +14516,38 @@ App.prototype.saveEditSalaryReturn = async function() {
         return;
     }
 
-    this.showLoading();
-    try {
-        const result = await db.updateSalaryReturn(id, changedData);
-        if (result && result.success) {
-            const updatedRow = result.record || { ...mergedData, id: id };
-            await this._upsertEditedCachedRow('salary', id, updatedRow, { changedKeys: Object.keys(changedData) });
-            this.showToast('\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
-            this.closeEditSalaryModal();
-        } else {
-            throw new Error(result?.message || '\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u062f\u064a\u062b');
-        }
-    } catch (e) {
-        this.showToast(e.message, 'error');
-    } finally {
-        this.hideLoading();
+    const saveBtn = overlay.querySelector('button.btn-primary');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.classList.add('btn-loading');
+        saveBtn.textContent = 'جاري الحفظ...';
     }
+
+    const optimisticRow = { ...mergedData, id };
+    this._applyEditedRowInMemory('salary', id, optimisticRow);
+    this.renderSalaryTable?.();
+    this.closeEditSalaryModal();
+    this.showToast('\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0641\u0648\u0631\u0627\u064b', 'success');
+    this.showToast('تم تحديث السجل على الشاشة، جاري الحفظ في الخلفية', 'success');
+
+    const bg = this.beginBackgroundMutation('جاري حفظ التعديل في الخلفية...');
+    db.updateSalaryReturn(id, changedData)
+        .then(async result => {
+            if (result && result.success) {
+                const updatedRow = result.record || optimisticRow;
+                await this._upsertEditedCachedRow('salary', id, updatedRow, { changedKeys: Object.keys(changedData), deferRender: true });
+                bg.success('تم تحديث البيانات');
+                this.showToast('تم حفظ التعديل نهائياً', 'success');
+            } else {
+                bg.error('تعذر حفظ التعديل في قاعدة البيانات: ' + (result?.message || ''));
+                throw new Error(result?.message || '\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u062f\u064a\u062b');
+            }
+        })
+        .catch(e => {
+            bg.error('تعذر حفظ التعديل في الخلفية: ' + e.message);
+            this._syncDataset?.('salary', { force: true, full: true, skipCheck: true }).catch(() => {});
+            this.showToast('فشل حفظ التعديل في الخلفية: ' + e.message, 'error');
+        });
 };
 
 App.prototype.showSalaryImportModal = function () {
@@ -14787,13 +15986,17 @@ App.prototype.viewAdabirDetails = async function(id) {
     const originalLoadFullReturns = App.prototype.loadFullReturns;
 
     App.prototype.loadReturns = async function(page = 1, pageSize = 50, search = '', filter = '', attachmentStatus = 'all', append = false) {
-        if (!append && (!this.returnsCache || this.returnsCache.length === 0)) {
-            const loaded = await this._loadCachedDataset?.('returns');
-            if (loaded) {
-                this.handleLocalSearch(search, filter, attachmentStatus, page, pageSize, append);
+        if (!append) {
+            if (!Array.isArray(this.returnsCache) || this.returnsCache.length === 0) {
+                await this._loadCachedDataset?.('returns');
+            }
+
+            if (Array.isArray(this.returnsCache) && this.returnsCache.length > 0) {
+                console.log('[LOCAL-FIRST][returns] Rendering from IndexedDB cache');
+                this.handleLocalSearch(search || '', filter || '', attachmentStatus || 'all', page, pageSize, append);
                 this._syncDataset?.('returns').catch(() => {});
                 this.startBackgroundSync?.();
-                return;
+                return { source: 'indexeddb', count: this.returnsCache.length };
             }
         }
 
@@ -14803,13 +16006,17 @@ App.prototype.viewAdabirDetails = async function(id) {
     };
 
     App.prototype.loadSalaryReturns = async function(page = 1, pageSize = 50, search = '', append = false) {
-        if (!append && (!this.salaryReturnsCache || this.salaryReturnsCache.length === 0)) {
-            const loaded = await this._loadCachedDataset?.('salary');
-            if (loaded) {
-                this.handleLocalSalarySearch(search, this.salaryAttachmentFilterValue || 'all', page, pageSize, append);
+        if (!append) {
+            if (!Array.isArray(this.salaryReturnsCache) || this.salaryReturnsCache.length === 0) {
+                await this._loadCachedDataset?.('salary');
+            }
+
+            if (Array.isArray(this.salaryReturnsCache) && this.salaryReturnsCache.length > 0) {
+                console.log('[LOCAL-FIRST][salary] Rendering from IndexedDB cache');
+                this.handleLocalSalarySearch(search || '', this.salaryAttachmentFilterValue || 'all', page, pageSize, append);
                 this._syncDataset?.('salary').catch(() => {});
                 this.startBackgroundSync?.();
-                return;
+                return { source: 'indexeddb', count: this.salaryReturnsCache.length };
             }
         }
 

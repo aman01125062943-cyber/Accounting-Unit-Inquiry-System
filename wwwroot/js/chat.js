@@ -339,7 +339,9 @@ class ChatModule {
             console.log("[Chat] SignalR Reconnected:", connectionId);
             window.app?.updateSignalRUI('online');
             // Re-register user after reconnection
-            this.hubConnection.invoke("RegisterUser", parseInt(this.currentUser.id)).catch(err => console.error(err));
+            this.hubConnection.invoke("RegisterUser", parseInt(this.currentUser.id))
+                .then(() => this.joinAllConversationGroups())
+                .catch(err => console.error(err));
         });
 
         this.hubConnection.onclose((error) => {
@@ -488,12 +490,29 @@ class ChatModule {
             console.log("[Chat] SignalR Connected");
             window.app?.updateSignalRUI('online');
             await this.hubConnection.invoke("RegisterUser", parseInt(this.currentUser.id));
+            await this.joinAllConversationGroups();
         } catch (err) {
             console.error("[Chat] SignalR Error:", err.toString());
             window.app?.updateSignalRUI('offline');
             // Retry after 5 secs
             setTimeout(() => this.startHub(), 5000);
         }
+    }
+
+    async joinConversationGroup(conversationId) {
+        if (!conversationId || !this.hubConnection || this.hubConnection.state !== "Connected") return;
+        try {
+            await this.hubConnection.invoke("JoinConversation", Number(conversationId));
+        } catch (err) {
+            console.error('[Chat] Failed to join conversation group', err);
+        }
+    }
+
+    async joinAllConversationGroups() {
+        if (!this.hubConnection || this.hubConnection.state !== "Connected") return;
+        const ids = new Set((this.conversations || []).map(c => c.id).filter(Boolean));
+        if (this.currentConversationId) ids.add(this.currentConversationId);
+        await Promise.all(Array.from(ids).map(id => this.joinConversationGroup(id)));
     }
 
     async loadUsers() {
@@ -533,9 +552,7 @@ class ChatModule {
                 
                 // الانضمام لغرف المحادثات في SignalR
                 if (this.hubConnection && this.hubConnection.state === "Connected") {
-                    this.conversations.forEach(c => {
-                        this.hubConnection.invoke("JoinConversation", c.id).catch(err => console.error(err));
-                    });
+                    this.joinAllConversationGroups();
                 }
             }
         } catch (e) {
@@ -673,6 +690,7 @@ class ChatModule {
         this.currentConversationId = convId;
         this.currentOtherUserId = otherUserId;
         this.startPolling();
+        this.joinConversationGroup(convId);
         
         // تحديث الواجهة
         if (this.elements.emptyState) this.elements.emptyState.style.display = 'none';

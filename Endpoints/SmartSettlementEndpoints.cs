@@ -37,8 +37,8 @@ public static class SmartSettlementEndpoints
                 var dbIncentives = new List<SettlementDBRecord>();
                 if (dataType == "الكل" || dataType == "incentive") {
                     string incSql = string.IsNullOrEmpty(monthFilter) 
-                        ? "SELECT Id, ReturnCode, RawData FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0" 
-                        : "SELECT Id, ReturnCode, RawData FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
+                        ? "SELECT Id, ReturnCode, RawData, [رقم تسوية السداد] AS DB_SettlementNo FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0" 
+                        : "SELECT Id, ReturnCode, RawData, [رقم تسوية السداد] AS DB_SettlementNo FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
                     
                     string likeParam = $"%-{monthFilter}%";
                     string rawParam = $"%{monthFilter}%";
@@ -50,8 +50,8 @@ public static class SmartSettlementEndpoints
                 var dbSalaries = new List<SettlementDBRecord>();
                 if (dataType == "الكل" || dataType == "salary") {
                     string salSql = string.IsNullOrEmpty(monthFilter) 
-                        ? "SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0" 
-                        : "SELECT Id, ReturnCode, RawData FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
+                        ? "SELECT Id, ReturnCode, RawData, [رقم تسوية السداد] AS DB_SettlementNo FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0" 
+                        : "SELECT Id, ReturnCode, RawData, [رقم تسوية السداد] AS DB_SettlementNo FROM SalaryReturns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 AND (ReturnCode LIKE @LikeParam OR RawData LIKE @RawParam)";
 
                     string likeParam = $"%-{monthFilter}%";
                     string rawParam = $"%{monthFilter}%";
@@ -62,15 +62,16 @@ public static class SmartSettlementEndpoints
                 foreach(var excelRow in request.Records) {
                     var item = new MatchResultItem { SourceExcelRow = excelRow };
                     
-                    // Fix: Use CleanArabic on matchBy to correctly identify "الاسم" or "الاســــم" selection
-                    if (DatabaseService.CleanArabic(matchBy ?? "") == "الاسم") {
+                    // Fix: Check if matchBy is "name" or "الاسم"
+                    string cleanMatchBy = (matchBy ?? "").Trim().ToLower();
+                    if (cleanMatchBy == "name" || cleanMatchBy == "الاسم" || DatabaseService.CleanArabic(cleanMatchBy) == "الاسم") {
                         string cleanExcelName = DatabaseService.CleanArabic(excelRow.Name?.ToString() ?? "");
                         if (!string.IsNullOrEmpty(cleanExcelName)) {
                             // Priority: Strict Exact Match
                             item.Matches = dbIncentives.Where(d => DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName).ToList();
                             item.SalaryMatches = dbSalaries.Where(d => DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName).ToList();
                         }
-                    } else { // الرقم القومي
+                    } else { // الرقم القومي (nid)
                         // Clean the National ID from Excel to match the cleaned DB format (digits only)
                         string nId = System.Text.RegularExpressions.Regex.Replace(excelRow.NationalId?.ToString() ?? "", @"[^\d]", "");
                         if(!string.IsNullOrEmpty(nId)) {
@@ -102,6 +103,7 @@ public static class SmartSettlementEndpoints
 
                 string incUpdateSql = @"UPDATE Returns
                                SET ReturnCode = COALESCE(@BatchCode, ReturnCode),
+                                   [رقم تسوية السداد] = @SettlementNo,
                                    UpdatedAt = @UpdatedAt,
                                    RawData = json_set(COALESCE(NULLIF(RawData, ''), '{}'),
                                        '$.""رقم الحساب بعد التعديل""', @NewAccount,
@@ -118,6 +120,7 @@ public static class SmartSettlementEndpoints
 
                 string salUpdateSql = @"UPDATE SalaryReturns
                                SET ReturnCode = COALESCE(@BatchCode, ReturnCode),
+                                   [رقم تسوية السداد] = @SettlementNo,
                                    UpdatedAt = @UpdatedAt,
                                    RawData = json_set(COALESCE(NULLIF(RawData, ''), '{}'),
                                        '$.""رقم الحساب بعد التعديل""', @NewAccount,
@@ -302,8 +305,11 @@ public static class SmartSettlementEndpoints
             record.ReturnApprovalDate = GetJsonVal("تاريخ اعتماد المرتدات", "تاريخ اعتماد المرتد", "تاريخ الاعتماد", "تاريخ_الاعتماد", "ApprovalDate");
             record.ModDate = GetJsonVal("تاريخ التعديل", "تاريخ_التعديل", "ModDate");
             record.ModApprovalDate = GetJsonVal("تاريخ اعتماد التعديل", "تاريخ_اعتماد_التعديل", "ModApprovalDate");
-            record.SettlementNo = GetJsonVal("رقم تسوية السداد", "رقم التسوية", "رقم_التسوية", "SettlementNo", "Settlement Number");
-            record.SettlementDate = GetJsonVal("تاريخ تسوية السداد", "تاريخ التسوية", "تاريخ_التسوية", "SettlementDate", "Settlement Date");
+            string? dbSNo = null;
+            try { dbSNo = row.DB_SettlementNo?.ToString(); } catch {}
+            record.SettlementNo = !string.IsNullOrEmpty(dbSNo) ? dbSNo.Trim() : GetJsonVal("رقم تسوية السداد", "رقم التسوية", "رقم_التسوية", "SettlementNo", "Settlement Number");
+            
+            record.SettlementDate = GetJsonVal("تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ تسوية السداد", "تاريخ التسوية", "تاريخ_التسوية", "SettlementDate", "Settlement Date");
 
             
             record.Month = DatabaseService.NormalizeMonthText(GetJsonVal("الشهر", "شهر", "حافز شهر", "الدفعة", "Month", "MonthCode"));

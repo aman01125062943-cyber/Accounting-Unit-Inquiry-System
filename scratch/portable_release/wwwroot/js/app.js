@@ -1,4 +1,4 @@
-﻿
+
 // Debug Global Error Handler
 window.onerror = function (msg, url, lineNo, columnNo, error) {
     const string = msg.toLowerCase();
@@ -23,7 +23,9 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
     return false;
 };
 
-console.log('App JS Loaded Successfully version 7.7 - Rebuilt Comprehensive Salary Table');
+
+
+console.log('App JS Loaded Successfully version 8.0 - Performance Optimized');
 
 /**
  * نظام إدارة المرتدات - التطبيق الرئيسي
@@ -254,7 +256,7 @@ console.log('App JS Loaded Successfully version 7.7 - Rebuilt Comprehensive Sala
         try {
             return await operation();
         } catch (error) {
-            if (sectionId) {
+            if (sectionId && error?.status !== 403) {
                 window.showErrorState(sectionId, error?.message || 'تعذر جلب البيانات', options.retry);
             }
             throw error;
@@ -277,7 +279,7 @@ console.log('App JS Loaded Successfully version 7.7 - Rebuilt Comprehensive Sala
             if (!cfg) return state.originalFetch(input, options);
             return window.withLoading(async () => {
                 const response = await state.originalFetch(input, options);
-                if (!response.ok && cfg.sectionId) {
+                if (!response.ok && cfg.sectionId && response.status !== 403) {
                     window.showErrorState(cfg.sectionId, `تعذر جلب البيانات من الخادم (${response.status})`, () => window.fetch(input, options));
                 }
                 return response;
@@ -432,14 +434,14 @@ class App {
         this.filteredReturns = [];
         this.returnsFilters = {};
         this.returnsArchiveDateRange = { from: '', to: '' };
-        
+
         this.selectedSalaryReturnIds = new Set();
         this.isAllSalaryReturnsSelected = false;
         this.filteredSalaryReturns = [];
         this.salaryReturnsFilters = {};
         this.salaryArchiveDateRange = { from: '', to: '' };
 
-        
+
 
         this.currentPage = 'dashboard';
         this.data = [];
@@ -498,7 +500,7 @@ class App {
         this.hubConnection = null;
 
         // Smart Payment State
-        this.smartPaymentStatFilter = 'all';
+        this.smartPaymentStatFilter = 'notfound';
         this.smartPaymentTypeFilter = 'salary'; // Default to Salaries tab
         this.developerModeUnlocked = sessionStorage.getItem('hk_developer_mode_unlocked') === '1';
         this.developerModeAttempts = 0;
@@ -566,7 +568,9 @@ class App {
     async init() {
         this.setupEventListeners();
         try { await db.init(); } catch (e) { }
+        await new Promise(r => setTimeout(r, 200));
         try { await this.loadFilters(); } catch (e) { }
+        await new Promise(r => setTimeout(r, 200));
         try { await db.initDefaultUsers(); } catch (e) { }
         try {
             const hasSession = await auth.checkSession();
@@ -581,7 +585,9 @@ class App {
                 this.currentArchiveTab = 'lauf';
                 if (window.chatModule) window.chatModule.init();
                 this.loadNotifications();
+                await new Promise(r => setTimeout(r, 300));
                 this.startNotificationPolling();
+                this.startPermissionsPolling();
                 const tabLauf = document.getElementById('tab-btn-lauf');
                 if (tabLauf) tabLauf.addEventListener('click', () => this.switchArchiveTab('lauf'));
                 const tabFull = document.getElementById('tab-btn-full');
@@ -589,7 +595,7 @@ class App {
                 await db.repairSchema();
                 this.loadAttachmentLinkMode();
                 this.loadExtractionMonths();
-                
+
                 // Simplified async call
                 await this.loadFromOfflineStorage();
             } else {
@@ -636,7 +642,7 @@ class App {
         try {
             // 1. Clear IndexedDB
             await db.clearLocalCache();
-            
+
             // 2. Clear Memory
             this.returnsCache = null;
             this.salaryReturnsCache = null;
@@ -710,7 +716,7 @@ class App {
             // Update both instances to be safe
             if (this.db) this.db.currentUser = user;
             if (window.db) window.db.currentUser = user;
-            
+
             document.getElementById('user-avatar').textContent = user.fullname.charAt(0);
             document.getElementById('user-display-name').textContent = user.fullname;
             document.getElementById('user-role').textContent = this.getRoleName(user.role);
@@ -803,12 +809,47 @@ class App {
         });
 
         const toggle = (selector, allowed) => document.querySelectorAll(selector).forEach(el => el.classList.toggle('hidden', !allowed));
+        const canDelete = this.canDeleteReturns();
+        const canDeleteAll = this.canDeleteAllReturns();
         toggle('#btn-import-returns, #empty-import-btn, [onclick*="showImportModal"], [onclick*="showSalaryImportModal"], [onclick*="showFullReturnsImportModal"]', auth.canDo('import'));
         toggle('#export-excel-btn, #export-csv-btn, [onclick*="export"], [onclick*="downloadTemplate"], [onclick*="downloadSalaryTemplate"]', auth.canDo('export'));
-        toggle('.btn-delete-pro, [onclick*="delete"], [onclick*="Delete"], [onclick*="confirmDelete"]', auth.canDo('delete'));
+        toggle('.btn-delete-pro, [onclick*="delete"], [onclick*="Delete"], [onclick*="confirmDelete"]', canDelete);
+        toggle('[onclick="app.confirmDeleteAll()"], [onclick="window.app.confirmDeleteAll()"], [onclick="app.confirmDeleteAllSalary()"], [onclick="window.app.confirmDeleteAllSalary()"]', canDeleteAll);
         toggle('[onclick*="showAutoSyncModal"], [onclick*="showSalaryAutoSyncModal"], [onclick*="sync"]', auth.canDo('sync'));
         toggle('[onclick*="toggleAdabirInlineFilter"], [onclick*="archive"], [onclick*="Archive"]', auth.canDo('archive'));
         toggle('[onclick*="settle"], [onclick*="Settlement"], [onclick*="smart"]', auth.canDo('smart-payment'));
+    }
+
+    canDeleteReturns() {
+        return !!(
+            auth?.canDo?.('delete') ||
+            auth?.hasPermission?.('delete') ||
+            auth?.hasPermission?.('delete_returns') ||
+            auth?.hasPermission?.('returns_delete')
+        );
+    }
+
+    canDeleteAllReturns() {
+        return this.canDeleteReturns() && !!(
+            auth?.isAdmin?.() ||
+            auth?.hasPermission?.('page.settings') ||
+            auth?.hasPermission?.('dangerous.admin') ||
+            auth?.hasPermission?.('admin.operations')
+        );
+    }
+
+    async isDangerousDeleteAllEnabled() {
+        try {
+            const status = await db.getSecurityStatus?.();
+            return !!status?.enableDangerousAdminOperations;
+        } catch {
+            return false;
+        }
+    }
+
+    showDeleteForbidden(error) {
+        const message = error?.data?.message || error?.message || 'ليس لديك صلاحية حذف هذه البيانات';
+        this.showToast(message.includes('العملية الإدارية الخطيرة') ? 'حذف كل السجلات غير مفعل من الإعدادات' : message, 'error');
     }
 
     async refreshCurrentUserPermissions() {
@@ -1421,10 +1462,14 @@ class App {
         console.log('Switching settings tab to:', tabId);
 
         if (this.databaseSetupMode) {
-            document.getElementById('tab-settings-users')?.classList.add('hidden');
+            document.querySelectorAll('#page-settings .btn-tab').forEach(btn => {
+                btn.classList.toggle('hidden', btn.id !== 'tab-settings-db');
+            });
             if (tabId !== 'db') tabId = 'db';
         } else {
-            document.getElementById('tab-settings-users')?.classList.remove('hidden');
+            document.querySelectorAll('#page-settings .btn-tab').forEach(btn => {
+                btn.classList.remove('hidden');
+            });
         }
 
         let targetTab = document.getElementById(`settings-tab-${tabId}`);
@@ -1453,7 +1498,14 @@ class App {
         if (targetBtn) targetBtn.classList.add('active');
 
         this.currentSettingsTab = tabId;
+        if (tabId === 'general' && typeof this.fillHubUrlField === 'function') this.fillHubUrlField();
+        if (tabId === 'db') this.loadDbPath();
         if (tabId === 'users') this.initPermissionsSettings();
+        if (tabId === 'advanced') {
+            if (typeof this.loadArchivePath === 'function') this.loadArchivePath();
+            if (typeof this.loadAttachmentLinkMode === 'function') this.loadAttachmentLinkMode();
+        }
+        if (tabId === 'maintenance' && typeof this.refreshSearchFilterIndex === 'function') this.refreshSearchFilterIndex();
     }
 
     getPermissionGroups() {
@@ -1568,7 +1620,7 @@ class App {
      * تحميل وعرض البيانات
      */
     async loadReturns(page = 1, pageSize = 50, search = null, filter = null, attachmentStatus = null, append = false) {
-        if ((this.selectedReturnIds.size > 0 || this.isAllReturnsSelected) && 
+        if ((this.selectedReturnIds.size > 0 || this.isAllReturnsSelected) &&
             (search !== null && search !== this.searchQuery || filter !== null && filter !== this.filterValue)) {
             if (!confirm('لديك سجلات محددة، هل تريد مسح التحديد أم الإبقاء عليه؟\n(موافق لمسح التحديد، إلغاء للإبقاء عليه)')) {
                 // Keep selection
@@ -1576,7 +1628,7 @@ class App {
                 this.clearSelection();
             }
         }
-        
+
         console.log('[LOAD] loadReturns called:', { page, pageSize, search, filter, attachmentStatus, append });
         // تحديث الحالات المحلية لضمان التزامن
         if (search !== null) this.searchQuery = search;
@@ -1603,17 +1655,14 @@ class App {
             uploadDateFrom: this.uploadDateFrom || null,
             uploadDateTo: this.uploadDateTo || null
         };
-        
+
         const uploadDateFilterVal = document.getElementById('upload-date-filter')?.value;
         if (uploadDateFilterVal && uploadDateFilterVal !== 'all') {
-            let actualUploadDate = String(row['تاريخ الرفع'] || row.UploadDate || '').trim();
-            if (actualUploadDate.length >= 10) actualUploadDate = actualUploadDate.substring(0, 10);
-            if (actualUploadDate !== uploadDateFilterVal) return false;
-        }
-
-        if (false && uploadDateFilterVal && uploadDateFilterVal !== 'all') {
             this.uploadDateFrom = uploadDateFilterVal;
             this.uploadDateTo = uploadDateFilterVal;
+        } else {
+            this.uploadDateFrom = null;
+            this.uploadDateTo = null;
         }
 
         const hasSearch = this.searchQuery && String(this.searchQuery).trim() !== '';
@@ -1651,7 +1700,7 @@ class App {
         try {
             // Check for Active Archive (Restore mode)
             const config = await db.fetchApi('/config');
-            
+
             // Incentive Archive Button
             const clearBtn = document.getElementById('clear-archive-btn');
             if (clearBtn) {
@@ -1663,7 +1712,7 @@ class App {
                     clearBtn.style.display = 'none';
                 }
             }
-            
+
             // Salary Archive Button (Always hide when in Incentive page)
             const clearSalaryBtn = document.getElementById('clear-salary-archive-btn');
             if (clearSalaryBtn) {
@@ -1782,7 +1831,7 @@ class App {
             if (this.getAdabirDateRangeFilter().active) {
                 this.calculateLocalStats(this.data);
             }
-            this._populateReturnFilterOptions(this.data);
+            this._populateReturnFilterOptions(this.returnsCache || this.data);
             this.updateAdabirDateRangeCount(this.data);
         } catch (error) {
             console.error('[LOAD] Error loading data:', error);
@@ -1920,7 +1969,7 @@ class App {
                 const amountVal = this.getUnifiedSalaryAmountValue(row);
                 row._amount = this.parseAmount(amountVal);
                 row._normStatus = this.normalizeArabic(row['الحالة'] || row['Status'] || '');
-                
+
                 const val = row['رقم تسوية السداد'];
                 const hasSettlement = val !== null && val !== undefined && String(val).trim() !== '';
                 row['حالة التسوية'] = hasSettlement ? 'تم التسوية' : 'لم يتم التسوية';
@@ -1958,10 +2007,10 @@ class App {
 
     triggerNameSearch(name) {
         if (!name) return;
-        
+
         console.log(`[QUICK-SEARCH] Triggering search for: ${name} on page: ${this.currentPage}`);
         let targetSearch = null;
-        
+
         // التحقق من الصفحة الحالية لتحديد حقل البحث المناسب
         if (this.currentPage === 'salary-returns' || this.currentPage === 'page-salary-returns') {
             targetSearch = document.getElementById('salary-search');
@@ -1972,16 +2021,16 @@ class App {
         } else {
             targetSearch = document.getElementById('table-search');
         }
-        
+
         if (targetSearch) {
             targetSearch.value = name;
             // إطلاق حدث التغيير والفرز
             targetSearch.dispatchEvent(new Event('input', { bubbles: true }));
             targetSearch.dispatchEvent(new Event('change', { bubbles: true }));
-            
+
             // تمرير إلى أعلى الصفحة لرؤية النتائج
             window.scrollTo({top: 0, behavior: 'smooth'});
-            
+
             if (this.currentPage === 'full-returns' || this.currentPage === 'page-full-returns') {
                 this.runUnifiedSearch();
             }
@@ -2022,7 +2071,7 @@ class App {
 
                 // High Priority: Exact phrase match (Normalized or Original)
                 const matchPhrase = rowStr.includes(searchQuery) || rowStr.includes(searchTotal);
-                
+
                 if (!matchPhrase) {
                     // Fallback Priority: Word-by-word matching
                     // We restrict this for long queries (> 2 words) to avoid broad results in name searches
@@ -2049,8 +2098,8 @@ class App {
             // 4. Settlement Logic (Literal Match)
             if (settlementMode) {
                 const actualVal = (row['حالة التسوية'] || '').trim();
-                const matched = (actualVal === settlementMode) || 
-                                (settlementMode === 'تمت التسوية' && actualVal === 'تم التسوية') || 
+                const matched = (actualVal === settlementMode) ||
+                                (settlementMode === 'تمت التسوية' && actualVal === 'تم التسوية') ||
                                 (settlementMode === 'تم التسوية' && actualVal === 'تمت التسوية');
                 if (!matched) return false;
             }
@@ -2132,7 +2181,7 @@ class App {
 
         this.renderTable(append ? pagedData : null, append);
         this.calculateLocalStats(filtered);
-        this._populateReturnFilterOptions(this.data);
+        this._populateReturnFilterOptions(this.returnsCache || filtered);
         this.updateAdabirDateRangeCount(filtered);
 
         return filtered.length;
@@ -2546,7 +2595,7 @@ class App {
             this.selectedReturnIds.add(String(id));
         }
         this.updateBulkDeleteToolbar();
-        
+
         const headerCheck = document.getElementById('select-all-returns');
         const checkboxes = document.querySelectorAll('.return-row-checkbox');
         const checkedBoxes = document.querySelectorAll('.return-row-checkbox:checked');
@@ -2566,7 +2615,7 @@ class App {
 
         if (checked) {
             checkboxes.forEach(cb => this.selectedReturnIds.add(String(cb.value)));
-            
+
             const visibleCount = checkboxes.length;
             const totalCount = this.totalFilteredCount || 0;
 
@@ -2578,7 +2627,7 @@ class App {
         }
 
         this.updateBulkDeleteToolbar();
-        
+
         const selectAllCb = document.getElementById('select-all-returns');
         if (selectAllCb) selectAllCb.checked = checked;
     }
@@ -2591,7 +2640,7 @@ class App {
 
         const btnDeleteSelected = document.getElementById('btn-delete-selected');
         const countBadge = document.getElementById('selected-count-badge');
-        
+
         let btnExportSelected = document.getElementById('btn-export-selected');
         let btnArchiveSelected = document.getElementById('btn-archive-selected');
         let btnClearSelection = document.getElementById('btn-clear-selection');
@@ -2641,7 +2690,7 @@ class App {
             // إظهار أزرار الإجراءات على المحدد في الشريط العلوي
             if (btnDeleteSelected) {
                 btnDeleteSelected.style.display = 'inline-flex';
-                btnDeleteSelected.onclick = () => window.app.bulkDeleteReturns(); 
+                btnDeleteSelected.onclick = () => window.app.bulkDeleteReturns();
             }
             if (countBadge) countBadge.innerText = count;
 
@@ -2653,11 +2702,11 @@ class App {
                 btnArchiveSelected.style.display = 'inline-flex';
                 if (archiveBadge) archiveBadge.innerText = count;
             }
-            
+
             if (btnClearSelection) {
                 btnClearSelection.style.display = 'inline-flex';
             }
-            
+
             if (exportExcelBtn) exportExcelBtn.style.display = 'none'; // إخفاء زر التصدير العادي
 
             // إزالة أي شريط سفلي عائم إن وجد
@@ -2731,7 +2780,7 @@ class App {
 
     resetAllFilters() {
         console.log('[RESET] Resetting all filters...');
-        
+
         // 1. Reset Incentive Filters
         this.searchQuery = '';
         this.filterValue = '';
@@ -2781,7 +2830,7 @@ class App {
 
         this.clearSelection();
         this.clearSalarySelection();
-        
+
         // Refresh based on current page
         if (this.currentPage === 'returns') this.loadReturns(1);
         if (this.currentPage === 'salary-returns') this.loadSalaryReturns(1);
@@ -2796,7 +2845,7 @@ class App {
             this.isAllSalaryReturnsSelected = false;
         }
         this.updateBulkSalaryDeleteToolbar();
-        
+
         const headerCheck = document.getElementById('select-all-salary-returns');
         const checkboxes = document.querySelectorAll('.salary-row-checkbox');
         const checkedBoxes = document.querySelectorAll('.salary-row-checkbox:checked');
@@ -2816,7 +2865,7 @@ class App {
 
         if (checked) {
             checkboxes.forEach(cb => this.selectedSalaryReturnIds.add(String(cb.value)));
-            
+
             const visibleCount = checkboxes.length;
             const totalCount = this.salaryPagination?.total || 0;
 
@@ -2828,14 +2877,14 @@ class App {
         }
 
         this.updateBulkSalaryDeleteToolbar();
-        
+
         const selectAllCb = document.getElementById('select-all-salary-returns');
         if (selectAllCb) selectAllCb.checked = checked;
     }
 
     _showSelectAllSalaryFilteredBanner(visibleCount, totalCount) {
         document.getElementById('select-all-salary-filtered-banner')?.remove();
-        
+
         const banner = document.createElement('div');
         banner.id = 'select-all-salary-filtered-banner';
         banner.className = 'selection-banner animated slideInDown';
@@ -2852,7 +2901,7 @@ class App {
             font-size: 0.9rem;
             box-shadow: 0 4px 20px rgba(0,0,0,0.4);
         `;
-        
+
         banner.innerHTML = `
             <div>
                 <i class="fas fa-info-circle" style="color: #00f0ff; margin-left: 8px;"></i>
@@ -2863,7 +2912,7 @@ class App {
             </div>
             <button onclick="this.parentElement.remove()" style="background: none; border: none; color: #94a3b8; cursor: pointer;">✕</button>
         `;
-        
+
         const salaryControls = document.querySelector('#page-salary-returns .dashboard-controls-row-pro');
         if (salaryControls) {
             salaryControls.after(banner);
@@ -2891,13 +2940,13 @@ class App {
         this.selectedSalaryReturnIds.clear();
         this.isAllSalaryReturnsSelected = false;
         this.updateBulkSalaryDeleteToolbar();
-        
+
         const selectAllCb = document.getElementById('select-all-salary-returns');
         if (selectAllCb) selectAllCb.checked = false;
-        
+
         const checkboxes = document.querySelectorAll('.salary-row-checkbox');
         checkboxes.forEach(cb => cb.checked = false);
-        
+
         document.getElementById('select-all-salary-filtered-banner')?.remove();
     }
 
@@ -2911,7 +2960,7 @@ class App {
         const btnSettleSelected = document.getElementById('btn-salary-settle-selected');
         const countBadge = document.getElementById('salary-selected-count-badge');
         const settleBadge = document.getElementById('salary-settle-selected-count-badge');
-        
+
         let btnExportSelected = document.getElementById('btn-salary-export-selected');
         let btnArchiveSelected = document.getElementById('btn-salary-archive-selected');
         let btnClearSelection = document.getElementById('btn-salary-clear-selection');
@@ -2960,7 +3009,7 @@ class App {
         if (this.isAllSalaryReturnsSelected || this.selectedSalaryReturnIds.size > 0) {
             if (btnDeleteSelected) {
                 btnDeleteSelected.style.display = 'inline-flex';
-                btnDeleteSelected.onclick = () => window.app.confirmBulkDeleteSalary(); 
+                btnDeleteSelected.onclick = () => window.app.confirmBulkDeleteSalary();
             }
             if (btnSettleSelected) {
                 btnSettleSelected.style.display = 'inline-flex';
@@ -2976,7 +3025,7 @@ class App {
                 btnArchiveSelected.style.display = 'inline-flex';
                 if (archiveBadge) archiveBadge.innerText = count;
             }
-            
+
             if (btnClearSelection) btnClearSelection.style.display = 'inline-flex';
             if (exportExcelBtn) exportExcelBtn.style.display = 'none';
 
@@ -2993,7 +3042,7 @@ class App {
     async confirmBulkDeleteSalary() {
         const count = this.isAllSalaryReturnsSelected ? 'كافة السجلات المطابقة للفلتر' : `${this.selectedSalaryReturnIds.size} سجل`;
         if (!await confirm(`هل أنت متأكد من حذف ${count} من مرتجعات المرتبات؟ هذه العملية لا يمكن التراجع عنها.`)) return;
-        
+
         await this.bulkDeleteSalaryReturns();
     }
 
@@ -3114,6 +3163,10 @@ class App {
     }
 
     async bulkDeleteReturns() {
+        if (!this.canDeleteReturns()) {
+            this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+            return;
+        }
         const count = this.isAllReturnsSelected ? 'كافة السجلات المطابقة للفلاتر' : this.selectedReturnIds.size + ' سجل';
         if (!await confirm(`هل أنت متأكد من رغبتك في حذف ${count}؟ لا يمكن التراجع عن هذه العملية.`)) return;
 
@@ -3136,14 +3189,14 @@ class App {
                 TargetColumn: this.targetColumn
             };
 
-            const res = await fetch('/returns/bulk-delete', {
+            const result = await db.fetchApi('/returns/bulk-delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                __skipLoadingWrapper: true,
+                __suppressErrorLog: true,
                 body: JSON.stringify(payload)
             });
 
-            if (res.ok) {
-                const result = await res.json();
+            if (result.success) {
                 this.showToast(`تم حذف ${result.count} سجل بنجاح`, 'success');
                 this.clearSelection();
                 this.loadReturns(); // Refresh table
@@ -3151,8 +3204,11 @@ class App {
                 this.showToast('حدث خطأ أثناء الحذف المجمع', 'error');
             }
         } catch (error) {
-            console.error('Bulk Delete Error:', error);
-            this.showToast('فشل الاتصال بالخادم', 'error');
+            if (error?.status === 403) this.showDeleteForbidden(error);
+            else {
+                console.error('Bulk Delete Error:', error);
+                this.showToast('فشل الاتصال بالخادم', 'error');
+            }
         } finally {
             this.hideLoading();
         }
@@ -3172,7 +3228,7 @@ renderTable(dataToRender = null, append = false) {
                 return;
             }
             emptyState.classList.add('hidden');
-            
+
             // الترتيب الصارم والنهائي للأعمدة ليتطابق مع الصورة تماماً
             const finalOrder = [
                 'CHECKBOX',
@@ -3200,9 +3256,9 @@ renderTable(dataToRender = null, append = false) {
                 'حالة التسوية'
             ];
 
-            this._displayHeaders = finalOrder; 
+            this._displayHeaders = finalOrder;
 
-            
+
             tableHeaders.innerHTML = finalOrder.map((h, idx) => {
                 if (h === 'CHECKBOX') {
                     return `<th class="sticky-seq" style="text-align: center !important;"><input type="checkbox" id="select-all-returns" onclick="window.app.toggleSelectAllReturns(this.checked)"></th>`;
@@ -3213,7 +3269,7 @@ renderTable(dataToRender = null, append = false) {
 
                 let isSticky = '';
                 let extraStyles = h === '#' ? 'text-align: center !important;' : '';
-                
+
                 // التثبيت الدقيق للأعمدة كي لا تكون شفافة وتكون مصفوفة صحيحة
                 if (h === '#') isSticky = 'sticky-seq';
                 else if (isNameCol) isSticky = 'sticky-name';
@@ -3247,7 +3303,7 @@ renderTable(dataToRender = null, append = false) {
         const previousRowCount = append ? (document.getElementById('table-body')?.querySelectorAll('tr').length || 0) : 0;
         const rowsHTML = data.map((row, rowIndex) => {
             const rowId = row.id || row.Id;
-            
+
             const cells = (this._displayHeaders || this.headers).map((h, i) => {
                 if (h === 'CHECKBOX') {
                     const isChecked = this.isAllReturnsSelected || this.selectedReturnIds.has(String(rowId));
@@ -3259,10 +3315,10 @@ renderTable(dataToRender = null, append = false) {
                 // منطق استعادة القيم المسميات المزدوجة (لأن البيانات مخزنة بالمفتاح القديم)
                 if (val === '') {
                     if (h === 'تاريخ المرتد / تاريخ التعلية') {
-                        val = row['تاريخ المرتد'] || row['تاريخ المرتدات'] || '';
+                        val = row['تاريخ المرتد / تاريخ التعلية'] || row['تاريخ المرتد'] || row['تاريخ المرتدات'] || row['تاريخ التعلية'] || row['ReturnDate'] || '';
                     }
                     if (h === 'تاريخ اعتماد التعديل / تاريخ السداد') {
-                        val = row['تاريخ اعتماد التعديل'] || row['تاريخ اعتماد المرتدات'] || row['SettlementDate'] || '';
+                        val = row['تاريخ اعتماد التعديل / تاريخ السداد'] || row['تاريخ السداد'] || row['تاريخ التسوية'] || row['تاريخ السداد الفعلي'] || row['SettlementDate'] || '';
                     }
                 }
 
@@ -3347,7 +3403,7 @@ renderTable(dataToRender = null, append = false) {
                 let isSticky = '';
                 let extraStyles = h === '#' ? 'text-align: center !important;' : '';
                 let dblclickEvent = '';
-                
+
                 if (h === '#') isSticky = 'sticky-seq';
                 else if (isNameCol) {
                     isSticky = 'sticky-name';
@@ -3380,13 +3436,16 @@ renderTable(dataToRender = null, append = false) {
             // Style: Cyan Glow for buttons with attachments
             const style = hasAttachments ? 'position: relative; border: 1px solid #00f0ff; box-shadow: 0 0 10px rgba(0, 240, 255, 0.5); transform: scale(1.05); transition: all 0.2s ease;' : 'position: relative; opacity: 0.6;';
 
+            const deleteButton = this.canDeleteReturns()
+                ? `<button class="btn-icon" style="color: #f87171;" onclick="window.app.deleteReturn('${rowId}')" title="حذف السجل">🗑️</button>`
+                : '';
             const actions = `<td class="col-actions" style="text-align:center; white-space: nowrap;">
             <button class="btn-icon ${btnClass}" style="margin-left:5px; ${style}" onclick="window.app.openAttachmentsModal('${rowId}', 'returns')" title="${hasAttachments ? 'عرض ' + row.AttachmentCount + ' مرفقات' : 'إضافة مرفق'}">
                 ${icon} ${badge}
             </button>
             <button class="btn-icon" style="margin-left:5px;" onclick="window.app.editReturn('${rowId}')" title="تعديل السجل">✏️</button>
             <button class="btn-icon" style="margin-left:5px;" onclick="window.app.openReturnFolder('${rowId}')" title="فتح مجلد المرفقات">📂</button>
-            <button class="btn-icon" style="color: #f87171;" onclick="window.app.deleteReturn('${rowId}')" title="حذف السجل">🗑️</button>
+            ${deleteButton}
         </td>`;
 
             return `<tr>${cells}${actions}</tr>`;
@@ -3851,24 +3910,24 @@ renderTable(dataToRender = null, append = false) {
     downloadSalaryTemplate() {
         try {
             const headers = [
-                'كود الملف', 
-                'الشهر', 
-                'الاسم', 
-                'الرقم القومي', 
-                'رقم الحساب', 
-                'البنك', 
-                'قيمة العملية', 
-                'الحالة', 
-                'السبب', 
-                'رقم الحساب بعد التعديل', 
-                'البنك بعد التعديل', 
-                'كود الفرع بعد التعديل', 
-                'رقم تسوية التعلية', 
-                'تاريخ المرتد / تاريخ التعلية', 
-                'تاريخ اعتماد المرتدات', 
-                'تاريخ التعديل', 
-                'تاريخ اعتماد التعديل', 
-                'رقم تسوية السداد', 
+                'كود الملف',
+                'الشهر',
+                'الاسم',
+                'الرقم القومي',
+                'رقم الحساب',
+                'البنك',
+                'قيمة العملية',
+                'الحالة',
+                'السبب',
+                'رقم الحساب بعد التعديل',
+                'البنك بعد التعديل',
+                'كود الفرع بعد التعديل',
+                'رقم تسوية التعلية',
+                'تاريخ المرتد / تاريخ التعلية',
+                'تاريخ اعتماد المرتدات',
+                'تاريخ التعديل',
+                'تاريخ اعتماد التعديل',
+                'رقم تسوية السداد',
                 'تاريخ اعتماد التعديل / تاريخ السداد'
             ];
             const ws = XLSX.utils.aoa_to_sheet([headers]);
@@ -3905,7 +3964,7 @@ renderTable(dataToRender = null, append = false) {
         const file = event.target.files[0];
         if (file) {
             this.pendingImportType = 'incentive'; // تثبيت النوع
-            this.isSalaryImport = false; 
+            this.isSalaryImport = false;
             this.processFile(file);
         }
     }
@@ -3915,9 +3974,110 @@ renderTable(dataToRender = null, append = false) {
         const file = event.target.files[0];
         if (file) {
             this.pendingImportType = 'salary'; // تثبيت النوع
-            this.isSalaryImport = true; 
+            this.isSalaryImport = true;
             this.processSalaryFile(file);
         }
+    }
+
+    normalizeIncentiveImportHeader(header) {
+        return String(header || '')
+            .replace(/^\uFEFF/, '')
+            .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+            .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '')
+            .replace(/\u0640/g, '')
+            .replace(/[أإآٱ]/g, 'ا')
+            .replace(/ى/g, 'ي')
+            .replace(/ة/g, 'ه')
+            .replace(/[\\\/\-\u2010-\u2015\u2212\uFF0F\u2044\u2215]/g, '/')
+            .replace(/[\r\n\t]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/\s*\/\s*/g, '/')
+            .toLowerCase();
+    }
+
+    getIncentiveImportSchema() {
+        return [
+            { name: 'كود الملف', required: true, aliases: ['كودالملف', 'كود_الملف', 'FileCode', 'Code', 'Batch ID', 'BatchCode'] },
+            { name: 'الاسم', required: true, aliases: ['Name', 'FullName', 'CREDITOR_NAME', 'Beneficiary Name', 'اسم المستفيد'] },
+            { name: 'الرقم القومي', required: true, aliases: ['الرقم  القومي', 'الرقم القومى', 'الرقم_القومي', 'NationalID', 'National Id', 'National ID', 'NID', 'رقم قومي'] },
+            { name: 'رقم الحساب', required: true, aliases: ['رقمالحساب', 'AccountNumber', 'Account No', 'CurrentAccount', 'ACCOUNT_NUMBER'] },
+            { name: 'البنك', required: true, aliases: ['Bank', 'CurrentBank', 'اسم البنك'] },
+            { name: 'قيمة العملية', required: true, aliases: ['المبلغ', 'القيمة', 'Amount', 'Transaction Value', 'Value'] },
+            { name: 'الحالة', required: true, aliases: ['Status', 'ReturnStatus', 'حالة الارتداد'] },
+            { name: 'السبب', required: false, aliases: ['Reason'] },
+            { name: 'رقم الحساب بعد التعديل', required: false, aliases: ['EditedAccountNumber', 'NewAccountNumber', 'ModifiedAccount', 'رقم الحساب الجديد', 'الحساب الجديد', 'تعديل رقم الحساب'] },
+            { name: 'البنك بعد التعديل', required: false, aliases: ['ModifiedBank', 'البنك الجديد', 'اسم البنك الجديد'] },
+            { name: 'كود الفرع بعد التعديل', required: false, aliases: ['BranchCode', 'ModifiedBranchCode'] },
+            { name: 'رقم تسوية التعلية', required: false, aliases: ['رقم تسوية تعلية', 'تسوية تعلية', 'ElevationSettlementNo', 'AccrualSettlementNo'] },
+            { name: 'تاريخ المرتد / تاريخ التعلية', required: false, aliases: ['تاريخ المرتد/تاريخ التعلية', 'تاريخ المرتد \\ تاريخ التعلية', 'تاريخ المرتد - تاريخ التعلية', 'تاريخ المرتد', 'تاريخ المرتدات', 'تاريخ التعلية', 'ReturnDate'] },
+            { name: 'تاريخ اعتماد المرتدات', required: false, aliases: ['ReturnApprovalDate'] },
+            { name: 'تاريخ التعديل', required: false, aliases: ['ModDate', 'ModificationDate'] },
+            { name: 'تاريخ اعتماد التعديل', required: false, aliases: ['ModApprovalDate'] },
+            { name: 'رقم تسوية السداد', required: false, aliases: ['رقم تسوية سداد', 'رقم التسوية', 'SettlementNo', 'Settlement No', 'PaymentSettlementNo'] },
+            { name: 'تاريخ اعتماد التعديل / تاريخ السداد', required: false, aliases: ['تاريخ اعتماد التعديل/تاريخ السداد', 'تاريخ اعتماد التعديل \\ تاريخ السداد', 'تاريخ اعتماد التعديل - تاريخ السداد', 'تاريخ السداد', 'تاريخ التسوية', 'تاريخ السداد الفعلي', 'SettlementDate', 'Settlement Date'] },
+            { name: 'حالة التسوية', required: false, aliases: ['SettlementStatus'] },
+            { name: 'الشهر', required: false, aliases: ['Month', 'ExtractedMonth'] }
+        ];
+    }
+
+    canonicalizeIncentiveImportRows(rows) {
+        const schema = this.getIncentiveImportSchema();
+        const normalizedToColumn = new Map();
+        schema.forEach(col => [col.name, ...(col.aliases || [])].forEach(alias => {
+            normalizedToColumn.set(this.normalizeIncentiveImportHeader(alias), col.name);
+        }));
+
+        return (rows || []).map(row => {
+            const canonical = {};
+            Object.entries(row || {}).forEach(([key, value]) => {
+                const mappedKey = normalizedToColumn.get(this.normalizeIncentiveImportHeader(key)) || key;
+                const existing = canonical[mappedKey];
+                const hasExisting = existing !== undefined && existing !== null && String(existing).trim() !== '';
+                const hasValue = value !== undefined && value !== null && String(value).trim() !== '';
+                if (!hasExisting || hasValue) canonical[mappedKey] = value;
+            });
+
+            schema.forEach(col => {
+                if (!Object.prototype.hasOwnProperty.call(canonical, col.name)) {
+                    canonical[col.name] = '';
+                }
+            });
+
+            const paymentNo = canonical['رقم تسوية السداد'];
+            if (!canonical['حالة التسوية']) {
+                canonical['حالة التسوية'] = paymentNo !== undefined && paymentNo !== null && String(paymentNo).trim() !== ''
+                    ? 'تم التسوية'
+                    : 'لم يتم التسوية';
+            }
+            return canonical;
+        });
+    }
+
+    analyzeIncentiveImportColumns(rows) {
+        const schema = this.getIncentiveImportSchema();
+        const known = new Map();
+        schema.forEach(col => [col.name, ...(col.aliases || [])].forEach(alias => {
+            known.set(this.normalizeIncentiveImportHeader(alias), col.name);
+        }));
+
+        const seen = new Map();
+        (rows || []).forEach(row => Object.keys(row || {}).forEach(key => {
+            const normalized = this.normalizeIncentiveImportHeader(key);
+            if (!seen.has(normalized)) seen.set(normalized, { original: key, canonical: known.get(normalized) || null });
+        }));
+
+        const presentCanonical = new Set(Array.from(seen.values()).map(v => v.canonical).filter(Boolean));
+        const missingRequired = schema.filter(col => col.required && !presentCanonical.has(col.name)).map(col => col.name);
+        const unknown = Array.from(seen.values()).filter(v => !v.canonical).map(v => v.original);
+
+        return {
+            present: Array.from(presentCanonical),
+            missingRequired,
+            unknown,
+            hasBlockingIssues: missingRequired.length > 0 || unknown.length > 0,
+            officialCount: schema.length
+        };
     }
 
     async processFile(file) {
@@ -3925,7 +4085,9 @@ renderTable(dataToRender = null, append = false) {
         this.hideImportModal();
         this.pendingImportType = 'incentive'; // تثبيت النوع
         try {
-            const data = await this.readExcelFile(file);
+            const rawRows = await this.readExcelFile(file);
+            const columnDiagnostics = this.analyzeIncentiveImportColumns(rawRows);
+            const data = this.canonicalizeIncentiveImportRows(rawRows);
 
             if (!data || data.length === 0) {
                 throw new Error('الملف فارغ أو غير صالح');
@@ -3938,11 +4100,14 @@ renderTable(dataToRender = null, append = false) {
             // 2. تحديث واجهة الفحص
             this.populateValidationModal(validationResult);
             this.showValidationResultsPage(validationResult);
+            this._showColumnCoverage(data, columnDiagnostics);
 
             // تخزين البيانات مؤقتاً
             this.pendingAllData = data;
-            this.pendingValidData = validationResult.validRecords;
+            this.pendingValidData = columnDiagnostics.hasBlockingIssues ? [] : validationResult.validRecords;
             this.pendingFile = file;
+            this._incentiveImportColumnDiagnostics = columnDiagnostics;
+            this._setImportSaveButtonsEnabled(!columnDiagnostics.hasBlockingIssues);
 
         } catch (error) {
             console.error('خطأ في الاستيراد:', error);
@@ -4103,7 +4268,7 @@ renderTable(dataToRender = null, append = false) {
 
     hideValidationResultsPage() {
         document.getElementById('page-validation-results')?.classList.add('hidden');
-        
+
         // العودة للصفحة الصحيحة بناءً على النوع المثبت
         if (this.pendingImportType === 'salary') {
             this.navigateTo('salary-returns');
@@ -4173,6 +4338,83 @@ renderTable(dataToRender = null, append = false) {
         container.innerHTML = html;
     }
 
+    _showColumnCoverage(data, diagnostics = null) {
+        if (!data || data.length === 0) return;
+        const OFFICIAL_COLUMNS = [
+            'كود الملف', 'الاسم', 'الرقم القومي', 'رقم الحساب', 'البنك',
+            'قيمة العملية', 'الحالة', 'السبب',
+            'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل',
+            'رقم تسوية التعلية', 'تاريخ المرتد / تاريخ التعلية',
+            'تاريخ اعتماد المرتدات', 'تاريخ التعديل', 'تاريخ اعتماد التعديل',
+            'رقم تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد', 'حالة التسوية'
+        ];
+        const normHeader = s => this.normalizeIncentiveImportHeader
+            ? this.normalizeIncentiveImportHeader(s)
+            : String(s || '').replace(/\s+/g, ' ').trim();
+
+        const fileHeaders = Object.keys(data[0]).map(h => normHeader(h));
+
+        let present = [], missing = [];
+        OFFICIAL_COLUMNS.forEach(col => {
+            const normCol = normHeader(col);
+            // البحث عن تطابق تام أو تطابق بعد إزالة المسافات (Fuzzy)
+            const found = fileHeaders.some(h => h === normCol || h.replace(/\s/g, '') === normCol.replace(/\s/g, ''));
+            if (found) present.push(col);
+            else missing.push(col);
+        });
+
+        const extra = diagnostics?.unknown?.length ? diagnostics.unknown : fileHeaders.filter(h => {
+            const compactH = h.replace(/\s/g, '');
+            return !OFFICIAL_COLUMNS.some(c => {
+                const nc = normHeader(c);
+                return nc === h || nc.replace(/\s/g, '') === compactH;
+            });
+        });
+        const missingRequired = diagnostics?.missingRequired || [];
+        const hasBlockingIssues = diagnostics?.hasBlockingIssues || false;
+
+        const container = document.getElementById('val-cards-list');
+        if (!container) return;
+
+        const missingHtml = missing.length
+            ? missing.map(c => `<span style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 9px;margin:3px;display:inline-block;font-size:0.82rem;">✗ ${c}</span>`).join('')
+            : '<span style="color:#4ade80;font-size:0.85rem;">لا توجد أعمدة مفقودة</span>';
+        const missingRequiredHtml = missingRequired.length
+            ? `<div style="margin-top:8px"><strong style="color:#f87171;font-size:0.85rem;">أعمدة مطلوبة مفقودة تمنع الحفظ:</strong><div style="margin-top:4px">${missingRequired.map(c => `<span style="background:rgba(239,68,68,0.16);color:#f87171;border:1px solid rgba(239,68,68,0.35);border-radius:6px;padding:3px 9px;margin:3px;display:inline-block;font-size:0.82rem;">${c}</span>`).join('')}</div></div>`
+            : '';
+        const presentHtml = present.map(c => `<span style="background:rgba(74,222,128,0.1);color:#4ade80;border:1px solid rgba(74,222,128,0.25);border-radius:6px;padding:3px 9px;margin:3px;display:inline-block;font-size:0.82rem;">✓ ${c}</span>`).join('');
+        const extraHtml = extra.length
+            ? extra.map(c => `<span style="background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:3px 9px;margin:3px;display:inline-block;font-size:0.82rem;">+ ${c}</span>`).join('')
+            : '';
+
+        const coverageCard = `
+            <div class="val-error-card animated fadeIn" style="grid-column:1/-1;border-color:${missing.length ? 'rgba(239,68,68,0.3)' : 'rgba(74,222,128,0.3)'}">
+                <span class="val-card-badge ${hasBlockingIssues ? 'danger' : (missing.length ? 'warning' : 'success')}">${hasBlockingIssues ? 'يحتاج مراجعة' : (missing.length ? `${missing.length} مفقود` : 'مكتمل')}</span>
+                <div class="val-card-icon-small">📋</div>
+                <div class="val-card-content" style="width:100%">
+                    <h4 class="val-card-title">تغطية الأعمدة الرسمية (${present.length} / ${OFFICIAL_COLUMNS.length})</h4>
+                    ${hasBlockingIssues ? '<p style="color:#f87171;font-size:0.9rem;margin:6px 0;">تم إيقاف أزرار الحفظ حتى يتم تصحيح الأعمدة المطلوبة أو الأعمدة غير المعروفة.</p>' : ''}
+                    <div style="margin:8px 0">${presentHtml}</div>
+                    ${missingRequiredHtml}
+                    ${missing.length ? `<div style="margin-top:8px"><strong style="color:#f87171;font-size:0.85rem;">أعمدة مفقودة:</strong><div style="margin-top:4px">${missingHtml}</div></div>` : ''}
+                    ${extra.length ? `<div style="margin-top:8px"><strong style="color:#fbbf24;font-size:0.85rem;">أعمدة إضافية في الملف:</strong><div style="margin-top:4px">${extraHtml}</div></div>` : ''}
+                </div>
+            </div>`;
+        container.insertAdjacentHTML('afterbegin', coverageCard);
+    }
+
+    _setImportSaveButtonsEnabled(enabled) {
+        ['btn-save-valid', 'btn-save-as-is'].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.disabled = !enabled;
+            btn.style.opacity = enabled ? '' : '0.45';
+            btn.style.pointerEvents = enabled ? '' : 'none';
+            if (!enabled) btn.title = 'يجب تصحيح أعمدة ملف الحوافز قبل الحفظ';
+            else btn.removeAttribute('title');
+        });
+    }
+
     hideValidationModal() {
         document.getElementById('validation-modal')?.classList.add('hidden');
         // Do NOT clear pending data here if we are about to save it.
@@ -4187,6 +4429,8 @@ renderTable(dataToRender = null, append = false) {
         this.pendingAllData = null;
         this.pendingFile = null;
         this._validationService = null;
+        this._incentiveImportColumnDiagnostics = null;
+        this._setImportSaveButtonsEnabled(true);
     }
 
     async saveValidRecords() {
@@ -4204,6 +4448,10 @@ renderTable(dataToRender = null, append = false) {
     }
 
     async saveAllRecords() {
+        if (this.pendingImportType === 'incentive' && this._incentiveImportColumnDiagnostics?.hasBlockingIssues) {
+            this.showToast('يجب تصحيح أعمدة ملف الحوافز قبل الحفظ', 'error');
+            return;
+        }
         if (!this.pendingAllData || this.pendingAllData.length === 0) {
             this.showToast('لا توجد سجلات للحفظ', 'warning');
             return;
@@ -4218,6 +4466,10 @@ renderTable(dataToRender = null, append = false) {
     }
 
     async saveAllAsIs() {
+        if (this.pendingImportType === 'incentive' && this._incentiveImportColumnDiagnostics?.hasBlockingIssues) {
+            this.showToast('يجب تصحيح أعمدة ملف الحوافز قبل الحفظ', 'error');
+            return;
+        }
         if (!this.pendingAllData || this.pendingAllData.length === 0) {
             this.showToast('لا توجد سجلات للحفظ', 'warning');
             return;
@@ -4250,9 +4502,7 @@ renderTable(dataToRender = null, append = false) {
             type: this.pendingImportType === 'salary' ? 'Salary' : 'Incentive'
         });
 
-        // 1. مسح الكاش لضمان جلب البيانات الجديدة
-        this.returnsCache = null;
-        this.salaryReturnsCache = null;
+        // Keep browser cache alive; a targeted incremental sync below merges the new import.
         this.isCaching = false;
 
         // [FIX] إخفاء صفحة الـ validation وأزرارها أولاً
@@ -4343,9 +4593,9 @@ renderTable(dataToRender = null, append = false) {
                 setProgress(100, 'اكتمل الحفظ!');
                 await new Promise(r => setTimeout(r, 400));
 
-                // مسح الكاش وإغلاق واجهة الـ validation
-                this.returnsCache = null;
-                this.salaryReturnsCache = null;
+                await this._syncDataset?.(isSalary ? 'salary' : 'returns', { force: true, skipCheck: true });
+
+                // إغلاق واجهة الـ validation
                 this.pendingAllData = null;
                 this.pendingValidData = null;
                 this.pendingFile = null;
@@ -4360,7 +4610,7 @@ renderTable(dataToRender = null, append = false) {
 
                 if (isSalary) {
                     this.navigateTo('salary-returns', true);
-                    
+
                     // Reset all salary filters rigorously
                     this.salarySearchQuery = '';
                     this.salaryAttachmentFilterValue = 'all';
@@ -4370,7 +4620,7 @@ renderTable(dataToRender = null, append = false) {
                     this.salaryUploadDateFrom = null;
                     this.salaryUploadDateTo = null;
 
-                    ['salary-table-search', 'salary-attachment-filter', 'salary-settlement-filter', 
+                    ['salary-table-search', 'salary-attachment-filter', 'salary-settlement-filter',
                      'salary-return-status-filter', 'salary-month-filter', 'salary-upload-date-filter'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.value = (id === 'salary-table-search' ? '' : 'all');
@@ -4380,7 +4630,7 @@ renderTable(dataToRender = null, append = false) {
                     this.showToast(`✅ تم حفظ ${data.length} سجل مرتبات بنجاح`, 'success');
                 } else {
                     this.navigateTo('returns', true);
-                    
+
                     // Reset all return filters rigorously
                     this.searchQuery = '';
                     this.monthFilterValue = 'all';
@@ -4390,15 +4640,13 @@ renderTable(dataToRender = null, append = false) {
                     this.uploadDateTo = null;
                     this.settlementFilterValue = 'all';
 
-                    ['table-search', 'month-filter', 'settlement-filter', 
+                    ['table-search', 'month-filter', 'settlement-filter',
                      'return-status-filter', 'attachment-filter', 'upload-date-filter'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.value = (id === 'table-search' ? '' : 'all');
                     });
 
                     console.log('[SAVE] Reloading returns table...');
-                    this.data = [];
-                    this.renderTable([], false);
                     await this.loadReturns(1, 50, '', '', 'all', false);
                     this.showToast(`✅ تم حفظ ${data.length} سجل بنجاح`, 'success');
                     setTimeout(() => this.populateReturnsCache(), 1500);
@@ -4467,7 +4715,7 @@ renderTable(dataToRender = null, append = false) {
         ];
 
         const ws = XLSX.utils.aoa_to_sheet(ws_data);
-        
+
         // ضبط التنسيق من اليمين إلى اليسار
         ws['!views'] = [{ RTL: true }];
 
@@ -4477,7 +4725,7 @@ renderTable(dataToRender = null, append = false) {
 
         XLSX.utils.book_append_sheet(wb, ws, "اسطمبة السداد الذكي");
         XLSX.writeFile(wb, "نموذج السداد.xlsx");
-        
+
         this.showToast('تم تنزيل إسطمبة الإكسيل بنجاح', 'success');
     }
 
@@ -4486,12 +4734,16 @@ renderTable(dataToRender = null, append = false) {
         if (!file) return;
 
         this.smartExcelFileName = file.name;
-        
+
         // UI Updates for Compact Card
         const dropZone = document.getElementById('smart-payment-drop-zone');
         const changeBtn = document.getElementById('btn-change-smart-file');
         const uploadText = document.getElementById('smart-upload-text');
-        
+
+        if (uploadText) {
+            uploadText.textContent = `ملف: ${file.name}`;
+            uploadText.style.color = '#00f0ff';
+        }
         if (dropZone) dropZone.style.borderColor = 'rgba(16, 185, 129, 0.5)';
         if (changeBtn) {
             changeBtn.classList.remove('hidden');
@@ -4510,11 +4762,11 @@ renderTable(dataToRender = null, append = false) {
         try {
             const data = await this.readExcelFile(file);
             this.smartExcelData = data;
-            
+
             const statusMsg = `تم تحميل ${data.length} سجل.`;
             if (statusFooter) statusFooter.textContent = statusMsg;
             if (statusHeader) statusHeader.textContent = statusMsg;
-            
+
             document.getElementById('btn-smart-match').disabled = false;
 
 
@@ -4533,22 +4785,22 @@ renderTable(dataToRender = null, append = false) {
         const loading = document.getElementById('smart-payment-loading');
         const results = document.getElementById('smart-payment-results');
         const btnMatch = document.getElementById('btn-smart-match');
-        
+
         // --- VISUAL FEEDBACK LOGIC (100-300ms responsive) ---
         if (btnMatch) {
             btnMatch.classList.add('btn-loading');
             btnMatch.disabled = true;
         }
-        
+
         if (loading) loading.classList.remove('hidden');
         if (results) results.style.display = 'none';
 
         try {
             // Read match method from active chip or property
-            const matchBy = this.smartMatchBy || 
-                            document.querySelector('.match-mode-chip.active')?.getAttribute('data-value') || 
+            const matchBy = this.smartMatchBy ||
+                            document.querySelector('.match-mode-chip.active')?.getAttribute('data-value') ||
                             'الاسم';
-            
+
             // Ensure Stat Filter matches UI default if not set
             if (!this.smartPaymentStatFilter) {
                 const activeStatusChip = document.querySelector('.smart-filter-card.active');
@@ -4570,7 +4822,7 @@ renderTable(dataToRender = null, append = false) {
                     const row = item.sourceExcelRow;
                     const mods = {};
                     let hasMod = false;
-                    
+
                     Object.keys(row).forEach(key => {
                         if (key.startsWith('_isModified_') && row[key] === true) {
                             const field = key.replace('_isModified_', '');
@@ -4578,7 +4830,7 @@ renderTable(dataToRender = null, append = false) {
                             hasMod = true;
                         }
                     });
-                    
+
                     if (hasMod) {
                         // Use name+currentAccount as key for persistence
                         const key = `${row.name}_${row.currentAccount}`;
@@ -4589,7 +4841,7 @@ renderTable(dataToRender = null, append = false) {
 
             // 1. Map Excel headers to model properties (Robust Kashida-Stripped Matching)
             const stripKashida = (s) => (s || '').replace(/ـ/g, '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
-            
+
             const findCol = (row, ...candidates) => {
                 // Pass 1: Exact match
                 for (const c of candidates) {
@@ -4621,7 +4873,7 @@ renderTable(dataToRender = null, append = false) {
 
                 const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'FileCode', 'كُـــود المـلف', 'كود_الملف', 'BatchCode', 'Batch ID'];
                 const rawFileCode = this.findValue(row, fileCodeKeys) || '';
-                
+
                 // User specifically requested to ONLY extract from file code
                 const extractedMonth = this.extractMonthFromFileCode(rawFileCode);
 
@@ -4632,14 +4884,19 @@ renderTable(dataToRender = null, append = false) {
                     month: extractedMonth,
                     currentAccount: findCol(row, 'رقم الحساب', 'رقم الحساب الحالي', 'CurrentAccount', 'ACCOUNT_NUMBER'),
                     currentBank: findCol(row, 'البنك', 'اسم البنك', 'CurrentBank'),
+                    amount: findCol(row, 'قيمة العملية', 'Amount', 'Value'),
+                    status: findCol(row, 'الحالة', 'Status'),
+                    reason: findCol(row, 'السبب', 'Reason'),
                     modifiedAccount: findCol(row, 'رقم الحساب بعد التعديل', 'رقم الحساب الجديد', 'الحساب الجديد', 'ModifiedAccount'),
                     modifiedBank: findCol(row, 'البنك بعد التعديل', 'البنك الجديد', 'اسم البنك الجديد', 'ModifiedBank'),
-                    returnDate: findCol(row, 'تاريخ المرتدات', 'تاريخ المرتد', 'ReturnDate'),
+                    modifiedBranchCode: findCol(row, 'كود الفرع بعد التعديل', 'BranchCode', 'ModifiedBranchCode'),
+                    settlementElevationNo: findCol(row, 'رقم تسوية التعلية', 'ElevationSettlementNo'),
+                    returnDate: findCol(row, 'تاريخ المرتد / تاريخ التعلية', 'تاريخ المرتدات', 'تاريخ المرتد', 'ReturnDate'),
                     returnApprovalDate: findCol(row, 'تاريخ اعتماد المرتدات', 'ReturnApprovalDate'),
                     modDate: findCol(row, 'تاريخ التعديل', 'ModDate'),
                     modApprovalDate: findCol(row, 'تاريخ اعتماد التعديل', 'ModApprovalDate'),
                     settlementNo: findCol(row, 'رقم تسوية السداد', 'SettlementNo'),
-                    settlementDate: findCol(row, 'تاريخ تسوية السداد', 'تاريخ اعتماد التعديل / تاريخ السداد', 'تاريخ التسوية', 'SettlementDate')
+                    settlementDate: findCol(row, 'تاريخ اعتماد التعديل / تاريخ السداد', 'تاريخ تسوية السداد', 'تاريخ التسوية', 'SettlementDate')
                 };
 
                 // Debug: Log first mapped record
@@ -4674,8 +4931,13 @@ renderTable(dataToRender = null, append = false) {
                     BatchCode: r.batchCode,
                     CurrentAccount: r.currentAccount,
                     CurrentBank: r.currentBank,
+                    Amount: r.amount,
+                    Status: r.status,
+                    Reason: r.reason,
                     ModifiedAccount: r.modifiedAccount,
                     ModifiedBank: r.modifiedBank,
+                    ModifiedBranchCode: r.modifiedBranchCode,
+                    SettlementElevationNo: r.settlementElevationNo,
                     ReturnDate: r.returnDate,
                     ReturnApprovalDate: r.returnApprovalDate,
                     ModDate: r.modDate,
@@ -4688,7 +4950,7 @@ renderTable(dataToRender = null, append = false) {
                     FileCode: document.getElementById('smart-file-code-filter')?.value || '',
                     Status: document.querySelector('.smart-filter-card.active')?.getAttribute('data-value') || 'الكل',
                     MatchBy: matchBy,
-                    DataType: this.smartPaymentTypeFilter || 'salary' 
+                    DataType: this.smartPaymentTypeFilter || 'salary'
                 }
             };
 
@@ -4755,29 +5017,41 @@ renderTable(dataToRender = null, append = false) {
                     }
                 });
             }
-            
+
             // Redundant early render removed - we render after stats are computed below
-            
+
             if (results) results.style.display = 'block';
-            
+
 
 
             const totalMatches = json.data.reduce((acc, curr) => acc + ((curr.matches?.length || 0) + (curr.salaryMatches?.length || 0)), 0);
-            
+
             if (this.smartMatchResults && this.smartMatchResults.length > 0) {
+                const activeType = this.smartPaymentTypeFilter || 'salary';
+                let matchedCount = 0;
+                let unmatchedCount = 0;
+                this.smartMatchResults.forEach(item => {
+                    const matches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+                    if (matches.length > 0) {
+                        matchedCount++;
+                    } else {
+                        unmatchedCount++;
+                    }
+                });
+                const statusMsg = `تم تحميل ${this.smartMatchResults.length} سجل (مطابق: ${matchedCount} | غير موجود: ${unmatchedCount})`;
+                const statusHeader = document.getElementById('smart-payment-status-header');
+                if (statusHeader) statusHeader.textContent = statusMsg;
+
                 const execBtn = document.getElementById('btn-smart-execute-active-tab');
                 if (execBtn) execBtn.disabled = false;
 
-                
                 // Set default active card without causing infinite recursion
-                this.setSmartStatFilter('all', false); 
-                
+                this.setSmartStatFilter('notfound', false);
+
                 // Populate month filter from actual matches only
                 this.populateSmartMonthFilter(this.smartMatchResults);
-                
+
                 this.renderSmartPaymentResults();
-
-
                 // Show Execution Group
                 document.getElementById('smart-execute-group')?.classList.remove('hidden');
             } else {
@@ -4797,7 +5071,7 @@ renderTable(dataToRender = null, append = false) {
         if (value === 'تم التسوية') {
             this.showToast('تنبيه: لقد اخترت عرض السجلات المسواة فقط. يرجى العلم أن هذه السجلات قد اكتملت إجرائياً.', 'warning');
         }
-        
+
         // إعادة تشغيل المطابقة تلقائياً لتحديث النتائج بناءً على الفلتر الجديد
         if (this.smartExcelData && this.smartExcelData.length > 0) {
             this.runSmartPaymentMatch();
@@ -4815,7 +5089,7 @@ renderTable(dataToRender = null, append = false) {
 
     switchSmartTab(type, element) {
         if (!element) return;
-        
+
         // UI Updates for Tabs
         const parent = element.parentElement;
         parent.querySelectorAll('.smart-tab-btn').forEach(btn => {
@@ -4825,19 +5099,65 @@ renderTable(dataToRender = null, append = false) {
             btn.style.borderBottomColor = 'transparent';
         });
 
+        const activeColor = type === 'incentive' ? '#fbbf24' : '#10b981';
         element.classList.add('active');
-        element.style.color = '#10b981';
+        element.style.color = activeColor;
         element.style.fontWeight = '800';
-        element.style.borderBottomColor = '#10b981';
+        element.style.borderBottomColor = activeColor;
 
         // Update Logic State
         this.smartPaymentTypeFilter = type; // 'salary' or 'incentive'
         console.log('[SMART] Tab switched to:', type);
-        
+
+        // Reset search, file code, and month filters
+        const monthSelect = document.getElementById('smart-month-filter');
+        if (monthSelect) monthSelect.value = '';
+        const fileSelect = document.getElementById('smart-file-code-filter');
+        if (fileSelect) fileSelect.value = '';
+        const searchInp = document.getElementById('smart-filter-search');
+        if (searchInp) searchInp.value = '';
+
+        // Reset status filter to 'notfound' and update chip UI
+        this.smartPaymentStatFilter = 'notfound';
+        const statusChipsRow = document.querySelector('.smart-status-chips-row');
+        if (statusChipsRow) {
+            statusChipsRow.querySelectorAll('.smart-filter-card').forEach(el => {
+                el.classList.remove('active');
+                el.style.background = 'transparent';
+                el.style.boxShadow = 'none';
+                el.style.border = `1px solid rgba(255,255,255,0.05)`;
+                el.style.color = '#94a3b8';
+            });
+            const notfoundChip = statusChipsRow.querySelector('[data-value="لم يتم التسوية"]');
+            if (notfoundChip) {
+                notfoundChip.classList.add('active');
+                notfoundChip.style.background = `linear-gradient(135deg, rgba(0, 240, 255, 0.4) 0%, rgba(0, 240, 255, 0.6) 100%)`;
+                notfoundChip.style.boxShadow = `0 4px 12px rgba(0, 240, 255, 0.2)`;
+                notfoundChip.style.color = '#fff';
+                notfoundChip.style.border = `1px solid rgba(0, 240, 255, 0.4)`;
+            }
+        }
+
         // Refresh Current View
         if (this.smartMatchResults && this.smartMatchResults.length > 0) {
             // Update month filter options based on the new tab context
             this.populateSmartMonthFilter(this.smartMatchResults);
+
+            // Update stats message
+            let matchedCount = 0;
+            let unmatchedCount = 0;
+            this.smartMatchResults.forEach(item => {
+                const matches = type === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+                if (matches.length > 0) {
+                    matchedCount++;
+                } else {
+                    unmatchedCount++;
+                }
+            });
+            const statusMsg = `تم تحميل ${this.smartMatchResults.length} سجل (مطابق: ${matchedCount} | غير موجود: ${unmatchedCount})`;
+            const statusHeader = document.getElementById('smart-payment-status-header');
+            if (statusHeader) statusHeader.textContent = statusMsg;
+
             this.renderSmartPaymentResults();
         } else {
             // Optional: reset upload UI if not processed
@@ -4857,7 +5177,7 @@ renderTable(dataToRender = null, append = false) {
         if (!element) return;
         const color = '#00f0ff';
         const parent = element.parentElement;
-        
+
         parent.querySelectorAll('.smart-filter-card').forEach(el => {
             el.classList.remove('active');
             el.style.background = 'transparent';
@@ -4898,10 +5218,10 @@ renderTable(dataToRender = null, append = false) {
             // Process based on active tab preference but keep all available months for better UX
             processMatches(item.salaryMatches);
             processMatches(item.matches);
-            
+
             // Also check source row
-            const srcFCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
-            const srcMonth = this.extractMonthFromFileCode(srcFCode) || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ';
+            const srcFCode = item.sourceExcelRow?.batchCode || item.sourceExcelRow?.BatchCode || item.sourceExcelRow?.fileCode || '';
+            const srcMonth = this.extractMonthFromFileCode(srcFCode) || item.sourceExcelRow?.month || item.sourceExcelRow?.Month || 'فارغ';
             if (srcMonth && srcMonth !== 'فارغ') months.add(srcMonth);
             if (srcFCode) fileCodes.add(srcFCode);
         });
@@ -4942,7 +5262,7 @@ renderTable(dataToRender = null, append = false) {
         if (!element) return;
         const color = '#00f0ff';
         const parent = element.parentElement;
-        
+
         parent.querySelectorAll('.match-mode-chip').forEach(el => {
             el.classList.remove('active');
             el.style.background = 'transparent';
@@ -4964,31 +5284,12 @@ renderTable(dataToRender = null, append = false) {
     _mapStatusToKey(val) {
         if (val === 'تم التسوية') return 'incentive'; // Mapping for internal logic
         if (val === 'لم يتم التسوية') return 'notfound';
+        if (val === 'بيانات غير موجودة') return 'unmatched';
         return 'all';
     }
 
     applySmartLocalFilters() {
-        if (!this.smartMatchResults) return;
-        // Determine search values based on what's visible
-        const nameInp = document.getElementById('smart-filter-name');
-        const nidInp = document.getElementById('smart-filter-nid');
-        
-        const nameVal = (nameInp?.value || '').trim();
-        const nidVal = (nidInp?.value || '').trim();
-        
-        // Local Filter Logic
-        const results = this.smartMatchResults.filter(item => {
-            const row = item.sourceExcelRow || {};
-            const rowName = String(row.name || '').toLowerCase();
-            const rowNid = String(row.nationalId || '').toLowerCase();
-            
-            const matchName = !nameVal || rowName.includes(nameVal.toLowerCase());
-            const matchNid = !nidVal || rowNid.includes(nidVal.toLowerCase());
-            
-            return matchName && matchNid;
-        });
-        
-        this.renderSmartPaymentResults(results);
+        this.renderSmartPaymentResults();
     }
 
     setSmartStatFilter(filterType, triggerRender = true) {
@@ -5006,41 +5307,80 @@ renderTable(dataToRender = null, append = false) {
         const resultsContainer = document.getElementById('smart-payment-results');
         if (!resultsContainer) return;
 
-        // Fallback to internal results if no data provided
-        const sourceData = data || this.smartMatchResults;
+        const sourceData = this.smartMatchResults;
         if (!sourceData || sourceData.length === 0) {
             resultsContainer.innerHTML = '<div class="unified-table-empty">لا توجد نتائج مطابقة</div>';
             return;
         }
 
-        // Apply Stat Filter (Settled / Not Settled / All)
         let filtered = sourceData;
         const sf = this.smartPaymentStatFilter || 'all';
-        
+
+        // Apply client-side search input filtering
+        const searchInp = document.getElementById('smart-filter-search');
+        const searchVal = (searchInp?.value || '').trim().toLowerCase();
+        if (searchVal) {
+            filtered = filtered.filter(item => {
+                const row = item.sourceExcelRow || {};
+                const name = String(row.name || '').toLowerCase();
+                const nationalId = String(row.nationalId || '').toLowerCase();
+                const modifiedAccount = String(row.modifiedAccount || '').toLowerCase();
+                const modifiedBank = String(row.modifiedBank || '').toLowerCase();
+                const currentAccount = String(row.currentAccount || '').toLowerCase();
+                const currentBank = String(row.currentBank || '').toLowerCase();
+
+                const matches = (item.matches || []).concat(item.salaryMatches || []);
+                const matchFields = matches.some(m => 
+                    String(m.name || '').toLowerCase().includes(searchVal) ||
+                    String(m.nationalId || '').toLowerCase().includes(searchVal) ||
+                    String(m.currentAccount || '').toLowerCase().includes(searchVal) ||
+                    String(m.currentBank || '').toLowerCase().includes(searchVal)
+                );
+
+                return name.includes(searchVal) || 
+                       nationalId.includes(searchVal) || 
+                       modifiedAccount.includes(searchVal) || 
+                       modifiedBank.includes(searchVal) ||
+                       currentAccount.includes(searchVal) ||
+                       currentBank.includes(searchVal) ||
+                       matchFields;
+            });
+        }
+
+        const isMatchSettled = (m, srcRow) => {
+            if (!m) return false;
+            const hasSNo = (srcRow && srcRow.settlementNo && String(srcRow.settlementNo).trim() !== '' && String(srcRow.settlementNo).trim() !== '---') ||
+                            (m.settlementNo && String(m.settlementNo).trim() !== '' && String(m.settlementNo).trim() !== '---');
+            if (hasSNo) return true;
+            return m.status === 'تم التسوية' || m.status === 'تمت التسوية';
+        };
+
         if (sf === 'incentive') {
-            filtered = sourceData.filter(r => (r.matches && r.matches.some(m => m.status === 'تم التسوية' || m.status === 'تمت التسوية')) || 
-                                             (r.salaryMatches && r.salaryMatches.some(m => m.status === 'تم التسوية' || m.status === 'تمت التسوية')));
+            filtered = sourceData.filter(r => (r.matches && r.matches.some(m => isMatchSettled(m, r.sourceExcelRow))) ||
+                                             (r.salaryMatches && r.salaryMatches.some(m => isMatchSettled(m, r.sourceExcelRow))));
         } else if (sf === 'notfound') {
             filtered = sourceData.filter(r => {
-                const noIncentiveMatch = !r.matches || r.matches.length === 0 || r.matches.every(m => m.status !== 'تم التسوية' && m.status !== 'تمت التسوية');
-                const noSalaryMatch = !r.salaryMatches || r.salaryMatches.length === 0 || r.salaryMatches.every(m => m.status !== 'تم التسوية' && m.status !== 'تمت التسوية');
+                const noIncentiveMatch = !r.matches || r.matches.length === 0 || r.matches.every(m => !isMatchSettled(m, r.sourceExcelRow));
+                const noSalaryMatch = !r.salaryMatches || r.salaryMatches.length === 0 || r.salaryMatches.every(m => !isMatchSettled(m, r.sourceExcelRow));
                 return noIncentiveMatch && noSalaryMatch;
+            });
+        } else if (sf === 'unmatched') {
+            filtered = sourceData.filter(r => {
+                const activeType = this.smartPaymentTypeFilter || 'salary';
+                const matches = activeType === 'incentive' ? (r.matches || []) : (r.salaryMatches || []);
+                return matches.length === 0;
             });
         }
 
         const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
         const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
         const activeType = this.smartPaymentTypeFilter || 'salary';
-        
-        console.log(`[SMART-RENDER] Starting with filters: Month=${selectedMonth}, FileCode=${selectedFileCode}, Type=${activeType}`);
-        
-        // Final frontend filtering before render
+
         if (selectedMonth !== 'all' && selectedMonth !== '') {
             filtered = filtered.filter(item => {
                 const fCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
                 const mMonth = this.extractMonthFromFileCode(fCode) || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ';
                 if (mMonth === selectedMonth) return true;
-
                 const relevantMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
                 return relevantMatches.some(m => {
                     const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
@@ -5054,7 +5394,6 @@ renderTable(dataToRender = null, append = false) {
             filtered = filtered.filter(item => {
                 const fCode = item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || '';
                 if (fCode === selectedFileCode) return true;
-
                 const relevantMatches = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
                 return relevantMatches.some(m => {
                     const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
@@ -5062,8 +5401,6 @@ renderTable(dataToRender = null, append = false) {
                 });
             });
         }
-        
-        console.log(`[SMART-RENDER] Groups after top-level filtering: ${filtered.length}`);
 
         resultsContainer.innerHTML = '';
 
@@ -5072,166 +5409,233 @@ renderTable(dataToRender = null, append = false) {
             return;
         }
 
-        // 1. Group by Name to avoid UI duplicates
-        const groupedResults = {};
-        filtered.forEach(item => {
-            const name = item.sourceExcelRow.name || 'مجهول';
-            if (!groupedResults[name]) {
-                groupedResults[name] = {
-                    sourceExcelRow: { ...item.sourceExcelRow },
-                    matches: [],
-                    salaryMatches: []
-                };
-            }
-            
-            // Merge matches uniquely using robust keys
-            const mergeUnique = (target, source) => {
-                (source || []).forEach(m => {
-                    // Use Id as primary key, fallback to ReturnCode + BatchCode
-                    const mid = m.id || m.Id || `${m.returnCode || m.ReturnCode}-${m.batchCode || m.BatchCode}`;
-                    if (!target.some(t => (t.id || t.Id || `${t.returnCode || t.ReturnCode}-${t.batchCode || t.BatchCode}`) === mid)) {
-                        target.push(m);
-                    }
-                });
-            };
-            mergeUnique(groupedResults[name].matches, item.matches);
-            mergeUnique(groupedResults[name].salaryMatches, item.salaryMatches);
-        });
+        // Build unified table rows: each row = one matched DB record
+        const tableRows = [];
 
-        // 2. Process the grouped results
-        const finalResults = Object.values(groupedResults);
-        
-        finalResults.forEach((item, index) => {
-            const selectedMonth = document.getElementById('smart-month-filter')?.value || 'all';
-            const selectedFileCode = document.getElementById('smart-file-code-filter')?.value || '';
-            const isIncentiveTab = this.smartPaymentTypeFilter === 'incentive';
-            
-            // A. Get initial matches based on tab
-            let matchesToRender = isIncentiveTab ? (item.matches || []) : (item.salaryMatches || []);
-            
-            // B. Apply Month Filter to internal matches
+        filtered.forEach((item) => {
+            const matchesToRender = activeType === 'incentive' ? (item.matches || []) : (item.salaryMatches || []);
+            let internalMatches = matchesToRender;
             if (selectedMonth !== 'all' && selectedMonth !== '') {
-                matchesToRender = matchesToRender.filter(m => {
+                internalMatches = internalMatches.filter(m => {
                     const fCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
                     const mMonth = this.extractMonthFromFileCode(fCode) || m.month || m.Month || 'فارغ';
                     return mMonth === selectedMonth;
                 });
             }
-            
-            // C. Apply File Code Filter to internal matches
             if (selectedFileCode !== '') {
-                matchesToRender = matchesToRender.filter(m => {
+                internalMatches = internalMatches.filter(m => {
                     const mfCode = m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '';
                     return mfCode === selectedFileCode;
                 });
             }
-
-            // D. If a filter is active, and this group has NO matches left, skip rendering this group entirely
-            const isFilterActive = (selectedMonth !== 'all' && selectedMonth !== '') || (selectedFileCode !== '');
-            if (isFilterActive && matchesToRender.length === 0) {
-                return;
-            }
-
-            const hasMatchesInActiveTab = matchesToRender.length > 0;
-            
-            const groupDiv = document.createElement('div');
-            groupDiv.className = 'smart-payment-group';
-            groupDiv.style.cssText = `
-                background: rgba(13, 22, 35, 0.7);
-                border: 1px solid ${hasMatchesInActiveTab ? 'rgba(0, 240, 255, 0.25)' : 'rgba(239, 68, 68, 0.25)'};
-                border-radius: 12px; margin-bottom: 25px; overflow: hidden;
-                box-shadow: 0 8px 25px rgba(0,0,0,0.4); border-right: 4px solid ${hasMatchesInActiveTab ? '#00f0ff' : '#ef4444'}; width: 100%;
-            `;
-
-            const isModified = (field) => item.sourceExcelRow[`_isModified_${field}`] ? 'border: 1px solid #ff9800 !important; background: rgba(255, 152, 0, 0.05);' : 'border: 1px solid rgba(255,255,255,0.08);';
-
-            const sourceHtml = `
-                <div class="smart-source-header" style="padding: 15px 20px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.05);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div class="status-indicator" style="display: flex; align-items: center; gap: 6px; background: ${hasMatchesInActiveTab ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; padding: 4px 12px; border-radius: 20px; border: 1px solid ${hasMatchesInActiveTab ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'};">
-                                <i class="fas ${hasMatchesInActiveTab ? 'fa-check-double' : 'fa-exclamation-circle'}" style="color: ${hasMatchesInActiveTab ? '#10b981' : '#ef4444'}; font-size: 0.85em;"></i>
-                                <span style="color: ${hasMatchesInActiveTab ? '#10b981' : '#ef4444'}; font-size: 0.8em; font-weight: 600;">${hasMatchesInActiveTab ? 'مطابقة ناجحة' : 'لا توجد مطابقة'}</span>
-                            </div>
-                        </div>
-                        <div style="text-align: left;">
-                            <div style="color: #00f0ff; font-weight: 700; font-size: 1.1em; cursor: pointer;" ondblclick="window.app.triggerNameSearch('${item.sourceExcelRow.name}')">${item.sourceExcelRow.name}</div>
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px;">
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">الاسم</label><input type="text" value="${item.sourceExcelRow.name || ''}" onchange="app.updateSmartExcelValue(${index}, 'name', this.value)" style="${isModified('name')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">كود الملف</label><input type="text" value="${item.sourceExcelRow.batchCode || ''}" onchange="app.updateSmartExcelValue(${index}, 'batchCode', this.value)" style="${isModified('batchCode')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #fbbf24; font-size: 0.7em; margin-bottom: 3px;">الشهر</label><input type="text" value="${this.extractMonthFromFileCode(item.sourceExcelRow.batchCode || item.sourceExcelRow.BatchCode || item.sourceExcelRow.fileCode || item.sourceExcelRow.FileCode || '') || item.sourceExcelRow.month || item.sourceExcelRow.Month || 'فارغ'}" onchange="app.updateSmartExcelValue(${index}, 'month', this.value)" style="${isModified('month')} border: 1px solid #fbbf24; width:100%; border-radius:4px; font-size:0.85em; background:rgba(251, 191, 36, 0.05); color:#fbbf24; font-weight: bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">الرقم القومي</label><input type="text" value="${item.sourceExcelRow.nationalId || ''}" onchange="app.updateSmartExcelValue(${index}, 'nationalId', this.value)" style="${isModified('nationalId')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">البنك</label><input type="text" value="${item.sourceExcelRow.currentBank || ''}" onchange="app.updateSmartExcelValue(${index}, 'currentBank', this.value)" style="${isModified('currentBank')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">رقم الحساب</label><input type="text" value="${item.sourceExcelRow.currentAccount || ''}" onchange="app.updateSmartExcelValue(${index}, 'currentAccount', this.value)" style="${isModified('currentAccount')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #00f0ff; font-size: 0.7em; margin-bottom: 3px;">رقم الحساب بعد التعديل</label><input type="text" value="${item.sourceExcelRow.modifiedAccount || ''}" onchange="app.updateSmartExcelValue(${index}, 'modifiedAccount', this.value)" style="border:1px solid #00f0ff; width:100%; border-radius:4px; font-size:0.9em; background:rgba(0,240,255,0.05); color:#00f0ff; font-weight:bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #00f0ff; font-size: 0.7em; margin-bottom: 3px;">البنك بعد التعديل</label><input type="text" value="${item.sourceExcelRow.modifiedBank || ''}" onchange="app.updateSmartExcelValue(${index}, 'modifiedBank', this.value)" style="border:1px solid #00f0ff; width:100%; border-radius:4px; font-size:0.9em; background:rgba(0,240,255,0.05); color:#00f0ff; font-weight:bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">تاريخ التعديل</label><input type="text" value="${item.sourceExcelRow.modDate || ''}" onchange="app.updateSmartExcelValue(${index}, 'modDate', this.value)" style="${isModified('modDate')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #555; font-size: 0.7em; margin-bottom: 3px;">تاريخ اعتماد التعديل</label><input type="text" value="${item.sourceExcelRow.modApprovalDate || ''}" onchange="app.updateSmartExcelValue(${index}, 'modApprovalDate', this.value)" style="${isModified('modApprovalDate')} width:100%; border-radius:4px; font-size:0.85em; background:transparent; color:#ccc;"></div>
-                        <div class="source-field"><label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px;">رقم تسوية السداد</label><input type="text" value="${item.sourceExcelRow.settlementNo || ''}" onchange="app.updateSmartExcelValue(${index}, 'settlementNo', this.value)" style="border:1px solid #10b981; width:100%; border-radius:4px; font-size:0.9em; background:rgba(16,185,129,0.05); color:#10b981; font-weight:bold;"></div>
-                        <div class="source-field"><label style="display: block; color: #10b981; font-size: 0.7em; margin-bottom: 3px;">تاريخ تسوية السداد</label><input type="text" value="${item.sourceExcelRow.settlementDate || ''}" onchange="app.updateSmartExcelValue(${index}, 'settlementDate', this.value)" style="border:1px solid #10b981; width:100%; border-radius:4px; font-size:0.9em; background:rgba(16,185,129,0.05); color:#10b981; font-weight:bold;"></div>
-                    </div>
-                </div>
-            `;
-
-            let matchesHtml = '<div class="smart-matches-container" style="padding: 15px;">';
-            if (matchesToRender.length > 0) {
-                        const sectionColor = isIncentiveTab ? '#fbbf24' : '#10b981';
-                        const sectionLabel = isIncentiveTab ? 'مطابقات الحوافز' : 'مطابقات المرتبات';
-                        const sectionIcon = isIncentiveTab ? 'fa-gift' : 'fa-money-check-alt';
-                        
-                        matchesHtml += `
-                            <div class="db-section" style="margin-bottom: 10px; border: 1px solid ${sectionColor}33; border-radius: 8px; overflow: hidden; background: ${sectionColor}05;">
-                                <div style="padding: 8px 15px; background: ${sectionColor}1a; display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="color: ${sectionColor}; font-size: 0.85em; font-weight: bold;"><i class="fas ${sectionIcon}"></i> ${sectionLabel}</span>
-                                    <span style="background: ${sectionColor}; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 0.7em; font-weight: bold;">${matchesToRender.length} سجل</span>
-                                </div>
-                                <table class="data-table" style="width: 100%; font-size: 0.73em;">
-                                    <thead>
-                                        <tr>
-                                            <th>كود الملف</th>
-                                            <th>الشهر</th>
-                                            <th>الاسم</th>
-                                            <th>الرقم القومي</th>
-                                            <th>البنك</th>
-                                            <th>رقم الحساب</th>
-                                            <th>حساب جديد</th>
-                                            <th>بنك جديد</th>
-                                            <th>تاريخ التعديل</th>
-                                            <th>اعتماد التعديل</th>
-                                            <th>رقم التسوية</th>
-                                            <th>تاريخ التسوية</th>
-                                            <th>الحالة</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${matchesToRender.map(m => `
-                                            <tr>
-                                                <td>${m.batchCode || m.BatchCode || m.fileCode || m.FileCode || 'فارغ'}</td>
-                                                <td style="color: #fbbf24; font-weight: bold;">${this.extractMonthFromFileCode(m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '') || m.month || m.Month || 'فارغ'}</td>
-                                            <td style="font-weight: 700; color: #10b981;">${m.name || '---'}</td>
-                                            <td>${m.nationalId || '---'}</td>
-                                            <td>${m.currentBank || '---'}</td>
-                                            <td>${m.currentAccount || '---'}</td>
-                                            <td style="color: #00f0ff; font-weight: bold;">${m.modifiedAccount || '---'}</td>
-                                            <td style="color: #00f0ff;">${m.modifiedBank || '---'}</td>
-                                            <td>${m.modDate || '---'}</td>
-                                            <td>${m.modApprovalDate || '---'}</td>
-                                                <td style="color: #fbbf24; font-weight: bold;">${m.settlementNo || '---'}</td>
-                                                <td>${m.settlementDate || '---'}</td>
-                                                <td><span class="badge-status ${m.status === 'تم التسوية' || m.status === 'تمت التسوية' ? 'success' : 'pending'}">${m.status || '---'}</span></td>
-                                            </tr>
-                                        `).join('')}
-                                </tbody>
-                            </table>
-                        </div>`;
+            const globalIndex = this.smartMatchResults.indexOf(item);
+            if (internalMatches.length > 0) {
+                internalMatches.forEach(m => {
+                    tableRows.push({ match: m, globalIndex: globalIndex });
+                });
             } else {
-                matchesHtml += `<div style="padding: 2.5rem; text-align: center; border: 1px dashed rgba(239,68,68,0.2); border-radius: 8px; color: #ef4444; font-size: 0.85em;"> لم يتم العثور على سجلات مطابقة في قاعدة البيانات لهذا الاسم</div>`;
+                tableRows.push({ match: null, globalIndex: globalIndex, sourceRow: item.sourceExcelRow });
             }
-            matchesHtml += '</div>';
-            groupDiv.innerHTML = sourceHtml + matchesHtml;
-            resultsContainer.appendChild(groupDiv);
+        });
+
+        if (tableRows.length === 0) {
+            resultsContainer.innerHTML = '<div class="unified-table-empty">لا توجد نتائج مطابقة للعرض</div>';
+            return;
+        }
+
+        const sectionColor = activeType === 'incentive' ? '#fbbf24' : '#10b981';
+        const sectionLabel = activeType === 'incentive' ? 'مطابقات الحوافز' : 'مطابقات المرتبات';
+        const sectionIcon = activeType === 'incentive' ? 'fa-gift' : 'fa-money-check-alt';
+
+        let html = `
+            <style>
+                .smart-payment-table {
+                    table-layout: auto !important;
+                    width: 100% !important;
+                }
+                .smart-payment-table th, .smart-payment-table td {
+                    white-space: normal !important;
+                    word-break: break-word !important;
+                    max-width: none !important;
+                    padding: 8px 6px !important;
+                    font-size: 0.95em !important;
+                    vertical-align: middle !important;
+                    text-align: right !important;
+                }
+                .smart-payment-table th {
+                    background: #1e293b !important;
+                    color: #94a3b8 !important;
+                    font-weight: 700 !important;
+                }
+                .smart-payment-table td {
+                    text-overflow: clip !important;
+                    overflow: visible !important;
+                }
+            </style>
+            <div style="margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:${sectionColor};font-size:1em;font-weight:bold;">
+                    <i class="fas ${sectionIcon}"></i> ${sectionLabel}
+                </span>
+                <span style="background:${sectionColor};color:#000;padding:3px 12px;border-radius:12px;font-size:0.75em;font-weight:bold;">${tableRows.length} سجل</span>
+            </div>
+            <div style="overflow-x:auto;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(13,22,35,0.6);">
+                <table class="data-table smart-payment-table" style="width:100%;font-size:0.72em;">
+                    <thead>
+                        <tr>
+                            <th>كود الملف</th>
+                            <th>الشهر</th>
+                            <th>الاسم</th>
+                            <th>الرقم القومي</th>
+                            <th>البنك</th>
+                            <th>رقم الحساب</th>
+                            <th>حساب جديد</th>
+                            <th>بنك جديد</th>
+                            <th>تاريخ التعديل</th>
+                            <th>اعتماد التعديل</th>
+                            <th>رقم التسوية</th>
+                            <th>تاريخ التسوية</th>
+                            <th>الحالة</th>
+                            <th>المصدر</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+        tableRows.forEach((r, idx) => {
+            const m = r.match;
+            const globalIdx = r.globalIndex;
+            const srcRow = r.sourceRow || (this.smartMatchResults[globalIdx] ? this.smartMatchResults[globalIdx].sourceExcelRow : null);
+            if (!srcRow) return;
+
+            if (m) {
+                const month = this.extractMonthFromFileCode(m.batchCode || m.BatchCode || m.fileCode || m.FileCode || '') || m.month || m.Month || 'فارغ';
+                const settled = isMatchSettled(m, srcRow);
+                const displayStatus = settled ? 'تم التسوية' : (m.status || 'لم يتم التسوية');
+                const badgeClass = settled ? 'success' : 'pending';
+
+                html += `
+                        <tr>
+                            <td>${m.batchCode || m.BatchCode || m.fileCode || m.FileCode || 'فارغ'}</td>
+                            <td style="color:#fbbf24;font-weight:bold;">${month}</td>
+                            <td style="font-weight:700;color:#10b981;">${m.name || '---'}</td>
+                            <td>${m.nationalId || '---'}</td>
+                            <td>${m.currentBank || '---'}</td>
+                            <td>${m.currentAccount || '---'}</td>
+                            <td style="color:#00f0ff;font-weight:bold;">${srcRow.modifiedAccount || m.modifiedAccount || '---'}</td>
+                            <td style="color:#00f0ff;">${srcRow.modifiedBank || m.modifiedBank || '---'}</td>
+                            <td>${srcRow.modDate || m.modDate || '---'}</td>
+                            <td>${srcRow.modApprovalDate || m.modApprovalDate || '---'}</td>
+                            <td style="color:#fbbf24;font-weight:bold;">${srcRow.settlementNo || m.settlementNo || '---'}</td>
+                            <td>${srcRow.settlementDate || m.settlementDate || '---'}</td>
+                            <td><span class="badge-status ${badgeClass}">${displayStatus}</span></td>
+                            <td><button class="btn btn-xs btn-outline" onclick="app.showSmartSourceModal(${globalIdx})" style="font-size:0.7em;padding:1px 8px;border-radius:4px;white-space:nowrap;border-color:rgba(0,240,255,0.3);color:#00f0ff;" title="عرض وتعديل بيانات المصدر"><i class="fas fa-edit" style="margin-left:3px;"></i>تعديل المصدر</button></td>
+                        </tr>`;
+            } else {
+                const fCode = srcRow.batchCode || srcRow.BatchCode || srcRow.fileCode || '';
+                const month = this.extractMonthFromFileCode(fCode) || srcRow.month || srcRow.Month || 'فارغ';
+
+                html += `
+                        <tr style="background: rgba(239, 68, 68, 0.05);">
+                            <td>${fCode || 'فارغ'}</td>
+                            <td style="color:#fbbf24;font-weight:bold;">${month}</td>
+                            <td style="font-weight:700;color:#ef4444;" title="الاسم في ملف الرفع: ${srcRow.name || ''}">لا يوجد تطابق (&rlm;${srcRow.name || '---'}&lrm;)</td>
+                            <td>${srcRow.nationalId || '---'}</td>
+                            <td>---</td>
+                            <td>---</td>
+                            <td style="color:#ef4444;font-weight:bold;">${srcRow.modifiedAccount || '---'}</td>
+                            <td style="color:#ef4444;">${srcRow.modifiedBank || '---'}</td>
+                            <td>---</td>
+                            <td>---</td>
+                            <td>---</td>
+                            <td>---</td>
+                            <td><span class="badge-status error" style="background:rgba(239, 68, 68, 0.15);color:#ef4444;border:1px solid rgba(239, 68, 68, 0.25);">لا يوجد تطابق</span></td>
+                            <td><button class="btn btn-xs btn-outline" onclick="app.showSmartSourceModal(${globalIdx})" style="font-size:0.7em;padding:1px 8px;border-radius:4px;white-space:nowrap;border-color:rgba(0,240,255,0.3);color:#00f0ff;" title="عرض وتعديل بيانات المصدر"><i class="fas fa-edit" style="margin-left:3px;"></i>تعديل المصدر</button></td>
+                        </tr>`;
+            }
+        });
+
+        html += `
+                    </tbody>
+                </table>
+            </div>`;
+
+        resultsContainer.innerHTML = html;
+    }
+
+    showSmartSourceModal(globalIdx) {
+        if (!this.smartMatchResults || !this.smartMatchResults[globalIdx]) return;
+        const src = this.smartMatchResults[globalIdx].sourceExcelRow;
+        if (!src) return;
+
+        const existingOverlay = document.getElementById('smart-source-modal-overlay');
+        if (existingOverlay) existingOverlay.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'smart-source-modal-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,12,0.85);backdrop-filter:blur(20px);display:grid;place-items:center;z-index:1000000;direction:rtl;';
+
+        const content = document.createElement('div');
+        content.style.cssText = 'background:rgba(13,22,35,0.95);border:1px solid rgba(0,240,255,0.4);border-radius:20px;width:680px;max-width:92%;max-height:85vh;overflow-y:auto;box-shadow:0 0 30px rgba(0,240,255,0.15);animation:modalSlideUp 0.4s cubic-bezier(0.16,1,0.3,1);';
+
+        const fields = [
+            { label: 'الاسم الأصلي', key: 'name' },
+            { label: 'كود الملف', key: 'batchCode' },
+            { label: 'الشهر', key: 'month', fn: (s) => { const m = this.extractMonthFromFileCode(s.batchCode || s.BatchCode || s.fileCode || s.FileCode || ''); return (m && m !== 'فارغ') ? m : (s.month || s.Month || 'فارغ'); } },
+            { label: 'الرقم القومي', key: 'nationalId' },
+            { label: 'البنك', key: 'currentBank' },
+            { label: 'رقم الحساب', key: 'currentAccount' },
+            { label: 'رقم الحساب بعد التعديل', key: 'modifiedAccount' },
+            { label: 'البنك بعد التعديل', key: 'modifiedBank' },
+            { label: 'تاريخ التعديل', key: 'modDate' },
+            { label: 'تاريخ اعتماد التعديل', key: 'modApprovalDate' },
+            { label: 'رقم تسوية السداد', key: 'settlementNo' },
+            { label: 'تاريخ تسوية السداد', key: 'settlementDate' },
+            { label: 'قيمة العملية', key: 'amount' },
+            { label: 'السبب', key: 'reason' },
+            { label: 'رقم تسوية التعلية', key: 'settlementElevationNo' },
+            { label: 'تاريخ المرتد', key: 'returnDate' },
+            { label: 'تاريخ اعتماد المرتدات', key: 'returnApprovalDate' },
+            { label: 'كود الفرع بعد التعديل', key: 'modifiedBranchCode' }
+        ];
+
+        let bodyHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:25px;">';
+        fields.forEach(f => {
+            let val = f.fn ? f.fn(src) : (src[f.key] || '');
+            if (val === '---') val = '';
+
+            const isModified = src[`_isModified_${f.key}`];
+            const borderStyle = isModified 
+                ? 'border: 1px solid #ff9800 !important; background: rgba(255, 152, 0, 0.05);' 
+                : 'border: 1px solid rgba(255, 255, 255, 0.08);';
+
+            bodyHtml += `
+                <div style="background:rgba(255,255,255,0.03);border-radius:10px;padding:12px 14px;border:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:5px;">
+                    <div style="color:#64748b;font-size:0.75em;font-weight:600;">${f.label}</div>
+                    <input type="text" value="${val}" 
+                        onchange="app.updateSmartExcelValue(${globalIdx}, '${f.key}', this.value); this.style.borderColor='#ff9800'; this.style.background='rgba(255,152,0,0.05)';" 
+                        style="background:rgba(15,23,42,0.6);color:#fff;border-radius:6px;padding:8px 12px;font-size:0.9em;width:100%;box-sizing:border-box;outline:none;transition:all 0.2s;${borderStyle}"
+                    >
+                </div>`;
+        });
+        bodyHtml += '</div>';
+
+        content.innerHTML = `
+            <div style="padding:20px 25px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;font-size:1.2rem;color:#00f0ff;display:flex;align-items:center;gap:10px;"><i class="fas fa-file-excel"></i> بيانات وتعديل سجل المصدر</h3>
+                <button onclick="document.getElementById('smart-source-modal-overlay').remove(); app.renderSmartPaymentResults();" style="background:none;border:none;color:#94a3b8;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">&times;</button>
+            </div>
+            ${bodyHtml}
+            <div style="padding:15px 25px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:flex-end;">
+                <button onclick="document.getElementById('smart-source-modal-overlay').remove(); app.renderSmartPaymentResults();" class="btn btn-sm" style="background:rgba(0,240,255,0.1);border:1px solid rgba(0,240,255,0.3);color:#00f0ff;border-radius:50px;padding:6px 20px;cursor:pointer;">حفظ وإغلاق</button>
+            </div>`;
+
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                overlay.remove();
+                app.renderSmartPaymentResults();
+            }
         });
     }
 
@@ -5246,7 +5650,7 @@ renderTable(dataToRender = null, append = false) {
 
     _renderSmartSubTable(items, head, body, badge, empty) {
         if (badge) badge.textContent = items.length;
-        
+
         if (!items || items.length === 0) {
             if (body) body.innerHTML = '';
             if (empty) empty.classList.remove('hidden');
@@ -5277,12 +5681,12 @@ renderTable(dataToRender = null, append = false) {
         if (targetType === 'active') {
             targetType = this.smartPaymentTypeFilter || 'salary';
         }
-        
+
         if (!this.smartMatchResults || this.smartMatchResults.length === 0) {
             this.showToast('لا توجد نتائج مطابقة. قم بعرض المطابقة أولاً', 'warning');
             return;
         }
-        
+
         console.log('[SMART-EXEC] ===== Starting Execute =====');
         console.log('[SMART-EXEC] Target Type:', targetType);
         console.log('[SMART-EXEC] Total match results:', this.smartMatchResults.length);
@@ -5290,13 +5694,13 @@ renderTable(dataToRender = null, append = false) {
 
         // 1. Prepare updates list
         const updatesList = [];
-        
+
         // Helper to safely get value favoring the camelCase field representing frontend edits/JSON data.
         const getVal = (val1, val2) => (val1 !== undefined ? val1 : (val2 !== undefined ? val2 : ''));
 
         this.smartMatchResults.forEach((item, idx) => {
             const src = item.sourceExcelRow;
-            
+
             // Debug: Log source data for first item
             if (idx === 0) {
                 console.log('[SMART-EXEC] ===== First sourceExcelRow =====');
@@ -5370,23 +5774,23 @@ renderTable(dataToRender = null, append = false) {
 
         try {
             this.updateSmartProgress(30, 'جاري إرسال البيانات للخادم...');
-            
+
             const payload = { Updates: updatesList };
             console.log('[SMART-EXEC] Sending payload:', JSON.stringify(payload).substring(0, 500) + '...');
-            
+
             const result = await db.fetchApi('/api/smart-settlement/execute', {
                 method: 'POST',
                 body: JSON.stringify(payload),
                 triggerBtn: triggerBtn // Pass the button for visual feedback
             });
             this.updateSmartProgress(100, 'تم التحديث بنجاح!');
-            
+
             // Force clear local caches
             this.returnsCache = null;
             this.salaryReturnsCache = null;
             this.isCaching = false;
             this.isSalaryCaching = false;
-            
+
             await db.clearLocalCache('returns_data_v2');
             await db.clearLocalCache('salary_returns_data_v1');
 
@@ -5400,7 +5804,7 @@ renderTable(dataToRender = null, append = false) {
             } catch (cacheErr) {
                 console.warn('[SMART-EXEC] Cache refresh failed:', cacheErr);
             }
-            
+
             // Reset UI
             if (progContainer) progContainer.style.display = 'none';
             buttons.forEach(id => { const b = document.getElementById(id); if(b) b.disabled = false; });
@@ -5430,7 +5834,7 @@ renderTable(dataToRender = null, append = false) {
         const progBar = document.getElementById('smart-progress-bar');
         const progPercent = document.getElementById('smart-progress-percent');
         const progText = document.getElementById('smart-progress-text');
-        
+
         if (progBar) progBar.style.width = `${percent}%`;
         if (progPercent) progPercent.textContent = `${percent}%`;
         if (progText) progText.textContent = text;
@@ -5473,6 +5877,10 @@ renderTable(dataToRender = null, append = false) {
     // إلى أعلى الملف لضمان التوافق مع البانر والـ Toolbar الجديد.
 
     async deleteSelectedReturns() {
+        if (!this.canDeleteReturns()) {
+            this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+            return;
+        }
         const checkedBoxes = document.querySelectorAll('#table-body .return-row-checkbox:checked');
         if (checkedBoxes.length === 0) {
             this.showToast('الرجاء تحديد سجل واحد على الأقل', 'warning');
@@ -5505,8 +5913,11 @@ renderTable(dataToRender = null, append = false) {
 
             this.filterAndRenderTable();
         } catch (error) {
-            console.error('Error in multi delete:', error);
-            this.showToast('حدث خطأ أثناء الحذف المتعدد', 'error');
+            if (error?.status === 403) this.showDeleteForbidden(error);
+            else {
+                console.error('Error in multi delete:', error);
+                this.showToast('حدث خطأ أثناء الحذف المتعدد', 'error');
+            }
         } finally {
             this.hideLoading();
             this.updateSelectAllReturns();
@@ -5514,6 +5925,10 @@ renderTable(dataToRender = null, append = false) {
     }
 
     async deleteReturn(id) {
+        if (!this.canDeleteReturns()) {
+            this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+            return;
+        }
         const confirmed = await dialog.show({
             title: 'أرشفة سجل',
             message: 'هل أنت متأكد من نقل هذا السجل للأرشيف؟',
@@ -5532,7 +5947,8 @@ renderTable(dataToRender = null, append = false) {
                 this.showToast('فشل حذف السجل', 'error');
             }
         } catch (error) {
-            this.showToast('خطأ: ' + error.message, 'error');
+            if (error?.status === 403) this.showDeleteForbidden(error);
+            else this.showToast('خطأ: ' + error.message, 'error');
         }
     }
 
@@ -5664,21 +6080,21 @@ renderTable(dataToRender = null, append = false) {
 
         // Define a set of keys to show in order
         const standardFields = [
-            'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 
+            'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية',
             'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل',
             'تاريخ الرفع', 'رقم تسوية التعلية', 'تاريخ المرتد', 'تاريخ المرتدات', 'تاريخ اعتماد المرتدات',
             'تاريخ التعديل', 'تاريخ اعتماد التعديل', 'رقم تسوية السداد', 'حالة التسوية'
         ];
 
         // Combine standard fields with any extra keys in the record
-        const allKeys = new Set([...standardFields, ...Object.keys(currentRow)]);
-        
+        const allKeys = new Set([...standardFields, '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f', ...Object.keys(currentRow)]);
+
         allKeys.forEach(key => {
             // Ignore technical and internal keys
             if (key === '#' || key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
-            
+
             // Handle composite labels from the table to avoid confusion (don't show empty combined labels as inputs)
-            if (key.includes('/') || key.includes(' / ')) {
+            if ((key.includes('/') || key.includes(' / ')) && key !== '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f') {
                 // Skip combined labels like "تاريخ المرتد / تاريخ التعلية" if we already show the individual fields
                 return;
             }
@@ -5832,26 +6248,53 @@ renderTable(dataToRender = null, append = false) {
             data[input.name] = input.value;
         });
 
-        const merged = { ...this.editingMainReturnOriginal, ...data };
-        delete merged.id;
-        delete merged.Id;
-        delete merged.AttachmentCount;
-        Object.keys(merged).forEach(k => {
-            if (k.startsWith('_')) delete merged[k];
-        });
-
+        const merged = this._stripEditableTechnicalFields({ ...this.editingMainReturnOriginal, ...data });
+        const changed = this._getChangedFields(this.editingMainReturnOriginal, data);
+        const editId = this.editingMainReturnId;
+        if (Object.keys(changed).length === 0) {
+            this.showToast('\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0644\u0644\u062d\u0641\u0638', 'info');
+            this.closeEditMainReturnModal();
+            return;
+        }
+        const saveButton = formContainer.querySelector('footer button:last-child');
+        const previousSaveHtml = saveButton?.innerHTML;
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.classList.add('btn-loading');
+        }
+        this.isSavingReturns = true;
+        const saveStartedAt = performance.now();
         try {
-            const result = await db.updateReturn(this.editingMainReturnId, merged);
+            console.log('[SAVE FLOW][returns] start', { id: editId });
+            console.log('[SAVE FLOW][returns] before api');
+            console.time('[SAVE PERF][returns] api');
+            console.log('[SAVE PERF][returns] sending update request', { id: editId });
+            const result = await db.updateReturn(editId, changed);
+            console.timeEnd('[SAVE PERF][returns] api');
+            console.log('[SAVE FLOW][returns] after api');
             if (result && result.success) {
-                this.returnsCache = null;
-                this.showToast('تم تعديل السجل بنجاح', 'success');
+                const updatedRow = result.record || { ...merged, id: editId };
+                console.log('[SAVE FLOW][returns] before cache update');
+                console.time('[SAVE PERF][returns] cache+idb+render');
+                await this._upsertEditedCachedRow('returns', editId, updatedRow, { changedKeys: Object.keys(changed) });
+                console.timeEnd('[SAVE PERF][returns] cache+idb+render');
+                console.log('[SAVE FLOW][returns] after cache update');
+                this.showToast('\u062a\u0645 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
                 this.closeEditMainReturnModal();
-                await this.loadReturns(this.pagination?.currentPage || 1, this.rowsPerPage, this.searchQuery, this.filterValue, this.attachmentFilterValue);
             } else {
-                this.showToast('فشل تعديل السجل', 'error');
+                this.showToast('\u0641\u0634\u0644 \u062a\u0639\u062f\u064a\u0644 \u0627\u0644\u0633\u062c\u0644: ' + (result?.message || ''), 'error');
             }
         } catch (error) {
-            this.showToast('خطأ: ' + error.message, 'error');
+            this.showToast('\u062e\u0637\u0623: ' + error.message, 'error');
+        } finally {
+            this.isSavingReturns = false;
+            console.log('[SAVE PERF][returns] total', Math.round(performance.now() - saveStartedAt) + 'ms');
+            console.log('[SAVE FLOW][returns] end');
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.classList.remove('btn-loading');
+                if (previousSaveHtml !== undefined) saveButton.innerHTML = previousSaveHtml;
+            }
         }
     }
 
@@ -6259,8 +6702,8 @@ renderTable(dataToRender = null, append = false) {
         tbody.innerHTML = data.map((item, index) => {
             const isExclusive = !!(item.exclusiveUserId || item.ExclusiveUserId);
             const statusIcon = isExclusive ? '<i class="fas fa-lock" title="جدول حصري" style="color: #fbbf24; margin-right: 5px;"></i>' : '<i class="fas fa-globe-americas" title="جدول عام" style="color: #10b981; margin-right: 5px;"></i>';
-            const shareBtn = (this.currentUser && this.currentUser.role === 'admin') 
-                ? `<button class="btn btn-sm btn-outline-info" onclick="app.showShareTableModal(${item.id || item.Id}, 'Archives')" title="مشاركة مع مستخدم">🔗 مشاركة</button>` 
+            const shareBtn = (this.currentUser && this.currentUser.role === 'admin')
+                ? `<button class="btn btn-sm btn-outline-info" onclick="app.showShareTableModal(${item.id || item.Id}, 'Archives')" title="مشاركة مع مستخدم">🔗 مشاركة</button>`
                 : '';
 
             return `
@@ -6377,8 +6820,8 @@ renderTable(dataToRender = null, append = false) {
 
             const isExclusive = !!(item.exclusiveUserId || item.ExclusiveUserId);
             const statusIcon = isExclusive ? '<i class="fas fa-lock" title="جدول حصري" style="color: #fbbf24; margin-right: 5px;"></i>' : '<i class="fas fa-globe-americas" title="جدول عام" style="color: #10b981; margin-right: 5px;"></i>';
-            const shareBtn = (this.currentUser && this.currentUser.role === 'admin') 
-                ? `<button class="btn btn-sm btn-outline-info" onclick="app.showShareTableModal(${item.id || item.Id}, 'SalaryArchives')" title="مشاركة مع مستخدم">🔗 مشاركة</button>` 
+            const shareBtn = (this.currentUser && this.currentUser.role === 'admin')
+                ? `<button class="btn btn-sm btn-outline-info" onclick="app.showShareTableModal(${item.id || item.Id}, 'SalaryArchives')" title="مشاركة مع مستخدم">🔗 مشاركة</button>`
                 : '';
 
             return `
@@ -6410,7 +6853,7 @@ renderTable(dataToRender = null, append = false) {
             const res = await db.fetchApi(`/salary-archive/restore/${id}`, { method: 'POST' });
             if (res && res.success) {
                 this.showToast('تم تفعيل أرشيف المرتبات بنجاح', 'success');
-                this.salaryReturnsData = []; 
+                this.salaryReturnsData = [];
                 this.navigateTo('salary-returns');
                 this.loadSalaryReturns(1);
             }
@@ -6617,6 +7060,34 @@ renderTable(dataToRender = null, append = false) {
     // إدارة مسار قاعدة البيانات
     // ========================================
 
+    renderDbConnectionStatus(result) {
+        const path = result?.activePath || result?.path || '-';
+        const isNetwork = !!result?.isNetworkPath || result?.connectionKind === 'network';
+        const kindEl = document.getElementById('db-path-kind');
+        if (kindEl) kindEl.textContent = isNetwork ? 'شبكة' : 'محلي';
+
+        const lastErrorEl = document.getElementById('db-last-error');
+        if (lastErrorEl) {
+            const status = result?.status || result || {};
+            lastErrorEl.textContent = status.success === false ? (result?.lastError || status.rawMessage || status.message || '-') : '-';
+        }
+
+        const activePathEl = document.getElementById('db-active-path');
+        if (activePathEl) activePathEl.textContent = path;
+
+        const statusEl = document.getElementById('db-connection-status');
+        if (statusEl) {
+            const status = result?.status || result || {};
+            const ok = status.success !== false && result?.success !== false;
+            const badge = ok ? 'badge-success' : 'badge-error';
+            const message = status.message || result?.message || (ok ? 'متصل' : 'فشل الاتصال');
+            const raw = result?.lastError || status.rawMessage || '';
+            const escape = this.escapeHtml ? this.escapeHtml.bind(this) : (value) => String(value ?? '');
+            const detail = raw && raw !== message ? `<br><small>${escape(raw)}</small>` : '';
+            statusEl.innerHTML = `حالة الاتصال: <span class="badge ${badge}">${escape(message)}</span>${detail}<br><small dir="ltr">${escape(path)}</small>`;
+        }
+    }
+
     async loadDbPath() {
         try {
             const result = await db.fetchApi('/config/path');
@@ -6634,6 +7105,7 @@ renderTable(dataToRender = null, append = false) {
                 const lastPath = result.lastSuccessfulPath ? ` | ${result.lastSuccessfulPath}` : '';
                 lastSuccessEl.textContent = `${last}${lastPath}`;
             }
+            this.renderDbConnectionStatus(result);
 
             const statusEl = document.getElementById('db-connection-status');
             if (statusEl) {
@@ -6663,6 +7135,7 @@ renderTable(dataToRender = null, append = false) {
             if (statusEl) {
                 statusEl.innerHTML = `حالة الاتصال: <span class="badge ${badge}">${message}</span><br><small dir="ltr">${result.path || ''}</small>`;
             }
+            this.renderDbConnectionStatus(result);
             this.showToast(message, result.success ? 'success' : 'error');
         } catch (error) {
             if (statusEl) {
@@ -6727,7 +7200,7 @@ renderTable(dataToRender = null, append = false) {
             // إظهار مؤشر تحميل لأن النافذة قد تأخذ وقتاً
             this.showLoading();
 
-            const result = await db.fetchApi('/config/browse', { method: 'POST' });
+            const result = await db.fetchApi('/config/browse-db-file', { method: 'POST' });
 
             this.hideLoading();
 
@@ -6958,7 +7431,7 @@ renderTable(dataToRender = null, append = false) {
 
     // Old loadFullReturns removed to prevent conflict with prototype version
     async _deprecated_loadFullReturns() { return; }
-    
+
     async _ignore_this_block() {
 
         try {
@@ -7031,7 +7504,7 @@ renderTable(dataToRender = null, append = false) {
 
                 if (tableBody) {
                     tableBody.innerHTML = result.data.map(row => {
-                        // Assuming 'ID' is the unique identifier for the record. 
+                        // Assuming 'ID' is the unique identifier for the record.
                         const id = row['ID'] || row['Id'] || row['id'];
                         const count = row['AttachmentCount'] || 0;
 
@@ -7361,7 +7834,7 @@ renderTable(dataToRender = null, append = false) {
             console.log(`[DELETE] Attempting to delete attachment: ${id} via ${baseUrl}`);
             const result = await db.fetchApi(`${baseUrl}/attachment/${id}`, { method: 'DELETE' });
             console.log('[DELETE] Result:', result);
-            
+
             if (result && (result.success || result.status === 'success')) {
                 this.showToast('تم حذف الملف بنجاح', 'success');
                 if (this.currentReturnId) {
@@ -7962,7 +8435,7 @@ renderTable(dataToRender = null, append = false) {
                     </tbody>
                 </table>
             </div>
-            
+
             <div class="report-signatures">
                 <div class="signature-box">
                     <p>إعداد</p>
@@ -8001,8 +8474,8 @@ renderTable(dataToRender = null, append = false) {
                 if (this.isUnifiedExtraction) {
                     titleEl.textContent = '🔍 استخلاص ومعالجة البحث الشامل (Excel)';
                 } else {
-                    titleEl.textContent = this.isSalaryExtraction ? 
-                        '🔍 استخلاص ومعالجة بيانات المرتبات (Excel)' : 
+                    titleEl.textContent = this.isSalaryExtraction ?
+                        '🔍 استخلاص ومعالجة بيانات المرتبات (Excel)' :
                         '🔍 استخلاص ومعالجة بيانات الحوافز (Excel)';
                 }
             }
@@ -8036,17 +8509,17 @@ renderTable(dataToRender = null, append = false) {
                 if (this.isUnifiedExtraction) {
                     fileName.textContent = '📥 انقر هنا لاختيار ملف البحث الشامل (.xlsx)';
                 } else {
-                    fileName.textContent = this.isSalaryExtraction ? 
-                        '📥 انقر هنا لاختيار ملف المرتبات (.xlsx)' : 
+                    fileName.textContent = this.isSalaryExtraction ?
+                        '📥 انقر هنا لاختيار ملف المرتبات (.xlsx)' :
                         '📥 انقر هنا لاختيار ملف الحوافز (.xlsx)';
                 }
             }
             const fileInput = document.getElementById('extract-file-input');
             if (fileInput) fileInput.value = '';
-            
+
             const fileInfo = document.getElementById('extract-file-info');
             if (fileInfo) fileInfo.classList.add('hidden');
-            
+
             this.currentExcelData = null;
             this.extractFile = null;
         }
@@ -8111,9 +8584,9 @@ renderTable(dataToRender = null, append = false) {
 
     formatDate(val) {
         if (!val) return '';
-        
+
         let dateObj;
-        
+
         // Handle Excel Serial Numbers if they still come through as numbers
         if (typeof val === 'number' && val > 20000 && val < 60000) {
             dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
@@ -8279,7 +8752,7 @@ renderTable(dataToRender = null, append = false) {
             let sNID = '';
             let sNameNorm = '';
             let sNameOrig = '';
-            
+
             const val = criteria.SearchValue ? String(criteria.SearchValue).trim() : '';
             if (val) {
                 const cleaned = cleanNID(val);
@@ -8299,9 +8772,9 @@ renderTable(dataToRender = null, append = false) {
             }
 
             const displayValue = val || sNameOrig || sNID;
-            const summaryObj = { 
-                Name: displayValue, 
-                NID: sNID, 
+            const summaryObj = {
+                Name: displayValue,
+                NID: sNID,
                 salary: { Total: 0, Settled: 0, UnderSettlement: 0 },
                 incentive: { Total: 0, Settled: 0, UnderSettlement: 0 }
             };
@@ -8341,7 +8814,7 @@ renderTable(dataToRender = null, append = false) {
                 else target.Settled++;
 
                 if (!summaryObj.NID && recNID) summaryObj.NID = recNID;
-                
+
                 let passFilter = true;
                 if (monthFilter && monthFilter !== 'all') {
                     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
@@ -8361,13 +8834,13 @@ renderTable(dataToRender = null, append = false) {
 
         // 3. Pass over searchCriteria rows to build the "Report" sheet
         const finalSummaries = new Set([...summaryMaps.nid.values(), ...summaryMaps.nameNorm.values(), ...summaryMaps.nameExact.values()]);
-        
+
         searchCriteria.forEach(criteria => {
             let sNID = '';
             let sNameNorm = '';
             let sNameOrig = '';
             const criteriaAcc = String(this.findValue(criteria, modAccKeys) || '').trim();
-            
+
             const val = criteria.SearchValue ? String(criteria.SearchValue).trim() : '';
             if (val) {
                 const cleaned = cleanNID(val);
@@ -8392,7 +8865,7 @@ renderTable(dataToRender = null, append = false) {
 
             const totalGlobal = summary.salary.Total + summary.incentive.Total;
             const underSettlementGlobal = summary.salary.UnderSettlement + summary.incentive.UnderSettlement;
-            
+
             let notes = '';
             if (totalGlobal > 0) {
                 let recordForLatestDate = null;
@@ -8451,25 +8924,25 @@ renderTable(dataToRender = null, append = false) {
                 noMatches.push({ Name: sNameOrig || sNID, NID: sNID || '' });
             }
 
-            reportData.push({ 
-                ...criteria, 
+            reportData.push({
+                ...criteria,
                 'المرتب': `إجمالي: ${summary.salary.Total} (تم: ${summary.salary.Settled}، تحت: ${summary.salary.UnderSettlement})`,
                 'الحوافز': `إجمالي: ${summary.incentive.Total} (تم: ${summary.incentive.Settled}، تحت: ${summary.incentive.UnderSettlement})`,
-                'ملاحظات': notes 
+                'ملاحظات': notes
             });
         });
 
         const uniqueMatches = [...new Map(matches.map(item => [JSON.stringify(item), item])).values()];
-        
+
         const summarySalaryArr = Array.from(finalSummaries).map(s => ({ ...s, ...s.salary }));
         const summaryIncentiveArr = Array.from(finalSummaries).map(s => ({ ...s, ...s.incentive }));
 
-        return { 
-            matches: uniqueMatches, 
-            noMatches, 
+        return {
+            matches: uniqueMatches,
+            noMatches,
             summarySalary: summarySalaryArr,
             summaryIncentive: summaryIncentiveArr,
-            fullReport: reportData 
+            fullReport: reportData
         };
     }
 
@@ -8485,7 +8958,7 @@ renderTable(dataToRender = null, append = false) {
         wb.Workbook.Views = [{ RTL: true }];
 
         const summaryRows = [];
-        
+
         const addTable = (title, data) => {
             if (!data || data.length === 0) return;
             // Only add table if there's any record with Total > 0 or if we want to show all (currently showing all matching criteria)
@@ -8494,12 +8967,12 @@ renderTable(dataToRender = null, append = false) {
 
             // source title row (e.g. المرتبات or الحوافز)
             summaryRows.push([title, '', '', '', '']);
-            
+
             // header row
             summaryRows.push(['الاسم', 'الرقم القومي', 'إجمالي السجلات', 'تمت التسوية', 'تحت التسوية']);
-            
+
             let tTotal = 0, tSettled = 0, tUnder = 0;
-            
+
             // Sort data to show people with records first
             const sortedData = [...data].sort((a,b) => (b.Total || 0) - (a.Total || 0));
 
@@ -8515,10 +8988,10 @@ renderTable(dataToRender = null, append = false) {
                 tSettled += (item.Settled || 0);
                 tUnder += (item.UnderSettlement || 0);
             });
-            
+
             // Total row
             summaryRows.push(['الإجمالي', '', tTotal, tSettled, tUnder]);
-            
+
             // spacer row
             summaryRows.push(['', '', '', '', '']);
         };
@@ -8547,7 +9020,7 @@ renderTable(dataToRender = null, append = false) {
 
         // New Sheets: "الحافز" and "المراتب" for non-settled records
         const nonSettledMatches = result.matches.filter(r => !r._isSettled);
-        
+
         const incentiveNonSettled = nonSettledMatches.filter(r => r._src === 'incentive');
         if (incentiveNonSettled.length > 0) {
             const wsIncentive = XLSX.utils.json_to_sheet(incentiveNonSettled.map(r => {
@@ -8582,7 +9055,7 @@ renderTable(dataToRender = null, append = false) {
 
         /* Not Found sheet removed as per user request (Excel should have 2 sheets only) */
 
-        const fileName = this.isUnifiedExtraction ? 
+        const fileName = this.isUnifiedExtraction ?
             `Unified_Extraction_${new Date().toISOString().slice(0, 10)}.xlsx` :
             `Extraction_Results_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
@@ -8610,6 +9083,28 @@ renderTable(dataToRender = null, append = false) {
         this.runUnifiedSearch();
     }
 
+    showUnifiedLightProgress(percent = 25) {
+        const container = document.getElementById('unified-sync-progress');
+        const bar = document.getElementById('unified-sync-bar');
+        if (!container || !bar) return;
+        container.classList.remove('hidden');
+        container.classList.add('is-light-sync');
+        bar.style.width = `${Math.max(5, Math.min(100, percent))}%`;
+    }
+
+    hideUnifiedLightProgress(delay = 450) {
+        const container = document.getElementById('unified-sync-progress');
+        const bar = document.getElementById('unified-sync-bar');
+        if (!container || !bar) return;
+        bar.style.width = '100%';
+        window.clearTimeout(this._unifiedLightProgressTimer);
+        this._unifiedLightProgressTimer = window.setTimeout(() => {
+            container.classList.add('hidden');
+            container.classList.remove('is-light-sync');
+            bar.style.width = '0%';
+        }, delay);
+    }
+
     // ========================================
     async loadFullReturns(page = 1, pageSize = 50, query = '', isSearch = false) {
         if (isSearch) this.selectedUnifiedStatementQuery = '';
@@ -8617,12 +9112,13 @@ renderTable(dataToRender = null, append = false) {
             query = document.getElementById('unified-search-input')?.value || '';
         }
         this.unifiedSettlementStatus = document.getElementById('unified-settlement-status')?.value || this.unifiedSettlementStatus || 'not_settled';
-        
+
         const loadingEl = document.getElementById('unified-loading');
         const resultsEl = document.getElementById('unified-results');
         const statsRow = document.getElementById('unified-stats-row');
 
-        if (loadingEl) loadingEl.classList.remove('hidden');
+        if (loadingEl) loadingEl.classList.add('hidden');
+        this.showUnifiedLightProgress(28);
         this.showUnifiedSearchState('');
         this.updateUnifiedAccountStatementButton(false);
 
@@ -8633,7 +9129,8 @@ renderTable(dataToRender = null, append = false) {
                 settlementStatus: this.unifiedSettlementStatus || 'not_settled'
             });
             if (query && query.trim()) params.set('q', query.trim());
-            const response = await db.fetchApi(`/api/search/comprehensive?${params.toString()}`);
+            const response = await db.fetchApi(`/api/search/comprehensive?${params.toString()}`, { __skipLoadingWrapper: true });
+            this.showUnifiedLightProgress(72);
             const incentiveRows = response.incentiveRecords || [];
             const salaryRows = await this.ensureUnifiedSalaryRowsFromSalaryEndpoint(response.salaryRecords || []);
             const totalRows = (response.data || []).length;
@@ -8656,6 +9153,7 @@ renderTable(dataToRender = null, append = false) {
             this.renderUnifiedTable('salary', salaryRows);
 
             if (loadingEl) loadingEl.classList.add('hidden');
+            this.hideUnifiedLightProgress();
             if (resultsEl) resultsEl.style.display = 'block';
             if (statsRow) statsRow.style.display = 'grid';
 
@@ -8680,6 +9178,7 @@ renderTable(dataToRender = null, append = false) {
             this.showToast('فشل البحث الموحد: ' + error.message, 'error');
             this.showUnifiedSearchState('حدث خطأ أثناء تحميل نتائج البحث الشامل', 'error');
             if (loadingEl) loadingEl.classList.add('hidden');
+            this.hideUnifiedLightProgress();
         }
     }
 
@@ -8707,7 +9206,7 @@ renderTable(dataToRender = null, append = false) {
     updateUnifiedStats(incStats, salStats) {
         const incCount = incStats?.filteredCount || incStats?.totalCount || 0;
         const incAmount = incStats?.totalAmount || 0;
-        
+
         const salCount = salStats?.totalCount || 0;
         const salAmount = salStats?.totalAmount || 0;
 
@@ -8954,7 +9453,7 @@ renderTable(dataToRender = null, append = false) {
                 val = row['تاريخ المرتد'] || row['تاريخ المرتدات'] || '';
             }
             if (header === 'تاريخ اعتماد التعديل / تاريخ السداد') {
-                val = row['تاريخ اعتماد التعديل'] || row['تاريخ اعتماد المرتدات'] || row['SettlementDate'] || '';
+                val = row['تاريخ اعتماد التعديل / تاريخ السداد'] || row['تاريخ السداد'] || row['تاريخ التسوية'] || row['تاريخ السداد الفعلي'] || row['SettlementDate'] || '';
             }
         }
 
@@ -9099,7 +9598,7 @@ renderTable(dataToRender = null, append = false) {
                 td.classList.add('sci-fi-td', ...classes);
                 if (isNameCol) {
                     td.classList.add('clickable-name');
-                    td.title = 'انقر مرتين للبحث السريع عن هذا الاسم';
+                    td.title = 'انقر مرتين لفلترة هذا الاسم';
                     td.ondblclick = () => this.triggerNameSearch(rawVal.trim());
                 }
 
@@ -9120,7 +9619,7 @@ renderTable(dataToRender = null, append = false) {
         const tableBody = document.getElementById(`unified-${type}-body`);
         const tableHead = document.getElementById(`unified-${type}-head`);
         const emptyEl = document.getElementById(`unified-${type}-empty`);
-        
+
         if (!tableBody || !tableHead) return;
 
         tableBody.innerHTML = '';
@@ -9180,7 +9679,7 @@ renderTable(dataToRender = null, append = false) {
                 if (h === '#') td.classList.add('sticky-seq', 'col-id');
                 else if (isNameCol) {
                     td.classList.add('sticky-name', 'col-name', 'clickable-name');
-                    td.title = 'انقر مرتين للبحث السريع عن هذا الاسم';
+                    td.title = 'انقر مرتين لفلترة هذا الاسم';
                     td.ondblclick = () => this.triggerNameSearch(cell.raw.trim());
                 } else if (h.includes('قيمة العملية') || h.includes('المبلغ')) {
                     td.classList.add('sticky-amount', 'col-amount');
@@ -9278,21 +9777,123 @@ renderTable(dataToRender = null, append = false) {
             const params = new URLSearchParams();
             if (query) params.set('q', query);
             if (personKey) params.set('personKey', personKey);
+            params.set('combineAll', 'true');
             const result = await db.fetchApi(`/api/search/account-statement?${params}`);
 
-            if (result.requiresSelection) {
-                this.renderUnifiedStatementMatches(result.matches || []);
-                return;
-            }
-
             this.currentUnifiedStatement = result;
-            this.renderUnifiedAccountStatement(result);
+            this.printUnifiedStatementDirect(result);
         } catch (error) {
             console.error('[UNIFIED STATEMENT] Failed:', error);
             this.showUnifiedToast?.('فشل تجهيز كشف الحساب الموحد', 'error', 'كشف الحساب');
         } finally {
             if (loadingEl) loadingEl.classList.add('hidden');
         }
+    }
+
+    printUnifiedStatementDirect(statement) {
+        document.getElementById('unified-statement-modal')?.remove();
+
+        const person   = statement.personInfo || {};
+        const incentives = (statement.incentiveRecords || []);
+        const salaries   = (statement.salaryRecords   || []);
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('ar-EG');
+        document.getElementById('print-beneficiary-name').textContent = person.name || '-';
+        document.getElementById('current-date-print').textContent = dateStr;
+        document.getElementById('current-time-print').textContent = now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('print-date-label').textContent = `كشف حساب مالي - ${dateStr}`;
+
+        const tbody = document.getElementById('print-table-body');
+        tbody.innerHTML = '';
+
+        let totalSettled = 0, countSettled = 0, totalUnsettled = 0, countUnsettled = 0;
+        let incentiveTotal = 0, salaryTotal = 0;
+        let rowIdx = 0;
+
+        const addSectionHeader = (label, count) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td colspan="10" style="background:#1e3a5f;color:#fff;font-weight:bold;text-align:center;padding:6px 4px;font-size:0.95em;">
+                ◀ ${label} — (${count} سجل)
+            </td>`;
+            tbody.appendChild(tr);
+        };
+
+        const addRows = (records) => {
+            records.forEach(r => {
+                rowIdx++;
+                const amount    = typeof r.amount === 'number' ? r.amount : parseFloat(r.amount || 0) || 0;
+                const isSettled = r.settlementStatus === 'تم التسوية' || (r.paymentSettlementNo || '').trim() !== '';
+                const paymentRef   = r.paymentSettlementNo || '';
+                const statusText   = isSettled ? 'تم السداد' : 'لم يتم التسوية';
+                const statusColor  = isSettled ? '#059669' : '#dc2626';
+
+                if (isSettled) { totalSettled   += amount; countSettled++;   }
+                else            { totalUnsettled += amount; countUnsettled++; }
+
+                const monthLabel = r.month || r.fileCode || '-';
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${rowIdx}</td>
+                    <td style="white-space:nowrap;">${this.escapeHtml(monthLabel)}</td>
+                    <td style="font-family:monospace;white-space:nowrap;">${this.escapeHtml(r.accountNumber || '-')}</td>
+                    <td style="font-family:monospace;white-space:nowrap;">-</td>
+                    <td>${this.escapeHtml(r.uploadDate || '-')}</td>
+                    <td style="font-weight:bold;">${amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    <td>-</td>
+                    <td>${this.escapeHtml(r.settlementDate || '-')}</td>
+                    <td>${this.escapeHtml(paymentRef || '-')}</td>
+                    <td style="color:${statusColor};">${statusText}</td>
+                `;
+                tbody.appendChild(tr);
+                return amount;
+            });
+        };
+
+        const addSubtotalRow = (label, count, total) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td colspan="5" style="font-weight:bold;background:#f0f4f8;text-align:right;padding:5px 8px;">${label}</td>
+                <td style="font-weight:bold;background:#f0f4f8;">${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                <td colspan="4" style="background:#f0f4f8;text-align:center;color:#555;">${count} سجل</td>
+            `;
+            tbody.appendChild(tr);
+        };
+
+        // قسم الحوافز
+        if (incentives.length > 0) {
+            addSectionHeader('سجلات الحوافز', incentives.length);
+            const before = totalSettled + totalUnsettled;
+            addRows(incentives);
+            incentiveTotal = (totalSettled + totalUnsettled) - before;
+            addSubtotalRow('إجمالي الحوافز', incentives.length, incentiveTotal);
+        }
+
+        // قسم المرتبات
+        if (salaries.length > 0) {
+            addSectionHeader('سجلات المرتبات', salaries.length);
+            const before = totalSettled + totalUnsettled;
+            addRows(salaries);
+            salaryTotal = (totalSettled + totalUnsettled) - before;
+            addSubtotalRow('إجمالي المرتبات', salaries.length, salaryTotal);
+        }
+
+        const grandTotal = incentiveTotal + salaryTotal;
+        const fmt = (v) => v.toLocaleString('en-US', { minimumFractionDigits: 2 }) + ' ج.م';
+
+        document.getElementById('print-incentive-count').textContent  = incentives.length;
+        document.getElementById('print-incentive-amount').textContent = fmt(incentiveTotal);
+        document.getElementById('print-salary-count').textContent     = salaries.length;
+        document.getElementById('print-salary-amount').textContent    = fmt(salaryTotal);
+        document.getElementById('print-settled-count').textContent    = countSettled;
+        document.getElementById('print-settled-amount').textContent   = fmt(totalSettled);
+        document.getElementById('print-unsettled-count').textContent  = countUnsettled;
+        document.getElementById('print-unsettled-amount').textContent = fmt(totalUnsettled);
+        document.getElementById('print-total-count').textContent      = incentives.length + salaries.length;
+        document.getElementById('print-total-amount').textContent     = fmt(grandTotal);
+        document.getElementById('print-amount-words').textContent     = this.tafqeel ? this.tafqeel(grandTotal) : '';
+
+        setTimeout(() => window.print(), 300);
     }
 
     renderUnifiedStatementMatches(matches) {
@@ -9474,7 +10075,7 @@ renderTable(dataToRender = null, append = false) {
         const status = document.getElementById('unified-sync-status');
 
         if (container) container.classList.remove('hidden');
-        
+
         try {
             const updateUI = (p, text) => {
                 if (bar) bar.style.width = p + '%';
@@ -9485,12 +10086,12 @@ renderTable(dataToRender = null, append = false) {
             updateUI(10, 'جاري مزامنة مرتدات الحوافز...');
             await this.populateReturnsCache();
             updateUI(50, 'تمت مزامنة الحوافز، جاري مزامنة المرتبات...');
-            
+
             await this.populateSalaryReturnsCache();
             updateUI(100, 'تمت المزامنة بنجاح!');
 
             this.showUnifiedToast('تم تحديث كافة البيانات للبحث السريع', 'success', 'تحديث مكتمل');
-            
+
             if (this.searchQuery) {
                 this.loadFullReturns(1, 50, this.searchQuery, true);
             }
@@ -9509,10 +10110,20 @@ renderTable(dataToRender = null, append = false) {
     async handleUnifiedLocalSearch(query) {
         const normalizedQuery = this.normalizeArabic(query).toLowerCase();
         const words = normalizedQuery.split(/\s+/).filter(w => w.length > 0);
+        const settlementMode = document.getElementById('unified-settlement-status')?.value || this.unifiedSettlementStatus || 'not_settled';
 
         const filterData = (data) => {
             if (!data) return [];
             return data.filter(row => {
+                if (settlementMode && settlementMode !== 'all') {
+                    const settlementNo = row['رقم تسوية السداد'] || row['ط±ظ‚ظ… طھط³ظˆظٹط© ط§ظ„ط³ط¯ط§ط¯'];
+                    const hasSettlement = settlementNo !== null && settlementNo !== undefined && String(settlementNo).trim() !== '';
+                    if (settlementMode === 'settled' && !hasSettlement) return false;
+                    if (settlementMode === 'not_settled' && hasSettlement) return false;
+                }
+
+                if (!query || !String(query).trim()) return true;
+
                 const searchStr = row._searchStr || '';
                 const searchTotal = (query || "").toLowerCase().trim();
 
@@ -9550,7 +10161,7 @@ renderTable(dataToRender = null, append = false) {
         const salStats = { totalCount: salaryResults.length, totalAmount: salaryResults.reduce((s, r) => s + (r._amount || 0), 0) };
 
         this.updateUnifiedStats(incStats, salStats);
-        
+
         const resultsEl = document.getElementById('unified-results');
         const statsRow = document.getElementById('unified-stats-row');
 
@@ -9581,7 +10192,7 @@ App.prototype.showUnifiedToast = function(message, type = 'info', title = '') {
 
     const toast = document.createElement('div');
     toast.className = `u-toast ${type}`;
-    
+
     const iconMap = {
         success: '✅',
         error: '❌',
@@ -9777,8 +10388,8 @@ App.prototype.showAutoSyncModal = async function () {
         if (this.isCollectiveSync) {
             titleEl.textContent = '🔄 المزامنة المجمعة للمرفقات (حوافز + مرتبات)';
         } else {
-            titleEl.textContent = this.isSalarySync ? 
-                '🔄 المزامنة التلقائية لمرتجع مرتبات الموظفين' : 
+            titleEl.textContent = this.isSalarySync ?
+                '🔄 المزامنة التلقائية لمرتجع مرتبات الموظفين' :
                 '🔄 المزامنة التلقائية للملفات (الحوافز)';
         }
     }
@@ -10155,19 +10766,19 @@ App.prototype.generateProfessionalReport = async function () {
         let filtered = sourceData.filter(r => {
             const nameKeys = ['الاسم', 'الاســــم', 'Name', 'FullName', 'المستفيد', 'اسم الموظف', 'الإسم'];
             const rawName = this.findValue(r, nameKeys) || '';
-            
+
             // Match if row name includes the query
             if (!this.isReportNameMatch(rawName, name)) return false;
 
             // Filter by Settlement Status
             const settlementStatusKeys = ['حالة التسوية', 'Status', 'SettlementStatus'];
             let settlementVal = String(this.findValue(r, settlementStatusKeys) || '').trim();
-            
+
             const elevationRefKeys = ['رقم تسوية التعلية', 'تسوية التعلية'];
             const paymentRefKeys = ['رقم تسوية السداد', 'تسوية السداد'];
             const filterElevationRef = this.findValue(r, elevationRefKeys) || '';
             const filterPaymentRef = this.findValue(r, paymentRefKeys) || '';
-            
+
             if (filterPaymentRef && filterPaymentRef.toString().trim() !== '') {
                 settlementVal = 'تمت التسوية';
             } else if (filterElevationRef && filterElevationRef.toString().trim() !== '') {
@@ -10196,7 +10807,7 @@ App.prototype.generateProfessionalReport = async function () {
         // 4. Update UI Template
         document.getElementById('report-options-modal')?.classList.add('hidden');
         document.getElementById('print-beneficiary-name').textContent = name;
-        
+
         const now = new Date();
         const dateStr = now.toLocaleDateString('ar-EG');
         document.getElementById('current-date-print').textContent = dateStr;
@@ -10249,7 +10860,7 @@ App.prototype.generateProfessionalReport = async function () {
             const newAccKeys = ['رقم الحساب الجديد', 'NewAccount', 'رقم_الحساب_الجديد', 'رقم الحساب المعدل'];
             const returnDateKeys = ['ت. المرتد', 'ReturnDate', 'تاريخ_المرتد', 'تاريخ المرتد', 'تاريخ المرتد / تاريخ التعلية', 'تاريخ المرتدات'];
             const fileCodeKeys = ['كود الملف', 'FileCode', 'الشهر', 'كـــود الملف', 'كُـــود المـلف', 'كود_الملف'];
-            
+
             const returnDateStr = this.formatDate(this.findValue(r, returnDateKeys));
             const modDateStr = this.formatDate(modDateVal);
 
@@ -10423,6 +11034,83 @@ App.prototype.parseDate = function (val) {
 };
 
 App.prototype.readExcelFile = function (file, options = {}) {
+    // أسماء الأعمدة التي يجب التعامل مع قيمها كنصوص (أرقام طويلة)
+    const LONG_NUMBER_COLUMNS = [
+        'الرقم القومي', 'رقم الحساب', 'رقم الحساب بعد التعديل',
+        'كود الفرع بعد التعديل', 'رقم تسوية التعلية', 'رقم تسوية السداد'
+    ];
+
+    // دالة تطبيع اسم العمود (إزالة BOM + كشيدة + تشكيل + دمج مسافات + توحيد /)
+    const normalizeHeader = (h) => {
+        if (!h) return '';
+        return h.toString()
+            .replace(/^\uFEFF/, '')          // إزالة BOM
+            .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, '') // إزالة المحارف المخفية واتجاه النص
+            .replace(/\u0640/g, '')           // إزالة الكشيدة ـ
+            .replace(/[\u064B-\u0652\u06D6-\u06ED]/g, '') // إزالة التشكيل (الحركات)
+            .replace(/[\/\uFF0F\u2044\u2215]/g, '/') // توحيد كل أشكال الشرطة المائلة
+            .replace(/[\r\n\t]+/g, ' ')
+            .replace(/\s+/g, ' ')             // دمج المسافات المتعددة
+            .trim()
+            .replace(/\s*\/\s*/g, ' / ');     // توحيد المسافات حول /
+    };
+
+    const CANONICAL_HEADER_ALIASES = {
+        'تاريخ اعتماد التعديل / تاريخ السداد': [
+            'تاريخ اعتماد التعديل/تاريخ السداد',
+            'تاريخ السداد',
+            'تاريخ التسوية',
+            'تاريخ السداد الفعلي',
+            'SettlementDate',
+            'Settlement Date'
+        ],
+        'تاريخ المرتد / تاريخ التعلية': [
+            'تاريخ المرتد/تاريخ التعلية'
+        ]
+    };
+
+    const getCanonicalHeader = (normalizedHeader) => {
+        for (const [targetHeader, aliases] of Object.entries(CANONICAL_HEADER_ALIASES)) {
+            const normalizedTarget = normalizeHeader(targetHeader);
+            if (normalizedHeader === normalizedTarget) return normalizedTarget;
+            if (aliases.some(alias => normalizeHeader(alias) === normalizedHeader)) return normalizedTarget;
+        }
+        return normalizedHeader;
+    };
+
+    // دالة تنسيق التاريخ بشكل موحد
+    const formatDateValue = (val) => {
+        if (val instanceof Date) {
+            if (isNaN(val.getTime())) return '';
+            const d = val.getDate().toString().padStart(2, '0');
+            const m = (val.getMonth() + 1).toString().padStart(2, '0');
+            const y = val.getFullYear();
+            if (y < 1900 || y > 2100) return '';
+            return `${d}/${m}/${y}`;
+        }
+        return null; // ليس تاريخ
+    };
+
+    // دالة تحويل الرقم الطويل لنص مع الحفاظ على الأصفار
+    const ensureStringNumber = (val) => {
+        if (val === null || val === undefined || val === '') return '';
+        if (typeof val === 'number' && isFinite(val)) {
+            // تحويل لنص مع الحفاظ على الدقة
+            if (Number.isInteger(val)) return val.toFixed(0);
+            return val.toString();
+        }
+        if (typeof val === 'string') {
+            const trimmed = val.trim();
+            // إصلاح الصيغة العلمية (مثل 2.9E+13)
+            if (/^-?\d+\.?\d*[eE][+\-]?\d+$/.test(trimmed)) {
+                const num = parseFloat(trimmed);
+                if (!isNaN(num) && isFinite(num)) return Math.round(num).toFixed(0);
+            }
+            return trimmed;
+        }
+        return String(val);
+    };
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         const isCSV = file.name.toLowerCase().endsWith('.csv');
@@ -10437,20 +11125,62 @@ App.prototype.readExcelFile = function (file, options = {}) {
                     workbook = XLSX.read(csvText, { type: 'string' });
                 } else {
                     const data = new Uint8Array(e.target.result);
-                    workbook = XLSX.read(data, { 
-                        type: 'array', 
-                        cellDates: options.cellDates !== undefined ? options.cellDates : true, 
-                        dateNF: options.dateNF || 'dd/mm/yyyy' 
+                    workbook = XLSX.read(data, {
+                        type: 'array',
+                        cellDates: options.cellDates !== undefined ? options.cellDates : true,
+                        dateNF: options.dateNF || 'dd/mm/yyyy'
                     });
                 }
 
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-                    raw: options.raw !== undefined ? options.raw : false, 
-                    defval: options.defval !== undefined ? options.defval : "" 
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                    raw: options.raw !== undefined ? options.raw : false,
+                    defval: options.defval !== undefined ? options.defval : ""
                 });
-                resolve(jsonData);
+
+                // بناء خريطة الأعمدة المطبعة → الأصلية لتحديد أعمدة الأرقام الطويلة
+                const longNumColsNorm = LONG_NUMBER_COLUMNS.map(c => normalizeHeader(c));
+
+                // Normalize column names and fix values
+                const normalizedData = jsonData.map(row => {
+                    const newRow = {};
+                    for (const [key, val] of Object.entries(row)) {
+                        const rawNormalizedKey = normalizeHeader(key);
+                        const normKey = getCanonicalHeader(rawNormalizedKey);
+                        let normVal = val;
+
+                        // 1. تنسيق التواريخ (Date objects من XLSX)
+                        const dateFormatted = formatDateValue(val);
+                        if (dateFormatted !== null) {
+                            normVal = dateFormatted;
+                        }
+                        // 2. أعمدة الأرقام الطويلة → نص دائماً
+                        else if (longNumColsNorm.includes(normKey)) {
+                            normVal = ensureStringNumber(val);
+                        }
+                        // 3. أي رقم بصيغة علمية (string) → تحويل
+                        else if (typeof val === 'string' && /^-?\d+\.?\d*[eE][+\-]?\d+$/.test(val.trim())) {
+                            const num = parseFloat(val);
+                            if (!isNaN(num) && isFinite(num)) normVal = Math.round(num).toFixed(0);
+                        }
+                        // 4. أي رقم صحيح كبير (>= 1e10) → نص
+                        else if (typeof val === 'number' && isFinite(val) && Math.abs(val) >= 1e10 && Number.isInteger(val)) {
+                            normVal = val.toFixed(0);
+                        }
+
+                        const existingValue = newRow[normKey];
+                        const hasExistingValue = existingValue !== undefined && existingValue !== null && String(existingValue).trim() !== '';
+                        const hasNewValue = normVal !== undefined && normVal !== null && String(normVal).trim() !== '';
+
+                        // لو وجدنا عمودا بديلا لنفس المعنى، نملأ المفتاح القياسي فقط دون أن نمسح قيمة صحيحة موجودة.
+                        if (!hasExistingValue || (hasNewValue && rawNormalizedKey === normKey)) {
+                            newRow[normKey] = normVal;
+                        }
+                    }
+                    return newRow;
+                });
+                resolve(normalizedData);
             } catch (err) {
                 reject(err);
             }
@@ -10460,17 +11190,413 @@ App.prototype.readExcelFile = function (file, options = {}) {
     });
 };
 
+App.prototype.harmonizeImportedRows = function (rows) {
+    const mappings = {
+        'الرقم القومي': ['الرقم القومى', 'الرقم_القومي', 'NationalID', 'National Id', 'NID'],
+        'قيمة العملية': ['المبلغ', 'القيمة', 'Amount', 'Transaction Value'],
+        'رقم تسوية السداد': ['رقم التسوية', 'رقم تسوية سداد', 'SettlementNo', 'Settlement No'],
+        'رقم تسوية التعلية': ['رقم تسوية تعلية', 'تسوية تعلية', 'AccrualSettlementNo'],
+        'تاريخ المرتد / تاريخ التعلية': ['تاريخ المرتد/تاريخ التعلية', 'تاريخ المرتد', 'تاريخ المرتدات', 'تاريخ التعلية', 'ReturnDate'],
+        'تاريخ اعتماد التعديل / تاريخ السداد': ['تاريخ اعتماد التعديل/تاريخ السداد', 'تاريخ السداد', 'تاريخ التسوية', 'تاريخ السداد الفعلي', 'SettlementDate', 'Settlement Date']
+    };
+
+    return (rows || []).map(row => {
+        const normalizedRow = { ...(row || {}) };
+
+        for (const [targetKey, synonyms] of Object.entries(mappings)) {
+            const currentValue = normalizedRow[targetKey];
+            if (currentValue !== undefined && currentValue !== null && String(currentValue).trim() !== '') {
+                continue;
+            }
+
+            for (const synonym of synonyms) {
+                const synonymValue = normalizedRow[synonym];
+                if (synonymValue !== undefined && synonymValue !== null && String(synonymValue).trim() !== '') {
+                    normalizedRow[targetKey] = synonymValue;
+                    break;
+                }
+            }
+        }
+
+        return normalizedRow;
+    });
+};
+
 App.prototype.loadFromOfflineStorage = async function () {
-    this.returnsCache = null;
-    this.salaryReturnsCache = null;
-    await db.clearLocalCache('returns_data_v2').catch(() => {});
-    await db.clearLocalCache('salary_returns_data_v1').catch(() => {});
+    console.log('[CACHE] Initializing IndexedDB persistent storage...');
+    await Promise.all([
+        this._loadCachedDataset?.('returns'),
+        this._loadCachedDataset?.('salary')
+    ]);
+    this.startBackgroundSync();
     await this.refreshSearchFilterIndex().catch(e => console.warn('[SearchIndex] initial load failed:', e));
 };
 
+const AUTO_SYNC_INTERVAL_MS = 60000;
+const HK_SYNC_CACHE = {
+    returns: {
+        dataKey: 'returns_data_v4',
+        metaKey: 'returns_last_sync_v4',
+        cacheProp: 'returnsCache',
+        page: 'returns',
+        changes: since => db.getReturnChanges(since),
+        sync: since => db.syncReturns(since)
+    },
+    salary: {
+        dataKey: 'salary_returns_data_v4',
+        metaKey: 'salary_returns_last_sync_v4',
+        cacheProp: 'salaryReturnsCache',
+        page: 'salary-returns',
+        changes: since => db.getSalaryReturnChanges(since),
+        sync: since => db.syncSalaryReturns(since)
+    },
+    full: {
+        dataKey: 'full_returns_data_v1',
+        metaKey: 'full_returns_last_sync_v1',
+        cacheProp: 'fullReturnsCache',
+        page: 'full-returns',
+        changes: since => db.getFullReturnChanges(since),
+        sync: since => db.syncFullReturns(since)
+    }
+};
+
+App.prototype._preprocessReturnCacheRows = function (rows) {
+    return (Array.isArray(rows) ? rows : []).filter(Boolean).map(row => {
+        const amountVal = row['قيمة العملية'] || row[' قيمة العملية'] || row['ظ‚ظٹظ…ط© ط§ظ„ط¹ظ…ظ„ظٹط©'] || row[' ظ‚ظٹظ…ط© ط§ظ„ط¹ظ…ظ„ظٹط©'] || row.ProcessValue || row.Amount || row['المبلغ'];
+        row._amount = this.parseAmount(amountVal);
+        row._normStatus = this.normalizeArabic(row['الحالة'] || row['ط§ظ„ط­ط§ظ„ط©'] || row.Status || row.ReturnStatus || row['حالة الارتداد'] || row['ط­ط§ظ„ط© ط§ظ„ط§ط±طھط¯ط§ط¯'] || '');
+
+        const settlementNo = row['رقم تسوية السداد'] || row['ط±ظ‚ظ… طھط³ظˆظٹط© ط§ظ„ط³ط¯ط§ط¯'];
+        const hasSettlement = settlementNo !== null && settlementNo !== undefined && String(settlementNo).trim() !== '';
+        row['حالة التسوية'] = row['حالة التسوية'] || row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] || (hasSettlement ? 'تمت التسوية' : 'لم يتم التسوية');
+        row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] = row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] || row['حالة التسوية'];
+        row._isSettled = hasSettlement || String(row['حالة التسوية'] || '').includes('تم');
+
+        const originalValues = Object.entries(row)
+            .filter(([k, v]) => !String(k).startsWith('_') && v !== null && v !== undefined)
+            .map(([, v]) => String(v).toLowerCase());
+        const normalizedValues = originalValues.map(v => this.normalizeArabic(v));
+        row._searchStr = [...new Set([...originalValues, ...normalizedValues])].join(' ');
+        return row;
+    });
+};
+
+App.prototype._preprocessSalaryCacheRows = function (rows) {
+    return (Array.isArray(rows) ? rows : []).filter(Boolean).map(row => {
+        const amountVal = row['قيمة العملية'] || row['ظ‚ظٹظ…ط© ط§ظ„ط¹ظ…ظ„ظٹط©'] || row.ProcessValue || row.Amount || row['المبلغ'];
+        row._amount = this.parseAmount(amountVal);
+        const settlementNo = row['رقم تسوية السداد'] || row['ط±ظ‚ظ… طھط³ظˆظٹط© ط§ظ„ط³ط¯ط§ط¯'];
+        const hasSettlement = settlementNo !== null && settlementNo !== undefined && String(settlementNo).trim() !== '';
+        row['حالة التسوية'] = row['حالة التسوية'] || row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] || (hasSettlement ? 'تمت التسوية' : 'لم يتم التسوية');
+        row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] = row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] || row['حالة التسوية'];
+
+        const fileCodeKeys = ['كود الملف', 'ظƒظˆط¯ ط§ظ„ظ…ظ„ظپ', 'FileCode', 'كود_الملف'];
+        row._monthExtracted = row._monthExtracted || this._getSalaryMonthFilterValue?.(row) || this.extractMonthFromFileCode?.(this.findValue(row, fileCodeKeys));
+        const originalValues = Object.entries(row)
+            .filter(([k, v]) => !String(k).startsWith('_') && v !== null && v !== undefined)
+            .map(([, v]) => String(v).toLowerCase());
+        const normalizedValues = originalValues.map(v => this.normalizeArabic(v));
+        row._searchStr = [...new Set([...originalValues, ...normalizedValues])].join(' ');
+        return row;
+    });
+};
+
+App.prototype._preprocessCachedRows = function (type, rows) {
+    if (type === 'full') {
+        return (Array.isArray(rows) ? rows : []).filter(Boolean).map(row => {
+            const originalValues = Object.entries(row)
+                .filter(([k, v]) => !String(k).startsWith('_') && v !== null && v !== undefined)
+                .map(([, v]) => String(v).toLowerCase());
+            const normalizedValues = originalValues.map(v => this.normalizeArabic(v));
+            row._searchStr = [...new Set([...originalValues, ...normalizedValues])].join(' ');
+            row._amount = this.parseAmount(row['Transaction Amount'] || row['Transaction Value'] || row.Amount || row.amount || row['قيمة العملية'] || row['ظ‚ظٹظ…ط© ط§ظ„ط¹ظ…ظ„ظٹط©']);
+            return row;
+        });
+    }
+    return type === 'salary' ? this._preprocessSalaryCacheRows(rows) : this._preprocessReturnCacheRows(rows);
+};
+
+App.prototype._stripEditableTechnicalFields = function (row) {
+    const clean = { ...(row || {}) };
+    delete clean.id;
+    delete clean.Id;
+    delete clean.AttachmentCount;
+    Object.keys(clean).forEach(key => {
+        if (String(key).startsWith('_')) delete clean[key];
+    });
+    return clean;
+};
+
+App.prototype._getChangedFields = function (original, edited) {
+    const changed = {};
+    const before = original || {};
+    Object.entries(edited || {}).forEach(([key, value]) => {
+        if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || String(key).startsWith('_')) return;
+        const previous = before[key] === undefined || before[key] === null ? '' : String(before[key]);
+        const next = value === undefined || value === null ? '' : String(value);
+        if (previous !== next) changed[key] = value;
+    });
+    return changed;
+};
+
+App.prototype._rowEditAffectsFilters = function (changedKeys = []) {
+    const needles = [
+        'status', 'returnstatus', 'settlement', 'attachment', 'upload', 'payment',
+        'month', 'date', 'filecode', 'returncode',
+        'حالة', 'تسوية', 'تاريخ', 'شهر', 'كود', 'رفع', 'سداد'
+    ];
+    return (changedKeys || []).some(key => {
+        const normalized = String(key || '').toLowerCase().replace(/\s+/g, '');
+        return needles.some(needle => normalized.includes(needle));
+    });
+};
+
+App.prototype._hasActiveRowFilters = function (type) {
+    if (type === 'salary') {
+        return !!(
+            (this.salarySearchQuery && String(this.salarySearchQuery).trim()) ||
+            (this.salaryAttachmentFilterValue && this.salaryAttachmentFilterValue !== 'all') ||
+            (this.salarySettlementFilterValue && this.salarySettlementFilterValue !== 'all') ||
+            (this.salaryReturnStatusFilterValue && this.salaryReturnStatusFilterValue !== 'all') ||
+            (this.salaryMonthFilterValue && this.salaryMonthFilterValue !== 'all') ||
+            (this.salaryPaymentDateFilterValue && this.salaryPaymentDateFilterValue !== 'all') ||
+            (document.getElementById('salary-upload-date-filter')?.value || 'all') !== 'all'
+        );
+    }
+
+    return !!(
+        (this.searchQuery && String(this.searchQuery).trim()) ||
+        (this.filterValue && this.filterValue !== 'all' && this.filterValue !== 'All') ||
+        (this.attachmentFilterValue && this.attachmentFilterValue !== 'all') ||
+        (this.settlementFilterValue && this.settlementFilterValue !== 'all') ||
+        (this.returnStatusFilterValue && this.returnStatusFilterValue !== 'all') ||
+        (this.monthFilterValue && this.monthFilterValue !== 'all') ||
+        (this.paymentDateFilterValue && this.paymentDateFilterValue !== 'all') ||
+        this.uploadDateFrom ||
+        this.uploadDateTo
+    );
+};
+
+App.prototype._upsertEditedCachedRow = async function (type, id, updatedRow, options = {}) {
+    const cfg = HK_SYNC_CACHE[type];
+    if (!cfg) return null;
+
+    const processed = this._preprocessCachedRows(type, [{ ...(updatedRow || {}), id }])[0];
+    if (!processed) return null;
+    const changedKeys = options.changedKeys || [];
+    const filtersAffected = this._rowEditAffectsFilters(changedKeys);
+    const shouldRequeryCurrentView = filtersAffected || this._hasActiveRowFilters(type);
+
+    const updateArray = (rows) => {
+        if (!Array.isArray(rows)) return false;
+        const idx = rows.findIndex(row => String(row?.id ?? row?.Id) === String(id));
+        if (idx >= 0) {
+            if (processed.AttachmentCount === undefined && rows[idx].AttachmentCount !== undefined) {
+                processed.AttachmentCount = rows[idx].AttachmentCount;
+            }
+            rows[idx] = processed;
+        } else {
+            rows.push(processed);
+        }
+        return true;
+    };
+
+    const cacheRows = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp] : null;
+    if (cacheRows) {
+        if (type === 'returns') console.time('[SAVE PERF][returns] update returnsCache');
+        updateArray(cacheRows);
+        if (type === 'returns') console.timeEnd('[SAVE PERF][returns] update returnsCache');
+        if (type === 'returns') console.time('[SAVE PERF][returns] indexeddb-row');
+        await db.setLocalCacheRowPatch(cfg.dataKey, id, processed).catch(e => console.warn('[SAVE][' + type + '] IndexedDB row update failed:', e));
+        if (type === 'returns') console.timeEnd('[SAVE PERF][returns] indexeddb-row');
+    }
+
+    if (type === 'salary') {
+        updateArray(this.salaryReturnsData);
+        updateArray(this.filteredSalaryReturns);
+        if (filtersAffected) this._populateSalaryReturnFilterOptions(cacheRows || this.salaryReturnsData || []);
+        if (cacheRows && this.handleLocalSalarySearch && shouldRequeryCurrentView) {
+            this.handleLocalSalarySearch(
+                this.salarySearchQuery || '',
+                this.salaryAttachmentFilterValue || 'all',
+                this.salaryPagination?.currentPage || this.paginationSalary?.currentPage || 1,
+                this.rowsPerPage || 50,
+                false
+            );
+        } else {
+            this.renderSalaryTable?.();
+        }
+        return processed;
+    }
+
+    updateArray(this.data);
+    updateArray(this.filteredReturns);
+    if (type === 'returns') console.log('[SAVE FLOW][returns] before render');
+    if (type === 'returns') console.time('[SAVE PERF][returns] filters+render');
+    if (filtersAffected) this._populateReturnFilterOptions(cacheRows || this.data || []);
+    if (cacheRows && this.handleLocalSearch && shouldRequeryCurrentView) {
+        this.handleLocalSearch(
+            this.searchQuery || '',
+            this.filterValue || '',
+            this.attachmentFilterValue || 'all',
+            this.pagination?.currentPage || 1,
+            this.rowsPerPage || 50,
+            false
+        );
+    } else {
+        this.renderTable?.();
+    }
+    if (type === 'returns') console.timeEnd('[SAVE PERF][returns] filters+render');
+    if (type === 'returns') console.log('[SAVE FLOW][returns] after render');
+    return processed;
+};
+
+App.prototype._loadCachedDataset = async function (type) {
+    const cfg = HK_SYNC_CACHE[type];
+    if (!cfg) return false;
+    try {
+        const cached = await db.getLocalCache(cfg.dataKey);
+        if (!Array.isArray(cached) || cached.length === 0) return false;
+        const patches = await db.getLocalCacheRowPatches(cfg.dataKey).catch(() => []);
+        const byId = new Map(cached.map(row => [String(row?.id ?? row?.Id), row]));
+        patches.forEach(row => {
+            const rowId = String(row?.id ?? row?.Id ?? '');
+            if (rowId) byId.set(rowId, row);
+        });
+        this[cfg.cacheProp] = this._preprocessCachedRows(type, Array.from(byId.values()));
+        console.log(`[SYNC][${type}] Loaded from cache: ${this[cfg.cacheProp].length}`);
+        if (this.currentPage === cfg.page) this._refreshSyncedDatasetView(type);
+        return true;
+    } catch (e) {
+        console.warn(`[SYNC][${type}] IndexedDB read failed:`, e);
+        return false;
+    }
+};
+
+App.prototype._saveCachedDataset = async function (type, latestSyncAt) {
+    const cfg = HK_SYNC_CACHE[type];
+    if (!cfg) return;
+    await db.setLocalCache(cfg.dataKey, this[cfg.cacheProp] || []).catch(e => console.warn(`[SYNC][${type}] cache save failed`, e));
+    await db.clearLocalCacheRowPatches?.(cfg.dataKey).catch(() => {});
+    if (latestSyncAt) await db.setLocalCache(cfg.metaKey, latestSyncAt).catch(() => {});
+};
+
+App.prototype._mergeSyncedDataset = function (type, insertedOrUpdated, archivedOrDeletedIds) {
+    const cfg = HK_SYNC_CACHE[type];
+    const currentRows = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp] : [];
+    const byId = new Map(currentRows.map(row => [String(row.id ?? row.Id), row]));
+    const deleted = new Set((archivedOrDeletedIds || []).map(id => String(id)));
+    deleted.forEach(id => byId.delete(id));
+
+    let inserted = 0;
+    let updated = 0;
+    (insertedOrUpdated || []).forEach(row => {
+        const id = String(row?.id ?? row?.Id ?? '');
+        if (!id) return;
+        if (byId.has(id)) updated++;
+        else inserted++;
+        byId.set(id, row);
+    });
+
+    this[cfg.cacheProp] = this._preprocessCachedRows(type, Array.from(byId.values()));
+    return { inserted, updated, archived: deleted.size };
+};
+
+App.prototype._refreshSyncedDatasetView = function (type) {
+    if (this.currentPage === 'full-returns') {
+        const query = document.getElementById('unified-search-input')?.value || this.searchQuery || '';
+        this.handleUnifiedLocalSearch?.(query);
+        return;
+    }
+
+    if (type === 'salary') {
+        if (this.currentPage !== 'salary-returns') return;
+        this.handleLocalSalarySearch(this.salarySearchQuery || '', this.salaryAttachmentFilterValue || 'all', 1, this.rowsPerPage || 50, false);
+        this._populateSalaryReturnFilterOptions(this.salaryReturnsCache || []);
+        return;
+    }
+
+    if (this.currentPage !== 'returns') return;
+    this.handleLocalSearch(this.searchQuery || '', this.filterValue || '', this.attachmentFilterValue || 'all', 1, this.rowsPerPage || 50, false);
+    this._populateReturnFilterOptions(this.returnsCache || []);
+};
+
+App.prototype._syncDataset = async function (type, options = {}) {
+    const cfg = HK_SYNC_CACHE[type];
+    if (!cfg) return;
+    if (type === 'returns' && this.isSavingReturns && !options.forceSave) {
+        console.log(`[SYNC][${type}] Skipped while returns save is in progress`);
+        return;
+    }
+    if (this[`_${type}Syncing`] && !options.force) return;
+    this[`_${type}Syncing`] = true;
+
+    try {
+        let hasLocalRows = Array.isArray(this[cfg.cacheProp]) && this[cfg.cacheProp].length > 0;
+        if (!hasLocalRows) {
+            await this._loadCachedDataset(type);
+            hasLocalRows = Array.isArray(this[cfg.cacheProp]) && this[cfg.cacheProp].length > 0;
+        }
+        const since = options.full || !hasLocalRows ? null : await db.getLocalCache(cfg.metaKey).catch(() => null);
+        console.log(`[SYNC][${type}] Checking updates`, since || '(initial)');
+
+        if (!options.skipCheck) {
+            const changes = await cfg.changes(since);
+            if (since && changes && changes.hasChanges === false) {
+                console.log(`[SYNC][${type}] No changes`);
+                return;
+            }
+        }
+
+        const payload = await cfg.sync(since);
+        const beforeCount = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp].length : 0;
+        let result;
+        if (!since || payload?.reset) {
+            const snapshot = payload?.insertedOrUpdated || [];
+            this[cfg.cacheProp] = this._preprocessCachedRows(type, snapshot);
+            result = { inserted: snapshot.length, updated: 0, archived: Math.max(0, beforeCount - snapshot.length) };
+        } else {
+            result = this._mergeSyncedDataset(type, payload?.insertedOrUpdated || [], payload?.archivedOrDeletedIds || []);
+        }
+        await this._saveCachedDataset(type, payload?.latestSyncAt || payload?.serverTime || new Date().toISOString());
+        console.log(`[SYNC][${type}] Synced ${result.inserted} new / ${result.updated} updated / ${result.archived} archived`);
+
+        const afterCount = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp].length : 0;
+        if (this.currentPage === cfg.page && (result.inserted || result.updated || result.archived || beforeCount !== afterCount)) {
+            this._refreshSyncedDatasetView(type);
+        }
+    } catch (e) {
+        console.error(`[SYNC][${type}] Sync failed:`, e);
+    } finally {
+        this[`_${type}Syncing`] = false;
+    }
+};
+
+App.prototype.startBackgroundSync = async function () {
+    this._syncDataset('returns').catch(() => {});
+    this._syncDataset('salary').catch(() => {});
+    if (this.currentPage === 'full-returns') this._syncDataset('full').catch(() => {});
+    if (this._autoSyncTimer) return;
+    this._autoSyncTimer = setInterval(() => {
+        if (document.hidden) return;
+        this._syncDataset('returns').catch(() => {});
+        this._syncDataset('salary').catch(() => {});
+        if (this.currentPage === 'full-returns') this._syncDataset('full').catch(() => {});
+    }, AUTO_SYNC_INTERVAL_MS);
+};
+
+App.prototype.startNotificationPolling = function () {
+    if (this.notificationPollingTimer) return;
+    // زيادة الوقت لتقليل الضغط على قاعدة البيانات في الشبكة المشتركة
+    this.notificationPollingTimer = setInterval(() => {
+        if (this.currentUser?.id && !document.hidden) {
+            this.loadNotifications();
+        }
+    }, 15000); // 15 ثانية بدلاً من 5
+};
 
 App.prototype.populateReturnsCache = async function () {
-    await this.rebuildSearchFilterIndex();
+    await this._syncDataset('returns', { force: true, skipCheck: true });
 };
 
 App.prototype.loadExtractionMonths = async function () {
@@ -10514,7 +11640,7 @@ App.prototype.handleAttachmentFilterChange = async function () {
  */
 App.prototype._extractMonthFromRow = function(row) {
     if (!row) return 'فارغ';
-    
+
     // الأولوية لعمود "الشهر" الصريح كما هو مطلوب
     const monthKeys = ['الشهر', ' الشهر', 'الشهر ', 'شهر', 'Month', 'month'];
     for (const k of monthKeys) {
@@ -10523,14 +11649,14 @@ App.prototype._extractMonthFromRow = function(row) {
             if (normalized !== 'فارغ') return normalized;
         }
     }
-    
+
     // احتياطي للمرتبات من كود الملف إذا كان الشهر فارغاً
     const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
     let fileCode = '';
     for (const k of fileCodeKeys) {
         if (row[k]) { fileCode = String(row[k]); break; }
     }
-    
+
     if (fileCode) {
         const extracted = this.extractMonthFromFileCode(fileCode);
         if (extracted && extracted !== 'فارغ') return extracted;
@@ -10674,7 +11800,8 @@ App.prototype._setSelectOptionsFromRows = function(selectId, options, currentVal
 };
 
 App.prototype._populateReturnFilterOptions = function(rows = null) {
-    const indexFilters = this.searchFilterIndex?.returns?.filters;
+    const cacheRows = Array.isArray(this.returnsCache) && this.returnsCache.length ? this.returnsCache : null;
+    const indexFilters = cacheRows ? null : this.searchFilterIndex?.returns?.filters;
     if (indexFilters) {
         const has = (indexFilters.hasAttachments || []).map(Number);
         this._setSelectOptionsFromRows('attachment-status-filter', [
@@ -10691,7 +11818,7 @@ App.prototype._populateReturnFilterOptions = function(rows = null) {
         this._setSelectOptionsFromRows('payment-date-filter', (indexFilters.paymentDates || []).map(value => ({ value, label: value })), this.paymentDateFilterValue);
         return;
     }
-    const data = Array.isArray(rows) ? rows : (Array.isArray(this.data) ? this.data : []);
+    const data = cacheRows || (Array.isArray(rows) ? rows : (Array.isArray(this.data) ? this.data : []));
 
     if (data.length === 0) {
         this._setSelectOptionsFromRows('attachment-status-filter', [], this.attachmentFilterValue);
@@ -10763,7 +11890,7 @@ App.prototype._populateMonthFilter = async function (type, rows = null) {
 
     const currentVal = select.value || 'all';
     select.innerHTML = '<option value="all">الكل</option>';
-    
+
     if (hasEmpty) {
         const emptyOpt = document.createElement('option');
         emptyOpt.value = 'فارغ';
@@ -10800,10 +11927,10 @@ App.prototype._populateMonthFilter = async function (type, rows = null) {
 App.prototype._getPaymentDateFilterValue = function(row) {
     if (!row) return '';
     const val = row['تاريخ اعتماد التعديل / تاريخ السداد'] ||
-        row['تاريخ اعتماد التعديل'] ||
-        row['تاريخ اعتماد المرتدات'] ||
         row['SettlementDate'] ||
         row['تاريخ السداد'] ||
+        row['تاريخ التسوية'] ||
+        row['تاريخ السداد الفعلي'] ||
         '';
     const raw = String(val).trim();
     return raw ? this.formatDate(raw) : '';
@@ -10833,6 +11960,20 @@ App.prototype._populateDateFilters = function(rows = null) {
         Array.from(paymentDates).sort((a, b) => b.localeCompare(a)).map(value => ({ value, label: value })),
         this.paymentDateFilterValue
     );
+};
+
+App.prototype._getPaymentDateFilterValue = function(row) {
+    if (!row) return '';
+    const val =
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u062a\u0633\u0648\u064a\u0629'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f\u0020\u0627\u0644\u0641\u0639\u0644\u064a'] ||
+        row.SettlementDate ||
+        row['Settlement Date'] ||
+        '';
+    const raw = String(val).trim();
+    return raw ? this.formatDate(raw) : '';
 };
 
 App.prototype.handleMonthFilterChange = async function (val) {
@@ -11033,7 +12174,7 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
     try {
         // Check for Active Archive (Restore mode)
         const config = await db.fetchApi('/config');
-        
+
         // Salary Archive Button
         const clearBtn = document.getElementById('clear-salary-archive-btn');
         if (clearBtn) {
@@ -11045,7 +12186,7 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
                 clearBtn.style.display = 'none';
             }
         }
-        
+
         // Incentive Archive Button (Always hide when in Salary page)
         const clearIncentiveBtn = document.getElementById('clear-archive-btn');
         if (clearIncentiveBtn) {
@@ -11118,7 +12259,7 @@ App.prototype.loadSalaryReturns = async function (page = 1, pageSize = 200, sear
             this.calculateSalaryLocalStats?.(this.salaryReturnsData);
         }
         // ملء فلتر الشهر من البيانات المحملة
-        this._populateSalaryReturnFilterOptions(this.salaryReturnsData);
+        this._populateSalaryReturnFilterOptions(this.salaryReturnsCache || this.salaryReturnsData);
         this.updateSalaryAdabirDateRangeCount(this.salaryReturnsData);
         this.updateBulkSalaryDeleteToolbar();
 
@@ -11281,9 +12422,9 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
             if (h === '_selection_') {
                 const isAllSelected = this.isAllSalaryReturnsSelected || (this.salaryReturnsData && this.salaryReturnsData.length > 0 && this.salaryReturnsData.every(r => this.selectedSalaryReturnIds.has(String(r.id || r.Id))));
                 return `<th class="sci-fi-th sticky-seq" style="width: 40px; text-align: center;">
-                            <input type="checkbox" id="select-all-salary-returns" 
-                                class="custom-checkbox-pro" 
-                                ${isAllSelected ? 'checked' : ''} 
+                            <input type="checkbox" id="select-all-salary-returns"
+                                class="custom-checkbox-pro"
+                                ${isAllSelected ? 'checked' : ''}
                                 onchange="app.toggleSelectAllSalaryReturns(this.checked)">
                         </th>`;
             }
@@ -11316,8 +12457,8 @@ App.prototype.renderSalaryTable = function (dataToRender = null, append = false)
                 if (h === '_selection_') {
                     const isChecked = this.isAllSalaryReturnsSelected || this.selectedSalaryReturnIds.has(String(rowId));
                     return `<td class="sci-fi-td sticky-seq" style="text-align:center;">
-                                <input type="checkbox" class="salary-row-checkbox custom-checkbox-pro" 
-                                    value="${rowId}" ${isChecked ? 'checked' : ''} 
+                                <input type="checkbox" class="salary-row-checkbox custom-checkbox-pro"
+                                    value="${rowId}" ${isChecked ? 'checked' : ''}
                                     onchange="app.toggleSalaryReturnSelection('${rowId}', this.checked)">
                             </td>`;
                 }
@@ -11437,7 +12578,7 @@ App.prototype.settleSelectedSalaryReturns = async function () {
         this.showLoading();
         try {
             const ids = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
-            
+
             const result = await db.fetchApi('/salary-returns/settle', {
                 method: 'POST',
                 body: JSON.stringify({
@@ -11520,7 +12661,7 @@ App.prototype.runSalaryValidationOnCurrentData = async function () {
     }
 
     try {
-        this.isSalaryImport = true; 
+        this.isSalaryImport = true;
         const allData = await db.getAllSalaryReturns(this.salarySearchQuery, this.salaryAttachmentFilterValue);
 
         if (!allData || allData.length === 0) {
@@ -11629,7 +12770,7 @@ App.prototype.applySalaryFilter = function () {
 };
 
 App.prototype.populateSalaryReturnsCache = async function () {
-    await this.rebuildSearchFilterIndex();
+    await this._syncDataset('salary', { force: true, skipCheck: true });
 };
 
 /**
@@ -11695,7 +12836,7 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
 
             // High Priority: Exact phrase match (Normalized or Original)
             const matchPhrase = rowStr.includes(searchQuery) || rowStr.includes(searchTotal);
-            
+
             if (!matchPhrase) {
                 // Fallback Priority: Word-by-word matching
                 // We restrict this for long queries (> 2 words) to avoid broad results in name searches
@@ -11730,8 +12871,8 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
 
         if (settlementMode) {
             const actualVal = (row['حالة التسوية'] || '').trim();
-            const matched = (actualVal === settlementMode) || 
-                            (settlementMode === 'تمت التسوية' && actualVal === 'تم التسوية') || 
+            const matched = (actualVal === settlementMode) ||
+                            (settlementMode === 'تمت التسوية' && actualVal === 'تم التسوية') ||
                             (settlementMode === 'تم التسوية' && actualVal === 'تمت التسوية');
             if (!matched) return false;
         }
@@ -11811,7 +12952,7 @@ App.prototype.handleLocalSalarySearch = function (search, attachmentStatus, page
 
     this.renderSalaryTable(append ? pagedData : null, append);
     this.calculateLocalSalaryStats(filtered);
-    this._populateSalaryReturnFilterOptions(pagedData);
+        this._populateSalaryReturnFilterOptions(this.salaryReturnsCache || filtered);
     this.updateSalaryAdabirDateRangeCount(filtered);
 
     return filtered.length;
@@ -11932,8 +13073,22 @@ App.prototype._getSalaryPaymentDateFilterValue = function(row) {
     return this._normalizeSalaryPaymentDateFilterValue(val);
 };
 
+App.prototype._getSalaryPaymentDateFilterValue = function(row) {
+    if (!row) return "";
+    const val =
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644'] ||
+        row['\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u0645\u0631\u062a\u062f\u0627\u062a'] ||
+        row.SettlementDate ||
+        row['Settlement Date'] ||
+        "";
+    return this._normalizeSalaryPaymentDateFilterValue(val);
+};
+
 App.prototype._populateSalaryReturnFilterOptions = function(rows = null) {
-    const indexFilters = this.searchFilterIndex?.salary?.filters;
+    const cacheRows = Array.isArray(this.salaryReturnsCache) && this.salaryReturnsCache.length ? this.salaryReturnsCache : null;
+    const indexFilters = cacheRows ? null : this.searchFilterIndex?.salary?.filters;
     if (indexFilters) {
         const setOptions = (selectId, options, currentValue) => this._setSelectOptionsFromRows(selectId, options, currentValue);
         const has = (indexFilters.hasAttachments || []).map(Number);
@@ -11959,7 +13114,7 @@ App.prototype._populateSalaryReturnFilterOptions = function(rows = null) {
         setOptions('salary-payment-date-filter', paymentOptions.sort((a, b) => b.value.localeCompare(a.value)), this._normalizeSalaryPaymentDateFilterValue(this.salaryPaymentDateFilterValue) || this.salaryPaymentDateFilterValue);
         return;
     }
-    const data = Array.isArray(rows) ? rows : (Array.isArray(this.salaryReturnsData) ? this.salaryReturnsData : []);
+    const data = cacheRows || (Array.isArray(rows) ? rows : (Array.isArray(this.salaryReturnsData) ? this.salaryReturnsData : []));
 
     const setOptions = (selectId, options, currentValue) => {
         const select = document.getElementById(selectId);
@@ -12106,7 +13261,7 @@ App.prototype.exportSalaryToExcel = async function () {
     this.showLoading();
     try {
         const allData = await db.getAllSalaryReturns(
-            this.salarySearchQuery, 
+            this.salarySearchQuery,
             this.salaryAttachmentFilterValue,
             this.salaryUploadDateFrom,
             this.salaryUploadDateTo,
@@ -12131,7 +13286,7 @@ App.prototype.exportSalaryToExcel = async function () {
                 if (header === 'رقم تسوية التعلية') originalH = 'محدد كتسوية';
                 else if (header === 'رقم تسوية السداد') originalH = 'رقم استمارة اعادة التحويل / التسوية';
                 else if (header === 'تاريخ تسوية التعلية') originalH = 'تاريخ المرتدات';
-                
+
                 const val = row[originalH] ?? row[header] ?? '';
                 return val === null || val === undefined ? '' : val;
             });
@@ -12194,8 +13349,9 @@ App.prototype.editSalaryReturn = async function(id) {
     try {
         const record = this.salaryReturnsData.find(r => (r.id || r.Id) == id) || this.salaryReturnsCache?.find(r => (r.id || r.Id) == id);
         if (!record) throw new Error('السجل غير موجود');
-        
+
         this.currentSalaryEditId = id;
+        this.currentSalaryEditOriginal = record;
         this.showEditSalaryModal(record);
     } catch (e) {
         this.showToast(e.message, 'error');
@@ -12205,6 +13361,30 @@ App.prototype.editSalaryReturn = async function(id) {
 };
 
 App.prototype.showEditSalaryModal = function(row) {
+    const fieldSources = {
+        'رقم تسوية التعلية': ['محدد كتسوية', 'رقم تسوية التعلية'],
+        'رقم تسوية السداد': ['رقم استمارة اعادة التحويل / التسوية', 'رقم تسوية السداد'],
+        'تاريخ تسوية التعلية': ['تاريخ المرتدات', 'تاريخ تسوية التعلية']
+    };
+    const technicalKeys = new Set([
+        '#', 'id', 'Id', 'ID', 'AttachmentCount', 'attachmentCount',
+        'ImportId', 'importId', 'RawData', 'rawData', 'CreatedAt', 'createdAt',
+        'UpdatedAt', 'updatedAt', 'DeletedAt', 'deletedAt', 'IsDeleted', 'isDeleted',
+        'IsArchived', 'isArchived', 'Filename', 'filename', 'ImportDate', 'importDate'
+    ]);
+    const displayValueMap = new Map([
+        ['Rejected', 'مرفوض'],
+        ['Returned', 'مرتد'],
+        ['Closed Account', 'حساب مغلق'],
+        ['Open Account', 'حساب مفتوح'],
+        ['Settled', 'تمت التسوية'],
+        ['Unsettled', 'لم تتم التسوية']
+    ]);
+    const resolveOriginalKey = (key) => {
+        const candidates = fieldSources[key] || [key];
+        return candidates.find(candidate => Object.prototype.hasOwnProperty.call(row, candidate)) || key;
+    };
+
     const modalOverlay = document.createElement('div');
     modalOverlay.id = 'salary-edit-modal-overlay';
     modalOverlay.className = 'modal-overlay';
@@ -12231,20 +13411,22 @@ App.prototype.showEditSalaryModal = function(row) {
     `;
 
     const form = document.createElement('div');
-    form.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;';
+    form.style.cssText = 'display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; direction: rtl;';
 
     // تضمين كافة الحقول المستوردة بالإضافة للمسميات الرسمية
     const standardFields = [
-        'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية', 
+        'كود الملف', 'الاسم', 'رقم الحساب', 'البنك', 'قيمة العملية',
         'الحالة', 'السبب', 'رقم الحساب بعد التعديل', 'البنك بعد التعديل', 'كود الفرع بعد التعديل',
         'تاريخ الرفع', 'رقم تسوية التعلية', 'رقم تسوية السداد', 'تاريخ تسوية التعلية', 'حالة التسوية'
     ];
 
-    const allKeys = new Set([...standardFields, ...Object.keys(row)]);
+    const representedSourceKeys = new Set(standardFields.map(resolveOriginalKey));
+    const allKeys = new Set([...standardFields, '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f', ...Object.keys(row)]);
 
     allKeys.forEach(key => {
-        if (key === 'id' || key === 'Id' || key === 'AttachmentCount' || key.startsWith('_')) return;
-        if (key.includes('/') || key.includes(' / ')) return; // تجاهل المسميات المدمجة في الجدول (مثل تاريخ المرتد / تاريخ التعلية)
+        if (technicalKeys.has(key) || key.startsWith('_')) return;
+        if (!standardFields.includes(key) && representedSourceKeys.has(key)) return;
+        if ((key.includes('/') || key.includes(' / ')) && key !== '\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0639\u062a\u0645\u0627\u062f\u0020\u0627\u0644\u062a\u0639\u062f\u064a\u0644\u0020\u002f\u0020\u062a\u0627\u0631\u064a\u062e\u0020\u0627\u0644\u0633\u062f\u0627\u062f') return; // تجاهل المسميات المدمجة في الجدول (مثل تاريخ المرتد / تاريخ التعلية)
 
         const group = document.createElement('div');
         group.style.cssText = 'display: flex; flex-direction: column; gap: 0.5rem;';
@@ -12254,21 +13436,23 @@ App.prototype.showEditSalaryModal = function(row) {
         label.style.color = '#94a3b8';
         label.style.fontSize = '0.9rem';
 
-        // جلب القيمة من المفتاح الأصلي إذا كان الحقل معاد تسميته أو له مسمى تقني مخلف
-        let originalKey = key;
-        if (key === 'رقم تسوية التعلية') originalKey = (row['محدد كتسوية'] !== undefined) ? 'محدد كتسوية' : 'رقم تسوية التعلية';
-        else if (key === 'رقم تسوية السداد') originalKey = (row['رقم استمارة اعادة التحويل / التسوية'] !== undefined) ? 'رقم استمارة اعادة التحويل / التسوية' : 'رقم تسوية السداد';
-        else if (key === 'تاريخ تسوية التعلية') originalKey = (row['تاريخ المرتدات'] !== undefined) ? 'تاريخ المرتدات' : 'تاريخ تسوية التعلية';
+        // جلب القيمة من المفتاح الأصلي إذا كان الحقل معاد تسميته
+        const originalKey = resolveOriginalKey(key);
+        const rawValue = row[originalKey] ?? row[key] ?? '';
+        const displayValue = displayValueMap.get(String(rawValue).trim()) || rawValue;
 
         const input = document.createElement('input');
         input.type = 'text';
-        input.value = row[originalKey] ?? row[key] ?? '';
+        input.value = displayValue;
         input.dataset.key = originalKey;
+        input.dataset.rawValue = rawValue;
+        input.dataset.displayValue = displayValue;
         input.style.cssText = `
             background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem;
             color: #f1f5f9; padding: 0.75rem; font-size: 1rem; outline: none; transition: border-color 0.2s;
+            width: 100%; box-sizing: border-box; text-align: right;
         `;
-        
+
         group.appendChild(label);
         group.appendChild(input);
         form.appendChild(group);
@@ -12276,7 +13460,7 @@ App.prototype.showEditSalaryModal = function(row) {
 
     const footer = document.createElement('div');
     footer.style.cssText = 'grid-column: span 2; display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #1e293b;';
-    
+
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn btn-primary';
     saveBtn.textContent = 'حفظ التعديلات';
@@ -12299,6 +13483,7 @@ App.prototype.showEditSalaryModal = function(row) {
 App.prototype.closeEditSalaryModal = function() {
     document.getElementById('salary-edit-modal-overlay')?.remove();
     this.currentSalaryEditId = null;
+    this.currentSalaryEditOriginal = null;
 };
 
 App.prototype.saveEditSalaryReturn = async function() {
@@ -12309,23 +13494,27 @@ App.prototype.saveEditSalaryReturn = async function() {
     const inputs = overlay.querySelectorAll('input[data-key]');
     const updatedData = {};
     inputs.forEach(input => {
-        updatedData[input.dataset.key] = input.value;
+        const unchangedTranslatedValue = input.value === input.dataset.displayValue;
+        updatedData[input.dataset.key] = unchangedTranslatedValue ? input.dataset.rawValue : input.value;
     });
+    const mergedData = this._stripEditableTechnicalFields({ ...(this.currentSalaryEditOriginal || {}), ...updatedData });
+    const changedData = this._getChangedFields(this.currentSalaryEditOriginal || {}, updatedData);
+    if (Object.keys(changedData).length === 0) {
+        this.showToast('\u0644\u0627 \u062a\u0648\u062c\u062f \u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0644\u0644\u062d\u0641\u0638', 'info');
+        this.closeEditSalaryModal();
+        return;
+    }
 
     this.showLoading();
     try {
-        const res = await fetch(`/salary-returns/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedData)
-        });
-        const result = await res.json();
-        if (result.success) {
-            this.showToast('تم تحديث السجل بنجاح', 'success');
+        const result = await db.updateSalaryReturn(id, changedData);
+        if (result && result.success) {
+            const updatedRow = result.record || { ...mergedData, id: id };
+            await this._upsertEditedCachedRow('salary', id, updatedRow, { changedKeys: Object.keys(changedData) });
+            this.showToast('\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0627\u0644\u0633\u062c\u0644 \u0628\u0646\u062c\u0627\u062d', 'success');
             this.closeEditSalaryModal();
-            await this.loadSalaryReturns();
         } else {
-            throw new Error(result.message || 'فشل التحديث');
+            throw new Error(result?.message || '\u0641\u0634\u0644 \u0627\u0644\u062a\u062d\u062f\u064a\u062b');
         }
     } catch (e) {
         this.showToast(e.message, 'error');
@@ -12353,43 +13542,16 @@ App.prototype.processSalaryFile = async function (file) {
     this.pendingImportType = 'salary'; // تثبيت النوع
     this.isSalaryImport = true;  // تأكيد صريح قبل أي عملية async
     try {
-        const data = await this.readExcelFile(file);
+        const data = this.harmonizeImportedRows(await this.readExcelFile(file));
         if (!data || data.length === 0) throw new Error('الملف فارغ أو غير صالح');
 
-        // خريطة تحويل المسميات لضمان المطابقة مع نظام الحوافز
-        const mappedData = data.map(row => {
-            const newRow = { ...row };
-            
-            // قاموس المسميات البديلة
-            const mappings = {
-                'الرقم القومي': ['الرقم القومى', 'الرقم_القومي', 'NationalID', 'National Id', 'NID'],
-                'قيمة العملية': ['المبلغ', 'القيمة', 'Amount', 'Transaction Value'],
-                'رقم تسوية السداد': ['رقم التسوية', 'رقم تسوية سداد', 'SettlementNo', 'Settlement No'],
-                'رقم تسوية التعلية': ['رقم تسوية تعلية', 'تسوية تعلية', 'AccrualSettlementNo'],
-                'تاريخ المرتد / تاريخ التعلية': ['تاريخ المرتد', 'تاريخ المرتدات', 'تاريخ التعلية', 'ReturnDate'],
-                'تاريخ اعتماد التعديل / تاريخ السداد': ['تاريخ السداد', 'تاريخ التسوية', 'تاريخ السداد الفعلي', 'SettlementDate']
-            };
-
-            for (const [targetKey, synonyms] of Object.entries(mappings)) {
-                if (!newRow[targetKey] || newRow[targetKey] === "") {
-                    for (const synonym of synonyms) {
-                        if (newRow[synonym]) {
-                            newRow[targetKey] = newRow[synonym];
-                            break;
-                        }
-                    }
-                }
-            }
-            return newRow;
-        });
-
-        this.pendingAllData = mappedData;
+        this.pendingAllData = data;
         this.pendingFile = file;
         this.isSalaryImport = true;
 
         // تشغيل نظام الفحص
         this._validationService = new ValidationService();
-        const validationResult = this._validationService.validate(mappedData, this.salaryReturnsCache || []);
+        const validationResult = this._validationService.validate(data, this.salaryReturnsCache || []);
 
         // عرض النتائج
         this.populateValidationModal(validationResult);
@@ -12407,12 +13569,24 @@ App.prototype.processSalaryFile = async function (file) {
 
 
 App.prototype.confirmDeleteAll = async function () {
+    if (!this.canDeleteReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!this.canDeleteAllReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!await this.isDangerousDeleteAllEnabled()) {
+        this.showToast('حذف كل السجلات غير مفعل من الإعدادات', 'error');
+        return;
+    }
     const correctPwd = localStorage.getItem('delete_password') || '1994';
-    const inputPwd = await window.dialog.show({ 
-        message: 'يرجى إدخال كلمة المرور لتأكيد حذف جميع البيانات:', 
-        type: 'question', 
-        isPrompt: true, 
-        inputType: 'password' 
+    const inputPwd = await window.dialog.show({
+        message: 'يرجى إدخال كلمة المرور لتأكيد حذف جميع البيانات:',
+        type: 'question',
+        isPrompt: true,
+        inputType: 'password'
     });
 
     if (inputPwd === null || inputPwd === false) return;
@@ -12433,7 +13607,7 @@ App.prototype.confirmDeleteAll = async function () {
 
     this.showLoading();
     try {
-        const success = await db.deleteAllReturns();
+        const success = await db.deleteAllReturns(inputPwd);
         if (success) {
             this.showToast('تم نقل جميع سجلات الحوافز للأرشيف بنجاح', 'success');
             this.returnsCache = null;
@@ -12442,19 +13616,32 @@ App.prototype.confirmDeleteAll = async function () {
             this.showToast('فشل حذف البيانات', 'error');
         }
     } catch (e) {
-        this.showToast('خطأ في الاتصال: ' + e.message, 'error');
+        if (e?.status === 403) this.showDeleteForbidden(e);
+        else this.showToast('خطأ في الاتصال: ' + e.message, 'error');
     } finally {
         this.hideLoading();
     }
 };
 
 App.prototype.confirmDeleteAllSalary = async function () {
+    if (!this.canDeleteReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!this.canDeleteAllReturns()) {
+        this.showToast('ليس لديك صلاحية حذف هذه البيانات', 'error');
+        return;
+    }
+    if (!await this.isDangerousDeleteAllEnabled()) {
+        this.showToast('حذف كل السجلات غير مفعل من الإعدادات', 'error');
+        return;
+    }
     const correctPwd = localStorage.getItem('delete_password') || '1994';
-    const inputPwd = await window.dialog.show({ 
-        message: 'يرجى إدخال كلمة المرور لتأكيد حذف جميع بيانات المرتبات:', 
-        type: 'question', 
-        isPrompt: true, 
-        inputType: 'password' 
+    const inputPwd = await window.dialog.show({
+        message: 'يرجى إدخال كلمة المرور لتأكيد حذف جميع بيانات المرتبات:',
+        type: 'question',
+        isPrompt: true,
+        inputType: 'password'
     });
 
     if (inputPwd === null || inputPwd === false) return;
@@ -12475,7 +13662,7 @@ App.prototype.confirmDeleteAllSalary = async function () {
 
     this.showLoading();
     try {
-        const success = await db.deleteAllSalaryReturns();
+        const success = await db.deleteAllSalaryReturns(inputPwd);
         if (success) {
             this.showToast('تم نقل جميع سجلات المرتبات للأرشيف بنجاح', 'success');
             this.salaryReturnsCache = null;
@@ -12484,7 +13671,8 @@ App.prototype.confirmDeleteAllSalary = async function () {
             this.showToast('فشل حذف البيانات', 'error');
         }
     } catch (e) {
-        this.showToast('خطأ في الاتصال: ' + e.message, 'error');
+        if (e?.status === 403) this.showDeleteForbidden(e);
+        else this.showToast('خطأ في الاتصال: ' + e.message, 'error');
     } finally {
         this.hideLoading();
     }
@@ -12493,7 +13681,7 @@ App.prototype.confirmDeleteAllSalary = async function () {
 
 App.prototype.refreshCurrentPage = async function () {
     console.log('[REFRESH] Refreshing current page with cache invalidation (Async):', this.currentPage);
-    
+
     // Invalidate local caches to force fresh fetch from DB
     if (this.currentPage === 'returns') {
         this.returnsCache = null;
@@ -12580,7 +13768,7 @@ App.prototype.saveHubUrl = function () {
     try {
         if (this.hubConnection) this.hubConnection.stop();
     } catch {}
-    this.initSignalR(); 
+    this.initSignalR();
     if (this.showUnifiedToast) this.showUnifiedToast('تم حفظ إعداد خادم الإشعارات', 'success', 'الإشعارات');
 };
 
@@ -12672,13 +13860,35 @@ App.prototype.loadNotifications = async function () {
     }
 };
 
-App.prototype.startNotificationPolling = function () {
-    if (this.notificationPollingTimer) return;
-    this.notificationPollingTimer = setInterval(() => {
-        if (this.currentUser?.id) {
-            this.loadNotifications();
-        }
-    }, 5000);
+
+// Removed duplicate startNotificationPolling
+
+App.prototype.startPermissionsPolling = function () {
+    if (this._permissionsPoller) return;
+    this._permissionsPoller = setInterval(async () => {
+        const user = auth.getUser();
+        if (!user?.id) return;
+        try {
+            const result = await db.fetchApi(`/permissions/${user.id}`);
+            const serverPerms = Array.isArray(result?.permissions)
+                ? result.permissions.slice().sort().join(',')
+                : null;
+            if (serverPerms === null) return;
+            const localPerms = (user.permissions || []).slice().sort().join(',');
+            if (serverPerms !== localPerms) {
+                user.permissions = result.permissions;
+                auth.currentUser = user;
+                localStorage.setItem(auth.sessionKey, JSON.stringify(user));
+                this.currentUser = user;
+                this.applyPermissions();
+                this.showToast('تم تحديث صلاحياتك', 'info');
+                const pageKey = `page.${this.currentPage}`;
+                if (this.currentPage && !auth.hasPermission(pageKey) && !auth.isAdmin()) {
+                    this.navigateTo('dashboard');
+                }
+            }
+        } catch (e) { /* silent */ }
+    }, 8000);
 };
 
 App.prototype.toggleNotificationsPanel = function () {
@@ -12744,7 +13954,7 @@ App.prototype.initSignalR = function () {
             return;
         }
 
-        this.fillHubUrlField();        
+        this.fillHubUrlField();
         const customUrl = this.getHubUrl();
         const buildConnection = (url) => {
             this.hubConnection = new signalR.HubConnectionBuilder()
@@ -12753,10 +13963,10 @@ App.prototype.initSignalR = function () {
                 .build();
 
             this.hubConnection.on("DbChange", (e) => {
-                const opMap = { 
-                    "INSERT": "إضافة", "UPDATE": "تعديل", "DELETE": "حذف", 
-                    "حذف": "حذف", "تعديل": "تعديل", "استيراد": "استيراد", 
-                    "تسوية": "تسوية", "رفع مرفق": "رفع مرفق", "حذف مرفق": "حذف مرفق" 
+                const opMap = {
+                    "INSERT": "إضافة", "UPDATE": "تعديل", "DELETE": "حذف",
+                    "حذف": "حذف", "تعديل": "تعديل", "استيراد": "استيراد",
+                    "تسوية": "تسوية", "رفع مرفق": "رفع مرفق", "حذف مرفق": "حذف مرفق"
                 };
                 const tableMap = {
                     "Returns": "مرتدات الحوافز",
@@ -12785,15 +13995,20 @@ App.prototype.initSignalR = function () {
                     }
                     return;
                 }
-                
+
                 // الآخرون تظهر لهم البطاقة التفاعلية
                 this.playNotificationSound();
                 this.showSignalRNotification(table, user, op);
+
+                // تحديث البيانات تلقائياً في الخلفية لضمان "الاستقرار" و "التحديث أول بأول"
+                if (["Returns", "SalaryReturns", "FullReturns"].includes(e?.table)) {
+                    this.startBackgroundSync();
+                }
             });
 
             this.hubConnection.on("UpdateData", (source, user, op) => {
                 console.info(`[RealTime] Data update signal received from: ${source} by ${user}`);
-                
+
                 const sourceMap = {
                     'Returns': 'مرتادات الحوافز',
                     'SalaryReturns': 'مرتادات المرتبات',
@@ -12838,7 +14053,7 @@ App.prototype.initSignalR = function () {
                     const urlInfo = this.hubConnection.connection.baseUrl || url;
                     console.log(`[RealTime] Connected to SignalR Hub at: ${urlInfo}`);
                     this.updateSignalRUI('online');
-                    
+
                     // Join user group for private notifications
                     if (this.currentUser && this.currentUser.id) {
                         try {
@@ -12850,7 +14065,7 @@ App.prototype.initSignalR = function () {
                 .catch(err => {
                     console.warn("[RealTime] Initial connection failed. System will retry in 5s...", err);
                     this.updateSignalRUI('offline');
-                    
+
                     setTimeout(() => {
                         this.hubConnection.start()
                             .then(() => {
@@ -12883,10 +14098,10 @@ App.prototype.initSignalR = function () {
 App.prototype.showSignalRNotification = function (sourceName, user, operation = "تعديل") {
     const cardId = 'signalr-notification-card';
     let card = document.getElementById(cardId);
-    
+
     // Remove existing notification if any to prevent stacking
     if (card) card.remove();
-    
+
     card = document.createElement('div');
     card.id = cardId;
     card.className = 'noti-v2-card';
@@ -12916,9 +14131,9 @@ App.prototype.showSignalRNotification = function (sourceName, user, operation = 
             </button>
         </div>
     `;
-    
+
     document.body.appendChild(card);
-    
+
     const acceptBtn = document.getElementById('noti-accept');
     const closeBtn = document.getElementById('noti-close');
 
@@ -12932,16 +14147,16 @@ App.prototype.showSignalRNotification = function (sourceName, user, operation = 
     acceptBtn.onclick = async () => {
         acceptBtn.disabled = true;
         closeBtn.disabled = true;
-        
+
         // Visual processing state
         const originalHtml = acceptBtn.innerHTML;
         acceptBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> جاري المزامنة...';
         acceptBtn.style.background = '#10b981';
         acceptBtn.style.color = 'white';
-        
+
         try {
             await this.refreshCurrentPage();
-            
+
             // Success indicator
             acceptBtn.innerHTML = '<i class="fas fa-check-circle"></i> تم التحديث';
             setTimeout(() => removeCard(600), 1000);
@@ -12958,9 +14173,9 @@ App.prototype.showSignalRNotification = function (sourceName, user, operation = 
             }, 2000);
         }
     };
-    
+
     closeBtn.onclick = () => removeCard();
-    
+
     // Auto-remove after 30 seconds
     const autoRemoveTimeout = setTimeout(() => {
         if (document.getElementById(cardId) && !acceptBtn.disabled) {
@@ -12979,7 +14194,7 @@ App.prototype.showSignalRNotification = function (sourceName, user, operation = 
 App.prototype.playNotificationSound = function () {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
+
         // Use two oscillators for a 'chime' effect
         const playTone = (freq, startTime, duration) => {
             const osc = audioCtx.createOscillator();
@@ -13042,7 +14257,7 @@ App.prototype.respondToShare = async function(shareId, status, modalElement) {
         if (result.success) {
             if (status === 'Accepted') {
                 this.showToast("تم القبول", "يمكنك الآن الوصول إلى الجدول من قائمة الأرشيف", "success");
-                this.loadArchive(); 
+                this.loadArchive();
             }
             modalElement.remove();
         }
@@ -13062,7 +14277,7 @@ App.prototype.showManagerTask = function(data) {
         box-shadow: 0 10px 30px rgba(0,0,0,0.5); border-right: 5px solid ${data.priority === 'High' ? '#ef4444' : '#f59e0b'};
         animation: slideInLeft 0.5s ease-out;
     `;
-    
+
     toast.innerHTML = `
         <div class="task-v2-header" style="display:flex; justify-content:space-between; margin-bottom:1rem;">
             <span class="task-v2-badge-manager"><i class="fas fa-tasks"></i> مهمة جديدة</span>
@@ -13075,7 +14290,7 @@ App.prototype.showManagerTask = function(data) {
         </div>
     `;
     document.body.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.style.animation = 'fadeOut 0.5s ease-in forwards';
         setTimeout(() => toast.remove(), 500);
@@ -13088,7 +14303,7 @@ App.prototype.loadAuditLogs = async function() {
         const logs = await resp.json();
         const container = document.getElementById('audit-log-container');
         if (!container) return;
-        
+
         let html = `
             <div class="table-container">
                 <table class="audit-log-table">
@@ -13102,7 +14317,7 @@ App.prototype.loadAuditLogs = async function() {
                     </thead>
                     <tbody>
         `;
-        
+
         logs.forEach(log => {
             html += `
                 <tr>
@@ -13113,7 +14328,7 @@ App.prototype.loadAuditLogs = async function() {
                 </tr>
             `;
         });
-        
+
         html += `</tbody></table></div>`;
         container.innerHTML = html;
     } catch (e) {
@@ -13124,9 +14339,9 @@ App.prototype.loadAuditLogs = async function() {
 App.prototype.showShareTableModal = async function(tableId, tableType) {
     const users = await db.getUsers();
     const otherUsers = users.filter(u => u.id !== this.currentUser.id);
-    
+
     const userOptions = otherUsers.map(u => `<option value="${u.id}">${u.fullname} (@${u.username})</option>`).join('');
-    
+
     const modal = document.createElement('div');
     modal.className = 'glass-modal-overlay show';
     modal.innerHTML = `
@@ -13157,15 +14372,15 @@ App.prototype.showShareTableModal = async function(tableId, tableType) {
 App.prototype.executeShare = async function(tableId, tableType) {
     const userId = document.getElementById('share-user-id').value;
     const message = document.getElementById('share-message').value;
-    
+
     try {
         const resp = await fetch('/shares/request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                tableId, 
-                tableType, 
-                targetUserId: parseInt(userId), 
+            body: JSON.stringify({
+                tableId,
+                tableType,
+                targetUserId: parseInt(userId),
                 fromUserId: this.currentUser.id,
                 message: message || "لديك طلب مشاركة جديد"
             })
@@ -13220,18 +14435,18 @@ App.prototype.executeAssignTask = async function(userId) {
     const title = document.getElementById('task-title').value;
     const message = document.getElementById('task-message').value;
     const priority = document.getElementById('task-priority').value;
-    
+
     if (!title || !message) {
         this.showToast("يرجى إدخال العنوان والتفاصيل", "warning");
         return;
     }
-    
+
     try {
         const resp = await fetch('/tasks/assign', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                targetUserId: userId, 
+            body: JSON.stringify({
+                targetUserId: userId,
                 managerId: this.currentUser.id,
                 title,
                 message,
@@ -13300,8 +14515,8 @@ App.prototype.fetchTasks = async function() {
 };
 
 App.prototype.renderTasksBoard = function() {
-    const data = this.tasksStatusFilter === 'all' 
-        ? this.tasksData 
+    const data = this.tasksStatusFilter === 'all'
+        ? this.tasksData
         : this.tasksData.filter(t => t.status === this.tasksStatusFilter);
 
     const newTasks = data.filter(t => t.status === 'New');
@@ -13343,12 +14558,12 @@ App.prototype.renderTaskCard = function(task) {
 
     const createdDate = task.createdAt ? new Date(task.createdAt).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '';
     const dueDate = task.dueDate ? new Date(task.dueDate).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' }) : '';
-    
+
     const isOverdue = task.dueDate && task.status !== 'Done' && new Date(task.dueDate) < new Date();
     const overdueClass = isOverdue ? 'task-overdue' : '';
 
-    const assigneeInfo = this.tasksTab === 'assigned' 
-        ? `<span class="task-assignee"><i class="fas fa-user"></i> ${task.targetUserName || ''}</span>` 
+    const assigneeInfo = this.tasksTab === 'assigned'
+        ? `<span class="task-assignee"><i class="fas fa-user"></i> ${task.targetUserName || ''}</span>`
         : `<span class="task-manager"><i class="fas fa-user-tie"></i> ${task.managerName || ''}</span>`;
 
     return `
@@ -13418,7 +14633,7 @@ App.prototype.deleteTask = async function(taskId) {
 App.prototype.showCreateTaskModal = async function() {
     const modal = document.getElementById('create-task-modal');
     modal.classList.remove('hidden');
-    
+
     // Reset form
     document.getElementById('task-title-input').value = '';
     document.getElementById('task-desc-input').value = '';
@@ -13430,7 +14645,7 @@ App.prototype.showCreateTaskModal = async function() {
         const res = await fetch('/users');
         const users = await res.json();
         const select = document.getElementById('task-assignee-input');
-        select.innerHTML = users.filter(u => u.active).map(u => 
+        select.innerHTML = users.filter(u => u.active).map(u =>
             `<option value="${u.id}" ${u.id === this.currentUser?.id ? 'selected' : ''}>${u.fullname}</option>`
         ).join('');
     } catch (e) {}
@@ -13476,7 +14691,7 @@ App.prototype.createTask = async function() {
 
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new App();
-    window.app.init(); 
+    window.app.init();
 });
 
 // --- Archive System Logic ---
@@ -13737,6 +14952,72 @@ App.prototype.viewAdabirDetails = async function(id) {
         document.getElementById('adabir-details-modal')?.classList.remove('hidden');
     } catch(e) { console.error(e); }
 };
+
+(function installIndexedDbSyncLoaders() {
+    const originalLoadReturns = App.prototype.loadReturns;
+    const originalLoadSalaryReturns = App.prototype.loadSalaryReturns;
+    const originalLoadFullReturns = App.prototype.loadFullReturns;
+
+    App.prototype.loadReturns = async function(page = 1, pageSize = 50, search = '', filter = '', attachmentStatus = 'all', append = false) {
+        if (!append && (!this.returnsCache || this.returnsCache.length === 0)) {
+            const loaded = await this._loadCachedDataset?.('returns');
+            if (loaded) {
+                this.handleLocalSearch(search, filter, attachmentStatus, page, pageSize, append);
+                this._syncDataset?.('returns').catch(() => {});
+                this.startBackgroundSync?.();
+                return;
+            }
+        }
+
+        const result = await originalLoadReturns.apply(this, arguments);
+        this.startBackgroundSync?.();
+        return result;
+    };
+
+    App.prototype.loadSalaryReturns = async function(page = 1, pageSize = 50, search = '', append = false) {
+        if (!append && (!this.salaryReturnsCache || this.salaryReturnsCache.length === 0)) {
+            const loaded = await this._loadCachedDataset?.('salary');
+            if (loaded) {
+                this.handleLocalSalarySearch(search, this.salaryAttachmentFilterValue || 'all', page, pageSize, append);
+                this._syncDataset?.('salary').catch(() => {});
+                this.startBackgroundSync?.();
+                return;
+            }
+        }
+
+        const result = await originalLoadSalaryReturns.apply(this, arguments);
+        this.startBackgroundSync?.();
+        return result;
+    };
+
+    App.prototype.loadFullReturns = async function(page = 1, pageSize = 50, query = '', isSearch = false) {
+        if (query === null || query === undefined) {
+            query = document.getElementById('unified-search-input')?.value || this.searchQuery || '';
+        }
+
+        const hasReturnsCache = Array.isArray(this.returnsCache) && this.returnsCache.length > 0;
+        const hasSalaryCache = Array.isArray(this.salaryReturnsCache) && this.salaryReturnsCache.length > 0;
+        if (!hasReturnsCache) await this._loadCachedDataset?.('returns');
+        if (!hasSalaryCache) await this._loadCachedDataset?.('salary');
+
+        if ((this.returnsCache && this.returnsCache.length) || (this.salaryReturnsCache && this.salaryReturnsCache.length)) {
+            console.log('[SYNC][unified] Loaded from cache');
+            if (isSearch) this.selectedUnifiedStatementQuery = '';
+            this.searchQuery = query || '';
+            this.unifiedSettlementStatus = document.getElementById('unified-settlement-status')?.value || this.unifiedSettlementStatus || 'not_settled';
+            this.showUnifiedSearchState?.('');
+            this.updateUnifiedAccountStatementButton?.(false);
+            await this.handleUnifiedLocalSearch(query || '');
+            document.getElementById('unified-loading')?.classList.add('hidden');
+            this.startBackgroundSync?.();
+            return;
+        }
+
+        const result = await originalLoadFullReturns.apply(this, arguments);
+        this.startBackgroundSync?.();
+        return result;
+    };
+})();
 
 App.prototype.renderAdabirDetailsMeta = function(id) {
     const meta = document.getElementById('adabir-details-meta');

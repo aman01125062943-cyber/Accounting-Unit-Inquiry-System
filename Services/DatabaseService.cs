@@ -95,24 +95,35 @@ public class DatabaseService
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var configPath = Path.Combine(appData, "HKServer", "server_config.json");
         var localPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "server_config.json");
+        ServerConfig? cfg = null;
 
         if (File.Exists(configPath)) {
              try {
                 var json = File.ReadAllText(configPath);
-                var cfg = JsonSerializer.Deserialize<ServerConfig>(json);
-                if (cfg != null) return cfg;
+                cfg = JsonSerializer.Deserialize<ServerConfig>(json);
              } catch {}
         }
 
-        if (File.Exists(localPath)) {
+        if (cfg == null && File.Exists(localPath)) {
              try {
                 var json = File.ReadAllText(localPath);
-                var cfg = JsonSerializer.Deserialize<ServerConfig>(json);
-                if (cfg != null) return cfg;
+                cfg = JsonSerializer.Deserialize<ServerConfig>(json);
              } catch {}
         }
         
-        return new ServerConfig();
+        if (cfg == null) {
+            cfg = new ServerConfig();
+        }
+
+        // Normalize relative paths
+        if (!string.IsNullOrWhiteSpace(cfg.ArchivePath) && !Path.IsPathRooted(cfg.ArchivePath)) {
+            cfg.ArchivePath = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, cfg.ArchivePath));
+        }
+        if (!string.IsNullOrWhiteSpace(cfg.Naps2Path) && !Path.IsPathRooted(cfg.Naps2Path)) {
+            cfg.Naps2Path = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, cfg.Naps2Path));
+        }
+
+        return cfg;
     }
 
     public static void SaveServerConfig(ServerConfig config) {

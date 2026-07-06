@@ -1,4 +1,4 @@
-﻿using HKServer.Services;
+using HKServer.Services;
 using HKServer.Models.Chat;
 using HKServer.Hubs;
 using Dapper;
@@ -6,16 +6,15 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace HKServer.Endpoints;
 
-/// <summary>
-/// Endpoints ظ…ط³طھظ‚ظ„ط© ظ„ظ†ظا�… ا�„ظ…راس�„ط© - ظ„ا تؤثر ع�„ظ‰ ط£ظٹ Endpoint ظ…ظˆط¬ظˆد
-/// </summary>
+
+
+
 public static class ChatEndpoints
 {
     public static void MapChatEndpoints(this WebApplication app)
     {
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // طھظ‡يئة جدا�ˆظ„ ا�„شات ع�†ط¯ ط£ظˆظ„ استدعاء
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
         app.MapGet("/chat/init", async (DatabaseService db) =>
         {
             try
@@ -30,9 +29,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // ظ‚ائ�…ة ا�„ظ…ط³طھط®ط¯ظ…ظٹظ† (ظ…ع حا�„ة ا�„اتصا�„)
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapGet("/chat/users", async (DatabaseService db) =>
         {
             try
@@ -41,12 +40,11 @@ public static class ChatEndpoints
                 using var conn = await db.GetOpenConnectionAsync();
 
                 
-                // ط¬ظ„ط¨ ظƒافة ا�„ظ…ط³طھط®ط¯ظ…ظٹظ† ظˆتحديد ا�„ظ†ط´ط·ظٹظ† ظ…ظ†ظ‡ظ…
                 var allUsers = await conn.QueryAsync<HKServer.Models.User>(
                     "SELECT Id as id, Username as username, Fullname as fullname, Role as role, Active as active FROM Users"
                 );
                 
-                // ا�„طھط£ظƒط¯ ظ…ظ† ظپظ„ترة ا�„ظ…ط³طھط®ط¯ظ…ظٹظ† ا�„ظ†ط´ط·ظٹظ† ظپظ‚ط·
+
                 var activeUsers = allUsers.Where(u => u.active).ToList();
                 var onlineIds = ChatHub.GetOnlineUserIds();
                 
@@ -70,9 +68,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // ظ…حادثات �…ط³طھط®ط¯ظ… ظ…ط¹ظٹظ†
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapGet("/chat/conversations/{userId:int}", async (int userId, DatabaseService db) =>
         {
             try
@@ -116,9 +114,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // إ�†شاء/فتح �…حادثة بي�† ظ…ط³طھط®ط¯ظ…ظٹظ†
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPost("/chat/conversations", async (HttpContext context, DatabaseService db) =>
         {
             try
@@ -129,7 +127,7 @@ public static class ChatEndpoints
                 await InitChatTables(db);
                 using var conn = await db.GetOpenConnectionAsync();
 
-                // ا�„طھط£ظƒط¯ ظ…ظ† ا�„ترتيب ا�„ثابت (ا�„ط£طµط؛ط± ط£ظˆظ„ا�‹)
+
                 var u1 = Math.Min(req.User1Id, req.User2Id);
                 var u2 = Math.Max(req.User1Id, req.User2Id);
 
@@ -139,7 +137,7 @@ public static class ChatEndpoints
                 if (!await IsActiveUser(conn, u1) || !await IsActiveUser(conn, u2))
                     return Results.BadRequest(new { success = false, message = "User not found or inactive" });
 
-                // ظ…حا�ˆظ„ة إيجاد �…حادثة �…ظˆط¬ظˆط¯ط©
+
                 var existing = await conn.QueryFirstOrDefaultAsync<dynamic>(
                     "SELECT Id FROM ChatConversations WHERE User1Id = @U1 AND User2Id = @U2",
                     new { U1 = u1, U2 = u2 }
@@ -150,7 +148,7 @@ public static class ChatEndpoints
                     return Results.Ok(new { success = true, conversationId = (long)existing.Id, isNew = false });
                 }
 
-                // إ�†شاء �…حادثة جديدة
+
                 var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 var id = await conn.ExecuteScalarAsync<long>(
                     "INSERT INTO ChatConversations (User1Id, User2Id, CreatedAt) VALUES (@U1, @U2, @Now) RETURNING Id;",
@@ -167,9 +165,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // رسائ�„ ظ…حادثة �…ط¹ظٹظ†ط© (ظ…ع pagination)
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapGet("/chat/messages/{conversationId:long}", async (long conversationId, int? page, int? pageSize, int? userId, DatabaseService db) =>
         {
             try
@@ -220,7 +218,7 @@ public static class ChatEndpoints
                         likeCount = Convert.ToInt32(m.LikeCount ?? 0),
                         senderName = (string?)m.SenderName ?? "مستخدم"
                     };
-                }).Reverse(); // ط¹ظƒس ا�„طھط±طھظٹط¨ ظ„ظٹظƒظˆظ† ا�„ط£ظ‚ط¯ظ… ط£ظˆظ„ا�‹
+                }).Reverse();
 
                 return Results.Ok(new
                 {
@@ -235,9 +233,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // إرسا�„ رسا�„ة جديدة
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPost("/chat/messages", async (HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub, IHubContext<NotificationHub> notificationHub) =>
         {
             try
@@ -254,7 +252,7 @@ public static class ChatEndpoints
 
                 var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-                // إدراج ا�„رسا�„ط©
+
                 var msgId = await conn.ExecuteScalarAsync<long>(@"
                     INSERT INTO ChatMessages (ConversationId, SenderId, Content, SentAt, IsRead, IsTaskConverted, AttachmentUrl, AttachmentType, LikeCount)
                     VALUES (@ConvId, @SenderId, @Content, @Now, 0, 0, @AttachmentUrl, @AttachmentType, 0) RETURNING Id;
@@ -267,13 +265,12 @@ public static class ChatEndpoints
                     AttachmentType = req.AttachmentType
                 });
 
-                // تحديث آخر رسا�„ة في ا�„ظ…حادثة
+
                 await conn.ExecuteAsync(
                     "UPDATE ChatConversations SET LastMessageAt = @Now WHERE Id = @ConvId",
                     new { Now = now, ConvId = req.ConversationId }
                 );
 
-                // ط¬ظ„ب اس�… ا�„ظ…ط±ط³ظ„
                 var senderName = await conn.ExecuteScalarAsync<string>(
                     "SELECT Fullname FROM Users WHERE Id = @Id", new { Id = req.SenderId }
                 ) ?? "مستخدم";
@@ -308,11 +305,11 @@ public static class ChatEndpoints
                     senderName
                 };
 
-                // إرسا�„ ا�„رسا�„ط© ط¹ط¨ط± SignalR ظ„حظيا�‹
+
                 var groupName = $"chat_{req.ConversationId}";
                 await chatHub.Clients.Group(groupName).SendAsync("ReceiveMessage", messagePayload);
 
-                // إرسا�„ إشعار عبر �†ظا�… ا�„إشعارات ا�„حا�„ظٹ
+
                 await db.AddNotificationEventAsync("ChatMessages", "INSERT", msgId, senderName);
 
                 Console.WriteLine($"[Chat] Message sent: {msgId} in conv {req.ConversationId} by {senderName}");
@@ -325,9 +322,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // ا�„تفاع�„ ظ…ع رسا�„ة (Like)
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPost("/chat/call", async (HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub, IHubContext<NotificationHub> notificationHub) =>
         {
             try
@@ -512,9 +509,9 @@ public static class ChatEndpoints
             }
         });
 
-        // ══════════════════════════════════════════════════════════════════
-        // رنينات انتظار المستخدم (Pending Rings) - للـ polling عبر أجهزة مختلفة
-        // ══════════════════════════════════════════════════════════════════
+
+
+
         app.MapGet("/chat/pending-rings/{userId:int}", async (int userId, DatabaseService db) =>
         {
             try
@@ -561,13 +558,12 @@ public static class ChatEndpoints
                 await InitChatTables(db);
                 using var conn = await db.GetOpenConnectionAsync();
 
-                // تحديث عداد ا�„إعجابات
+
                 await conn.ExecuteAsync(
                     "UPDATE ChatMessages SET LikeCount = LikeCount + 1 WHERE Id = @Id",
                     new { Id = req.MessageId }
                 );
 
-                // ط¬ظ„ب ا�„بيا�†ات ا�„ظ…ط­ط¯ط«ط©
                 var msg = await conn.QueryFirstOrDefaultAsync<dynamic>(
                     "SELECT ConversationId, LikeCount FROM ChatMessages WHERE Id = @Id",
                     new { Id = req.MessageId }
@@ -593,9 +589,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // إعادة جد�ˆظ„ط© ظ…ظ‡ظ…ة (Reschedule)
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPut("/chat/tasks/{taskId:long}/reschedule", async (long taskId, HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub, IHubContext<NotificationHub> notificationHub) =>
         {
             try
@@ -658,9 +654,8 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // ط­ط°ظپ ظ…ظ‡ظ…ة
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
         app.MapDelete("/chat/tasks/{taskId:long}", async (long taskId, int userId, DatabaseService db, IHubContext<ChatHub> chatHub, IHubContext<NotificationHub> notificationHub) =>
         {
             try
@@ -702,9 +697,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // إي�‚اف ا�„طھظ†ط¨ظٹظ‡ ظ„ظ…ظ‡ظ…ة (Deactivate Reminder)
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPut("/chat/tasks/{taskId:long}/deactivate-reminder", async (long taskId, DatabaseService db) =>
         {
             try
@@ -720,9 +715,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // تحديث حا�„ة ا�„ظ‚راءة
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPut("/chat/messages/read/{conversationId:long}", async (long conversationId, HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub) =>
         {
             try
@@ -756,9 +751,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // رفع ا�„ظ…ط±ظپظ‚ات ا�„خاصة با�„شات
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPost("/chat/upload", async (HttpContext context, DatabaseService db) =>
         {
             try
@@ -800,7 +795,6 @@ public static class ChatEndpoints
                 if (file == null || file.Length == 0)
                     return Results.BadRequest(new { success = false, message = "لم يتم اختيار ملف" });
 
-                // طھط­ط¯ظٹط¯ ظ…ط¬ظ„د ا�„ط­ظپط¸ ظپظٹ wwwroot
                 var uploadsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads", "chat");
                 if (!Directory.Exists(uploadsFolder)) Directory.CreateDirectory(uploadsFolder);
 
@@ -823,9 +817,8 @@ public static class ChatEndpoints
             }
         }).DisableAntiforgery();
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // طھط­ظˆظٹظ„ رسا�„ة إ�„ظ‰ ظ…ظ‡ظ…ة
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
         app.MapPost("/chat/tasks", async (HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub, IHubContext<NotificationHub> notificationHub) =>
         {
             try
@@ -847,7 +840,7 @@ public static class ChatEndpoints
 
                 var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-                // إ�†شاء ا�„ظ…ظ‡ظ…ط©
+
                 var taskId = await conn.ExecuteScalarAsync<long>(@"
                     INSERT INTO ChatTasks (MessageId, ConversationId, Title, Description, DueDate, ReminderTime, AlertSound, IsReminderActive, Priority, Status, AssignedToId, CreatedById, Attachments, CreatedAt, UpdatedAt)
                     VALUES (@MessageId, @ConversationId, @Title, @Description, @DueDate, @ReminderTime, @AlertSound, 1, @Priority, 'New', @AssignedToId, @CreatedById, @Attachments, @Now, @Now) RETURNING Id;
@@ -889,7 +882,7 @@ public static class ChatEndpoints
                         Now = now
                     });
 
-                // تحديث ا�„رسا�„ط© ظƒظ…ط­ظˆظ„ط© ظ„ظ…ظ‡ظ…ط©
+
                 if (req.MessageId > 0)
                 {
                     await conn.ExecuteAsync(
@@ -898,7 +891,6 @@ public static class ChatEndpoints
                     );
                 }
 
-                // ط¬ظ„ط¨ ط£ط³ظ…اء ا�„ظ…ط³طھط®ط¯ظ…ظٹظ†
                 var creatorName = await conn.ExecuteScalarAsync<string>(
                     "SELECT Fullname FROM Users WHERE Id = @Id", new { Id = req.CreatedById }
                 ) ?? "مستخدم";
@@ -928,11 +920,11 @@ public static class ChatEndpoints
                     createdByName = creatorName
                 };
 
-                // إرسا�„ إشعار SignalR
+
                 var groupName = $"chat_{req.ConversationId}";
                 await chatHub.Clients.Group(groupName).SendAsync("TaskCreated", taskPayload);
 
-                // إشعار عبر ا�„ظ†ظا�… ا�„حا�„ظٹ
+
                 await db.AddNotificationEventAsync("ChatTasks", "INSERT", taskId, creatorName);
 
                 if (req.AssignedToId != req.CreatedById)
@@ -958,9 +950,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // ظ…ظ‡ا�… ظ…ط³طھط®ط¯ظ… ظ…ط¹ظٹظ†
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapGet("/chat/tasks/{userId:int}", async (int userId, DatabaseService db) =>
         {
             try
@@ -1013,9 +1005,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
-        // تحديث حا�„ط© ظ…ظ‡ظ…ة
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapPut("/chat/tasks/{taskId:long}/status", async (long taskId, HttpContext context, DatabaseService db, IHubContext<ChatHub> chatHub, IHubContext<NotificationHub> notificationHub) =>
         {
             try
@@ -1023,7 +1015,7 @@ public static class ChatEndpoints
                 var req = await context.Request.ReadFromJsonAsync<UpdateTaskStatusRequest>();
                 if (req == null) return Results.BadRequest(new { success = false, message = "Invalid request" });
 
-                // Validate status
+
                 var validStatuses = new[] { "New", "InProgress", "Delayed", "Done", "Canceled" };
                 if (!validStatuses.Contains(req.Status))
                     return Results.BadRequest(new { success = false, message = "حالة غير صالحة" });
@@ -1041,7 +1033,6 @@ public static class ChatEndpoints
                     new { Status = req.Status, Now = now, Id = taskId }
                 );
 
-                // ط¬ظ„ب تفاصي�„ ا�„ظ…ظ‡ظ…ط©
                 var task = await conn.QueryFirstOrDefaultAsync<dynamic>(
                     "SELECT * FROM ChatTasks WHERE Id = @Id", new { Id = taskId }
                 );
@@ -1052,7 +1043,7 @@ public static class ChatEndpoints
                         "SELECT Fullname FROM Users WHERE Id = @Id", new { Id = req.UpdatedById }
                     ) ?? "مستخدم";
 
-                    // إرسا�„ إشعار
+
                     if (task.ConversationId != null)
                     {
                         var groupName = $"chat_{(long)task.ConversationId}";
@@ -1096,9 +1087,9 @@ public static class ChatEndpoints
             }
         });
 
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-        // ظ…ظ‡ا�… ظ…حادثة �…ط¹ظٹظ†ة
-        // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
+
         app.MapGet("/chat/tasks/conversation/{conversationId:long}", async (long conversationId, int? userId, DatabaseService db) =>
         {
             try
@@ -1152,11 +1143,10 @@ public static class ChatEndpoints
         });
     }
 
-    // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-    // طھظ‡يئة جدا�ˆظ„ ا�„شات (يت�… استدعاؤ�‡ا ت�„ظ‚ائيا�‹)
-    // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
+
+
     private static bool _tablesInitialized = false;
-    private static readonly object _initLock = new();
+    private static readonly SemaphoreSlim _initSemaphore = new(1, 1);
 
     private static async Task<bool> IsActiveUser(System.Data.IDbConnection conn, int userId)
     {
@@ -1282,13 +1272,12 @@ public static class ChatEndpoints
     {
         if (_tablesInitialized) return;
 
-        lock (_initLock)
-        {
-            if (_tablesInitialized) return;
-        }
+        await _initSemaphore.WaitAsync();
 
         try
         {
+            if (_tablesInitialized) return;
+
             using var conn = await db.GetOpenConnectionAsync();
             await conn.ExecuteAsync(@"
                 CREATE TABLE IF NOT EXISTS ChatConversations (
@@ -1370,11 +1359,10 @@ public static class ChatEndpoints
             _tablesInitialized = true;
             Console.WriteLine("[Chat] Tables initialized successfully");
 
-            // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•گ
-            // طھط­ط¯ظٹط« ظ‡ظٹظƒظ„ ا�„جدا�ˆظ„ (Schema Migration)
-            // �•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•��•�
+
+
             try {
-                // إضافة أع�…دة ا�„ظ…ط±ظپظ‚ات �ˆا�„إعجابات �„ط¬ط¯ظˆظ„ ا�„رسائ�„ إذا �„ظ… طھظƒظ† ظ…ظˆط¬ظˆط¯ط©
+
                 await conn.ExecuteAsync(@"
                     -- AttachmentUrl
                     BEGIN TRY
@@ -1392,7 +1380,7 @@ public static class ChatEndpoints
                     END TRY BEGIN CATCH END CATCH;
                 ");
             } catch {
-                // SQLite doesn't support BEGIN TRY, so we'll do it one by one with individual catch
+
                 try { await conn.ExecuteAsync("ALTER TABLE ChatMessages ADD COLUMN AttachmentUrl TEXT;"); } catch {}
                 try { await conn.ExecuteAsync("ALTER TABLE ChatMessages ADD COLUMN AttachmentType TEXT;"); } catch {}
                 try { await conn.ExecuteAsync("ALTER TABLE ChatMessages ADD COLUMN LikeCount INTEGER DEFAULT 0;"); } catch {}
@@ -1405,6 +1393,10 @@ public static class ChatEndpoints
         {
             Console.WriteLine($"[Chat] Table init error: {ex.Message}");
             throw;
+        }
+        finally
+        {
+            _initSemaphore.Release();
         }
     }
 }

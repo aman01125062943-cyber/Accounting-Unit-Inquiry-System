@@ -154,7 +154,7 @@ class Database {
             );
         }
 
-        const { __skipLoadingWrapper, __suppressErrorLog, triggerBtn: optionTriggerBtn, ...requestOptions } = options;
+        const { __skipLoadingWrapper, __suppressErrorLog, triggerBtn: optionTriggerBtn, timeout, ...requestOptions } = options;
         
         // Add cache-buster to GET requests to ensure fresh data (especially for attachment counts)
         if (method === 'GET') {
@@ -191,11 +191,26 @@ class Database {
                 headers['X-User-Id'] = String(activeUserForHeader.id);
             }
 
-            const response = await fetch(url, {
-                ...requestOptions,
-                __skipGlobalLoading: true,
-                headers: { ...headers, ...(requestOptions.headers || {}) }
-            });
+            const controller = timeout ? new AbortController() : null;
+            const timeoutId = timeout ? setTimeout(() => controller.abort(), timeout) : null;
+            let response;
+            try {
+                response = await fetch(url, {
+                    ...requestOptions,
+                    __skipGlobalLoading: true,
+                    signal: controller?.signal || requestOptions.signal,
+                    headers: { ...headers, ...(requestOptions.headers || {}) }
+                });
+            } catch (error) {
+                if (error?.name === 'AbortError') {
+                    const timeoutError = new Error(`Request timeout after ${timeout}ms`);
+                    timeoutError.isTimeout = true;
+                    throw timeoutError;
+                }
+                throw error;
+            } finally {
+                if (timeoutId) clearTimeout(timeoutId);
+            }
 
             if (!response.ok) {
                 let errorData;
@@ -333,13 +348,13 @@ class Database {
     async getReturnChanges(since = null) {
         const params = new URLSearchParams();
         if (since) params.append('since', since);
-        return await this.fetchApi(`/api/returns/changes?${params}`, { timeout: 12000, __skipLoadingWrapper: true });
+        return await this.fetchApi(`/api/returns/changes?${params}`, { timeout: 7000, __skipLoadingWrapper: true, __suppressErrorLog: true });
     }
 
     async syncReturns(since = null) {
         const params = new URLSearchParams();
         if (since) params.append('since', since);
-        return await this.fetchApi(`/api/returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true });
+        return await this.fetchApi(`/api/returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true, __suppressErrorLog: true });
     }
 
     async getReturnStatuses() {
@@ -457,13 +472,13 @@ class Database {
     async getSalaryReturnChanges(since = null) {
         const params = new URLSearchParams();
         if (since) params.append('since', since);
-        return await this.fetchApi(`/api/salary-returns/changes?${params}`, { timeout: 12000, __skipLoadingWrapper: true });
+        return await this.fetchApi(`/api/salary-returns/changes?${params}`, { timeout: 7000, __skipLoadingWrapper: true, __suppressErrorLog: true });
     }
 
     async syncSalaryReturns(since = null) {
         const params = new URLSearchParams();
         if (since) params.append('since', since);
-        return await this.fetchApi(`/api/salary-returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true });
+        return await this.fetchApi(`/api/salary-returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true, __suppressErrorLog: true });
     }
 
     async saveSalaryReturns(data, importInfo) {
@@ -513,13 +528,13 @@ class Database {
     async getFullReturnChanges(since = null) {
         const params = new URLSearchParams();
         if (since) params.append('since', since);
-        return await this.fetchApi(`/api/full-returns/changes?${params}`, { timeout: 12000, __skipLoadingWrapper: true });
+        return await this.fetchApi(`/api/full-returns/changes?${params}`, { timeout: 7000, __skipLoadingWrapper: true, __suppressErrorLog: true });
     }
 
     async syncFullReturns(since = null) {
         const params = new URLSearchParams();
         if (since) params.append('since', since);
-        return await this.fetchApi(`/api/full-returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true });
+        return await this.fetchApi(`/api/full-returns/sync?${params}`, { timeout: 30000, __skipLoadingWrapper: true, __suppressErrorLog: true });
     }
 
     // ========================================

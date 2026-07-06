@@ -15,14 +15,34 @@ if (!(Test-Path $InstallDir)) {
 }
 
 # 2. Copy files (Smart detection of source)
-if (Test-Path (Join-Path $SourceDir "HKServer.exe")) {
-    Write-Host "Copying files from current directory..."
-    Copy-Item -Path "$SourceDir\*" -Exclude ".git", ".agent", "bin", "obj", "hk_published" -Destination $InstallDir -Recurse -Force
-} elseif (Test-Path (Join-Path $SourceDir "hk_published\HKServer.exe")) {
-    Write-Host "Copying files from hk_published subfolder..."
-    Copy-Item -Path "$SourceDir\hk_published\*" -Destination $InstallDir -Recurse -Force
+$ProjectPath = Join-Path $SourceDir "HKServer.csproj"
+$PublishDir = Join-Path $SourceDir "hk_published"
+
+if (Test-Path $ProjectPath) {
+    Write-Host "Publishing a fresh installer package..." -ForegroundColor Cyan
+    dotnet publish $ProjectPath -c Release -o $PublishDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Publish failed. HKServer.exe was not created."
+        exit 1
+    }
+    $PackageDir = $PublishDir
 } else {
-    Write-Error "Could not find HKServer.exe in current directory or subfolders."
+    $CandidateDirs = @(
+        $SourceDir,
+        (Join-Path $SourceDir "hk_published"),
+        (Join-Path $SourceDir "publish_portable_latest")
+    )
+
+    $PackageDir = $CandidateDirs |
+        Where-Object { Test-Path (Join-Path $_ "HKServer.exe") } |
+        Select-Object -First 1
+}
+
+if ($PackageDir) {
+    Write-Host "Copying files from: $PackageDir"
+    Copy-Item -Path "$PackageDir\*" -Destination $InstallDir -Recurse -Force -ErrorAction Stop
+} else {
+    Write-Error "Could not find or build HKServer.exe."
     exit 1
 }
 
