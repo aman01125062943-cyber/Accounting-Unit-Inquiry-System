@@ -97,7 +97,7 @@ console.log('App JS Loaded Successfully version 9.27 - Performance Optimized');
         state.active += 1;
         status.querySelector('.global-loading-message').textContent = message;
         status.querySelector('.global-loading-slow')?.classList.add('hidden');
-        status.classList.add('show');
+        // status.classList.add('show'); // Disabled
         bar.classList.add('show');
         bar.style.opacity = '1';
 
@@ -129,7 +129,7 @@ console.log('App JS Loaded Successfully version 9.27 - Performance Optimized');
             if (state.active > 0) return;
             bar.classList.remove('show');
             bar.style.opacity = '0';
-            status.classList.remove('show');
+            // status.classList.remove('show'); // Disabled
             status.querySelector('.global-loading-slow')?.classList.add('hidden');
             setGlobalProgress(0);
         }, 260);
@@ -138,64 +138,19 @@ console.log('App JS Loaded Successfully version 9.27 - Performance Optimized');
     const getTarget = (id) => typeof id === 'string' ? document.getElementById(id) : id;
 
     window.showSectionLoading = function showSectionLoading(sectionId, message = TEXT.database) {
-        const section = getTarget(sectionId);
-        if (!section || section.querySelector(':scope > .section-loading-overlay')) return;
-        const computed = window.getComputedStyle(section);
-        if (computed.position === 'static') section.classList.add('loading-position-context');
-        section.setAttribute('aria-busy', 'true');
-
-        const overlay = document.createElement('div');
-        overlay.className = 'section-loading-overlay';
-        overlay.innerHTML = `
-            <div class="section-loading-card">
-                <span class="loading-spinner"></span>
-                <span>${escapeHtml(message)}</span>
-                <small class="loading-slow-hint">${TEXT.slow}</small>
-            </div>
-            <div class="loading-skeleton-grid">
-                <span></span><span></span><span></span><span></span>
-            </div>
-        `;
-        section.appendChild(overlay);
-        overlay._slowTimer = setTimeout(() => overlay.classList.add('is-slow'), 3000);
+        // Disabled to prevent screen flickering
     };
 
     window.hideSectionLoading = function hideSectionLoading(sectionId) {
-        const section = getTarget(sectionId);
-        if (!section) return;
-        section.removeAttribute('aria-busy');
-        section.querySelectorAll(':scope > .section-loading-overlay').forEach(overlay => {
-            clearTimeout(overlay._slowTimer);
-            overlay.classList.add('hiding');
-            setTimeout(() => overlay.remove(), 180);
-        });
+        // Disabled
     };
 
     window.showTableLoading = function showTableLoading(tableId, message = TEXT.database) {
-        const table = getTarget(tableId);
-        if (!table) return;
-        const tbody = table.tagName === 'TBODY' ? table : table.querySelector('tbody');
-        if (!tbody || tbody.querySelector('.table-loading-row')) return;
-        const columns = table.querySelectorAll('thead th').length || 1;
-        const row = document.createElement('tr');
-        row.className = 'table-loading-row';
-        row.innerHTML = `
-            <td colspan="${columns}">
-                <div class="table-loading-state">
-                    <span class="loading-spinner"></span>
-                    <span>${escapeHtml(message)}</span>
-                    <small>${TEXT.slow}</small>
-                </div>
-            </td>
-        `;
-        tbody.appendChild(row);
+        // Disabled to prevent screen flickering
     };
 
     window.hideTableLoading = function hideTableLoading(tableId) {
-        const table = getTarget(tableId);
-        if (!table) return;
-        const root = table.tagName === 'TBODY' ? table : table.querySelector('tbody');
-        root?.querySelectorAll('.table-loading-row').forEach(row => row.remove());
+        // Disabled
     };
 
     window.showErrorState = function showErrorState(sectionId, message, retryCallback) {
@@ -3347,85 +3302,9 @@ renderTable(dataToRender = null, append = false) {
                     return `<td class="sticky-seq col-checkbox" style="text-align: center !important;"><input type="checkbox" class="return-row-checkbox" value="${rowId}" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation(); window.app.toggleSelectReturn('${rowId}')"></td>`;
                 }
 
-                let val = row[h] ?? '';
-
-                // منطق استعادة القيم المسميات المزدوجة (لأن البيانات مخزنة بالمفتاح القديم)
-                if (val === '') {
-                    if (h === 'تاريخ المرتد / تاريخ التعلية') {
-                        val = row['تاريخ المرتد / تاريخ التعلية'] || row['تاريخ المرتد'] || row['تاريخ المرتدات'] || row['تاريخ التعلية'] || row['ReturnDate'] || '';
-                    }
-                    if (h === 'تاريخ اعتماد التعديل / تاريخ السداد') {
-                        val = row['تاريخ اعتماد التعديل / تاريخ السداد'] || row['تاريخ السداد'] || row['تاريخ التسوية'] || row['تاريخ السداد الفعلي'] || row['SettlementDate'] || '';
-                    }
-                }
-
-                // Backup check for virtual columns that might not be in row directly but in RawData
-                if (val === '' && h !== '#') {
-                    // This is a safety layer for dynamic headers
-                    val = row[h] || '';
-                }
-
-                if (h === '#') {
-                    val = previousRowCount + rowIndex + 1;
-                } else if (h === 'كود الملف') {
-                    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', ' FileCode', 'كود_الملف'];
-                    val = this.findValue(row, fileCodeKeys) || '';
-                } else if ((h === 'الاسم' || h === 'الاسم ') && !val) {
-                    // Safety check for Name column variations
-                    val = row['الاسم'] || row['الاسم '] || row['Name'] || '';
-                } else if ((h === 'الرقم القومي' || h === 'الرقم_القومي') && !val) {
-                    // محاولة البحث عن أي مفتاح يحتوي على NID أو رقم قومي في الـ RawData (المخزنة في row ككل)
-                    for (const key in row) {
-                        const lowKey = key.toLowerCase();
-                        if ((lowKey.includes('national') || lowKey.includes('nid') || lowKey.includes('قومي')) && row[key]) {
-                            val = row[key];
-                            break;
-                        }
-                    }
-                } else if (h === 'الشهر') {
-                    val = this._getMonthFilterValue(row);
-                } else if (h === 'تاريخ الرفع') {
-                    // Check multiple possible properties where the date might be stored
-                    val = row['تاريخ الرفع'] || row['UploadDate'] || row['uploadDate'] || '';
-                    if (!val) {
-                        // Sometimes the property might have whitespace or hidden characters
-                        const dateKeys = Object.keys(row).filter(k => k.includes('تاريخ الرفع') || k.includes('UploadDate'));
-                        if (dateKeys.length > 0) {
-                            val = row[dateKeys[0]];
-                        }
-                    }
-                }
-
-                // تنسيق التواريخ: يوم/شهر/سنة فقط
-                if ((h.includes('تاريخ') || h.includes('Date')) && val) {
-                    val = this.formatDate(val);
-                }
-
-                let rawVal = String(val);
-
-                // منطق عرض العمود "حالة التسوية" حرفياً
-                if (h === 'حالة التسوية') {
-                    const actualVal = (row[h] || '').trim();
-                    rawVal = String(actualVal);
-
-                    if (actualVal === 'تم التسوية' || actualVal === 'تمت التسوية') {
-                        val = '<span class="badge-status success">تم التسوية ✅</span>';
-                    } else if (actualVal === 'لم يتم التسوية') {
-                        val = '<span class="badge-status pending">لم يتم التسوية ⏳</span>';
-                    } else {
-                        val = actualVal;
-                    }
-                }
-
-                // تنسيق المبالغ
-                if (h.includes('قيمة') || h.includes('المبلغ')) {
-                    const num = parseFloat(val);
-                    if (!isNaN(num)) {
-                        const style = num >= 0 ? 'amount-positive' : 'amount-negative';
-                        val = `<span class="${style}">${num.toLocaleString()}</span>`;
-                        rawVal = num.toLocaleString();
-                    }
-                }
+                const cell = this.getSalaryCellValue(row, h, rowIndex, { offset: previousRowCount });
+                let val = cell.html;
+                let rawVal = cell.raw;
 
                 // تحسين أداء تمييز النص (Highlighting): فقط للنصوص التي لا تحتوي على وسوم HTML مسبقاً
                 if (searchRegex && h !== '#' && !h.includes('<input') && h !== 'حالة التسوية') {
@@ -8792,6 +8671,14 @@ renderTable(dataToRender = null, append = false) {
             }
             // Auto Sync Path
             if (this.loadAutoSyncPath) this.loadAutoSyncPath();
+
+            // Fetch Auto Import Config
+            const cfgRes = await fetch('/config');
+            const config = await cfgRes.json();
+            const autoImportInput = document.getElementById('auto-import-path-input');
+            if (autoImportInput && config.autoImportPath) {
+                autoImportInput.value = config.autoImportPath;
+            }
         } catch (e) {
             console.error(e);
         }
@@ -8816,6 +8703,63 @@ renderTable(dataToRender = null, append = false) {
             }
         } catch (e) {
             this.showToast('خطأ في الاتصال', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async browseAutoImportPath() {
+        try {
+            const result = await db.fetchApi('/config/browse', { method: 'POST' });
+            if (result.path) {
+                document.getElementById('auto-import-path-input').value = result.path;
+            }
+        } catch (error) {
+            console.error('Browse failed:', error);
+        }
+    }
+
+    async saveAutoImportPath() {
+        const path = document.getElementById('auto-import-path-input').value;
+        this.showLoading();
+        try {
+            const res = await db.fetchApi('/config/auto-import', {
+                method: 'POST',
+                body: JSON.stringify({ enabled: true, path })
+            });
+            if (res.success) {
+                this.showToast('تم حفظ مسار الاستيراد التلقائي وتفعيله بنجاح', 'success');
+            } else {
+                this.showToast('فشل حفظ المسار: ' + res.message, 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            this.showToast('خطأ في الاتصال بالخادم', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async createAutoImportFolders() {
+        const path = document.getElementById('auto-import-path-input').value;
+        if (!path) {
+            this.showToast('يرجى تحديد مسار أولاً', 'warning');
+            return;
+        }
+        this.showLoading();
+        try {
+            const res = await db.fetchApi('/config/create-auto-import-folders', {
+                method: 'POST',
+                body: JSON.stringify({ path })
+            });
+            if (res.success) {
+                this.showToast(res.message, 'success');
+            } else {
+                this.showToast('فشل إنشاء المجلدات: ' + res.message, 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            this.showToast('خطأ في الاتصال بالخادم', 'error');
         } finally {
             this.hideLoading();
         }
@@ -9665,6 +9609,15 @@ renderTable(dataToRender = null, append = false) {
 
     // ========================================
     async loadFullReturns(page = 1, pageSize = 50, query = '', isSearch = false) {
+        try {
+            db.fetchApi('/config', { __skipLoadingWrapper: true }).then(config => {
+                const autoImportToggle = document.getElementById('auto-import-toggle-input');
+                if (autoImportToggle) {
+                    autoImportToggle.checked = !!config.autoImportEnabled;
+                }
+            }).catch(cfgErr => console.error('Error fetching config for auto import:', cfgErr));
+        } catch (e) {}
+
         if (isSearch) this.selectedUnifiedStatementQuery = '';
         if (query === null || query === undefined) {
             query = document.getElementById('unified-search-input')?.value || '';
@@ -9737,6 +9690,27 @@ renderTable(dataToRender = null, append = false) {
             this.showUnifiedSearchState('حدث خطأ أثناء تحميل نتائج البحث الشامل', 'error');
             if (loadingEl) loadingEl.classList.add('hidden');
             this.hideUnifiedLightProgress();
+        }
+    }
+
+    async toggleAutoImport(checked) {
+        try {
+            const res = await db.fetchApi('/config/auto-import', {
+                method: 'POST',
+                body: JSON.stringify({ enabled: checked, path: "" })
+            });
+            if (res.success) {
+                this.showToast(checked ? 'تم تفعيل الاستيراد التلقائي من المجلد المخصص' : 'تم إيقاف الاستيراد التلقائي', 'success');
+            } else {
+                this.showToast('فشل تحديث الإعدادات: ' + res.message, 'error');
+                const autoImportToggle = document.getElementById('auto-import-toggle-input');
+                if (autoImportToggle) autoImportToggle.checked = !checked;
+            }
+        } catch (err) {
+            console.error('Error toggling auto import:', err);
+            this.showToast('خطأ في الاتصال بالخادم', 'error');
+            const autoImportToggle = document.getElementById('auto-import-toggle-input');
+            if (autoImportToggle) autoImportToggle.checked = !checked;
         }
     }
 
@@ -10020,14 +9994,14 @@ renderTable(dataToRender = null, append = false) {
         }
 
         if (header === 'كود الملف') {
-            const fileCode = this.findValue(row, ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', ' FileCode', 'كود_الملف', 'FileCode']) || '';
+            const fileCode = this.findValue(row, ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', ' FileCode', 'كود_الملف', 'FileCode', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID']) || '';
             return { html: this.escapeHtml(fileCode), raw: String(fileCode) };
         }
 
         if (header === 'الاسم') {
-            val = row['الاسم'] || row['الاسم '] || row['Name'] || row['FullName'] || '';
+            val = row['الاسم'] || row['الاسم '] || row['Name'] || row['FullName'] || row['Creditor Name'] || row['CreditorName'] || row['Beneficiary Name'] || row['BeneficiaryName'] || '';
         } else if (header === 'الرقم القومي') {
-            val = row['الرقم القومي'] || row['الرقم_القومي'] || row['NationalId'] || row['NID'] || '';
+            val = row['الرقم القومي'] || row['الرقم_القومي'] || row['NationalId'] || row['NID'] || row['Creditor National ID'] || row['CreditorNationalID'] || row['National ID'] || '';
             if (!val) {
                 for (const key in row) {
                     const lowKey = key.toLowerCase();
@@ -10039,13 +10013,21 @@ renderTable(dataToRender = null, append = false) {
             }
         } else if (header === 'الشهر') {
             if (type === 'salary') {
-                const fileCode = this.findValue(row, ['كـــود الملف', 'كود الملف', 'FileCode', 'كُـــود المـلف', 'كود_الملف']) || '';
+                const fileCode = this.findValue(row, ['كـــود الملف', 'كود الملف', 'FileCode', 'كُـــود المـلف', 'كود_الملف', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID']) || '';
                 val = row['الشهر'] || this.extractMonthFromFileCode(fileCode);
             } else {
                 val = row['الشهر'] || this._getMonthFilterValue(row);
             }
+        } else if (header === 'رقم الحساب') {
+            val = row['رقم الحساب'] || row['رقم الحساب القديم'] || row['AccountNumber'] || row['Account'] || row['OldAccount'] || row['Creditor Account Number'] || row['CreditorAccountNumber'] || row['Account Number'] || '';
+        } else if (header === 'البنك') {
+            val = row['البنك'] || row['اسم البنك'] || row['Bank'] || row['BankName'] || row['Creditor Party Bic'] || row['CreditorPartyBic'] || row['BIC'] || row['BankCode'] || row['كود البنك'] || '';
+        } else if (header === 'الحالة') {
+            val = row['الحالة'] || row['حالة الارتداد'] || row['Status'] || row['ReturnStatus'] || row['Transaction Status'] || row['TransactionStatus'] || row['ISOStatus Description'] || row['ISOStatusDescription'] || '';
+        } else if (header === 'السبب') {
+            val = row['السبب'] || row['سبب الارتجاع'] || row['Reason'] || row['RejectReason'] || row['Transaction ISoStatus Reason'] || row['TransactionISoStatusReason'] || '';
         } else if (header === 'تاريخ الرفع') {
-            val = row['تاريخ الرفع'] || row['UploadDate'] || row['uploadDate'] || '';
+            val = row['تاريخ الرفع'] || row['UploadDate'] || row['uploadDate'] || row['CreatedAt'] || '';
         } else if (header === 'حالة التسوية') {
             const actualVal = String(row[header] || '').trim();
             if (actualVal === 'تم التسوية' || actualVal === 'تمت التسوية') {
@@ -11601,10 +11583,12 @@ App.prototype.normalizeArabic = function (text) {
 
 App.prototype.findValue = function (obj, keys) {
     if (!obj || !keys) return null;
-    for (const key of keys) {
-        if (obj[key] !== undefined && obj[key] !== null) return obj[key];
-        const foundKey = Object.keys(obj).find(k => k.trim() === key);
-        if (foundKey) return obj[foundKey];
+    const lowerKeys = keys.map(k => String(k).toLowerCase().trim());
+    for (const key of lowerKeys) {
+        const foundKey = Object.keys(obj).find(k => k.toLowerCase().trim() === key);
+        if (foundKey && obj[foundKey] !== undefined && obj[foundKey] !== null) {
+            return obj[foundKey];
+        }
     }
     return null;
 };
@@ -12134,7 +12118,7 @@ App.prototype._preprocessSalaryCacheRows = function (rows) {
         row['حالة التسوية'] = row['حالة التسوية'] || row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] || (hasSettlement ? 'تمت التسوية' : 'لم يتم التسوية');
         row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] = row['ط­ط§ظ„ط© ط§ظ„طھط³ظˆظٹط©'] || row['حالة التسوية'];
 
-        const fileCodeKeys = ['كود الملف', 'ظƒظˆط¯ ط§ظ„ظ…ظ„ظپ', 'FileCode', 'كود_الملف'];
+        const fileCodeKeys = ['كود الملف', 'ظƒظˆط¯ ط§ظ„ظ…ظ„ظپ', 'FileCode', 'كود_الملف', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID'];
         row._monthExtracted = row._monthExtracted || this._getSalaryMonthFilterValue?.(row) || this.extractMonthFromFileCode?.(this.findValue(row, fileCodeKeys));
         const originalValues = Object.entries(row)
             .filter(([k, v]) => !String(k).startsWith('_') && v !== null && v !== undefined)
@@ -12547,6 +12531,7 @@ App.prototype._syncDataset = async function (type, options = {}) {
         const afterCount = Array.isArray(this[cfg.cacheProp]) ? this[cfg.cacheProp].length : 0;
         if (this.currentPage === cfg.page && (result.inserted || result.updated || result.archived || beforeCount !== afterCount)) {
             this._refreshSyncedDatasetView(type);
+            this.refreshSearchFilterIndex?.(true).catch(e => console.warn('[SearchIndex] refresh failed:', e));
         }
     } catch (e) {
         if (e?.isTimeout) {
@@ -12669,7 +12654,7 @@ App.prototype._extractMonthFromRow = function(row) {
 
 App.prototype._getMonthFilterValue = function(row) {
     if (!row) return 'فارغ';
-    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف'];
+    const fileCodeKeys = ['كـــود الملف', 'كود الملف', 'كُـــود المـلف', 'كـــود المـلف', 'FileCode', 'كود_الملف', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID'];
     const fileCode = this.findValue ? (this.findValue(row, fileCodeKeys) || '') : '';
     return this.extractMonthFromFileCode(fileCode);
 };
@@ -12803,8 +12788,9 @@ App.prototype._setSelectOptionsFromRows = function(selectId, options, currentVal
 
 App.prototype._populateReturnFilterOptions = function(rows = null) {
     const cacheRows = Array.isArray(this.returnsCache) && this.returnsCache.length ? this.returnsCache : null;
-    const indexFilters = cacheRows ? null : this.searchFilterIndex?.returns?.filters;
-    if (indexFilters) {
+    // ✅ دائماً نفضّل الـ index لأنه أدق وأسرع
+    const indexFilters = this.searchFilterIndex?.returns?.filters;
+    if (indexFilters && (indexFilters.statuses?.length || indexFilters.months?.length)) {
         const has = (indexFilters.hasAttachments || []).map(Number);
         this._setSelectOptionsFromRows('attachment-status-filter', [
             ...(has.includes(1) ? [{ value: 'yes', label: 'بها مرفقات ✅' }] : []),
@@ -12842,7 +12828,7 @@ App.prototype._populateReturnFilterOptions = function(rows = null) {
     const statusSet = new Set();
     const settlementSet = new Set();
     data.forEach(row => {
-        const status = String(row['الحالة'] || row['حالة الارتداد'] || row['Status'] || row['ReturnStatus'] || '').trim();
+        const status = String(this.getSalaryField(row, 'الحالة', ['حالة الارتداد', 'Status', 'ReturnStatus', 'Transaction Status', 'TransactionStatus', 'ISOStatus Description', 'ISOStatusDescription']) || '').trim();
         if (status) statusSet.add(status);
 
         let settlement = String(row['حالة التسوية'] || '').trim();
@@ -13318,11 +13304,14 @@ App.prototype.getSalaryTableHeaders = function (options = {}) {
 
 App.prototype.getSalaryField = function (row, fieldName, fallbacks = []) {
     if (!row) return '';
-    const keys = [fieldName, ...fallbacks].filter(Boolean);
+    const keys = [fieldName, ...fallbacks].filter(Boolean).map(k => String(k).toLowerCase().trim());
     for (const key of keys) {
-        const value = row[key];
-        if (value !== null && value !== undefined && String(value).trim() !== '') {
-            return value;
+        const foundKey = Object.keys(row).find(k => k.toLowerCase().trim() === key);
+        if (foundKey) {
+            const value = row[foundKey];
+            if (value !== null && value !== undefined && String(value).trim() !== '') {
+                return value;
+            }
         }
     }
     return '';
@@ -13339,14 +13328,14 @@ App.prototype.getSalaryCellValue = function (row, header, rowIndex = 0, options 
     }
 
     if (header === 'كود الملف') {
-        val = this.getSalaryField(row, 'كود الملف', ['كـــود الملف', 'كُـــود المـلف', 'كود_الملف', 'FileCode', 'ReturnCode']);
+        val = this.getSalaryField(row, 'كود الملف', ['كـــود الملف', 'كُـــود المـلف', 'كود_الملف', 'FileCode', 'ReturnCode', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID']);
     } else if (header === 'الشهر') {
-        const fileCode = this.getSalaryField(row, 'كود الملف', ['كـــود الملف', 'كُـــود المـلف', 'كود_الملف', 'FileCode', 'ReturnCode']);
+        const fileCode = this.getSalaryField(row, 'كود الملف', ['كـــود الملف', 'كُـــود المـلف', 'كود_الملف', 'FileCode', 'ReturnCode', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID']);
         val = this.extractMonthFromFileCode(fileCode || '');
     } else if (header === 'الاسم') {
-        val = this.getSalaryField(row, 'الاسم', ['الاسم ', 'الإسم', 'Name', 'FullName']);
+        val = this.getSalaryField(row, 'الاسم', ['الاسم ', 'الإسم', 'Name', 'FullName', 'Creditor Name', 'CreditorName', 'Beneficiary Name', 'BeneficiaryName']);
     } else if (header === 'الرقم القومي') {
-        val = this.getSalaryField(row, 'الرقم القومي', ['الرقم_القومي', 'رقم قومي', 'NationalId', 'NID']);
+        val = this.getSalaryField(row, 'الرقم القومي', ['الرقم_القومي', 'رقم قومي', 'NationalId', 'NID', 'Creditor National ID', 'CreditorNationalID', 'National ID']);
         if (!val) {
             for (const key in row) {
                 const lowKey = key.toLowerCase();
@@ -13357,15 +13346,19 @@ App.prototype.getSalaryCellValue = function (row, header, rowIndex = 0, options 
             }
         }
     } else if (header === 'رقم الحساب') {
-        val = this.getSalaryField(row, 'رقم الحساب', ['رقم الحساب القديم', 'AccountNumber', 'Account', 'OldAccount']);
+        val = this.getSalaryField(row, 'رقم الحساب', ['رقم الحساب القديم', 'AccountNumber', 'Account', 'OldAccount', 'Creditor Account Number', 'CreditorAccountNumber', 'Account Number']);
     } else if (header === 'البنك') {
-        val = this.getSalaryField(row, 'البنك', ['اسم البنك', 'Bank', 'BankName']);
+        val = this.getSalaryField(row, 'البنك', ['اسم البنك', 'Bank', 'BankName', 'Creditor Party Bic', 'CreditorPartyBic', 'BIC', 'BankCode', 'كود البنك']);
     } else if (header === 'قيمة العملية') {
-        val = this.getSalaryField(row, 'قيمة العملية');
+        val = this.getSalaryField(row, 'قيمة العملية', ['المبلغ', 'القيمة', 'Amount', 'Transaction Amount', 'TransactionAmount', 'Value', 'Transaction Value']);
+    } else if (header === 'الحالة') {
+        val = this.getSalaryField(row, 'الحالة', ['حالة الارتداد', 'Status', 'ReturnStatus', 'Transaction Status', 'TransactionStatus', 'ISOStatus Description', 'ISOStatusDescription']);
+    } else if (header === 'السبب') {
+        val = this.getSalaryField(row, 'السبب', ['سبب الارتجاع', 'Reason', 'RejectReason', 'Transaction ISoStatus Reason', 'TransactionISoStatusReason']);
     } else if (header === 'تاريخ الرفع') {
-        val = this.getSalaryField(row, 'UploadDate', ['تاريخ الرفع', 'uploadDate']);
+        val = this.getSalaryField(row, 'UploadDate', ['تاريخ الرفع', 'uploadDate', 'CreatedAt']);
     } else if (header === 'تاريخ المرتد / تاريخ التعلية') {
-        val = this.getSalaryField(row, 'تاريخ المرتد / تاريخ التعلية', ['تاريخ المرتد', 'تاريخ المرتدات']);
+        val = this.getSalaryField(row, 'تاريخ المرتد / تاريخ التعلية', ['تاريخ المرتد', 'تاريخ المرتدات', 'Batch Settlement Date', 'BatchSettlementDate', 'تاريخ التعلية', 'ReturnDate']);
     } else if (header === 'تاريخ اعتماد التعديل / تاريخ السداد') {
         val = this.getSalaryField(row, 'تاريخ اعتماد التعديل / تاريخ السداد', ['تاريخ السداد', 'تاريخ اعتماد التعديل', 'تاريخ اعتماد المرتدات', 'SettlementDate']);
     } else if (header === 'حالة التسوية') {
@@ -14050,8 +14043,9 @@ App.prototype._getSalaryMonthFilterValue = function(row) {
         const normalized = this.normalizeMonthText(direct);
         if (normalized !== 'فارغ') return normalized;
     }
+
     const fileCode = this.findValue
-        ? (this.findValue(row, ['كود الملف', 'كـــود الملف', 'FileCode', 'كود_الملف', 'ReturnCode']) || row.ReturnCode || '')
+        ? (this.findValue(row, ['كود الملف', 'كـــود الملف', 'FileCode', 'كود_الملف', 'ReturnCode', 'Instruction Identification', 'InstructionIdentification', 'Batch ID', 'BatchID']) || row.ReturnCode || '')
         : (row['كود الملف'] || row.ReturnCode || '');
     const extracted = this.extractMonthFromFileCode ? this.extractMonthFromFileCode(fileCode) : '';
     const value = String(extracted || '').trim();
@@ -14111,8 +14105,9 @@ App.prototype._getSalaryPaymentDateFilterValue = function(row) {
 
 App.prototype._populateSalaryReturnFilterOptions = function(rows = null) {
     const cacheRows = Array.isArray(this.salaryReturnsCache) && this.salaryReturnsCache.length ? this.salaryReturnsCache : null;
-    const indexFilters = cacheRows ? null : this.searchFilterIndex?.salary?.filters;
-    if (indexFilters) {
+    // ✅ دائماً نفضّل الـ index لأنه أدق وأسرع
+    const indexFilters = this.searchFilterIndex?.salary?.filters;
+    if (indexFilters && (indexFilters.statuses?.length || indexFilters.months?.length)) {
         const setOptions = (selectId, options, currentValue) => this._setSelectOptionsFromRows(selectId, options, currentValue);
         const has = (indexFilters.hasAttachments || []).map(Number);
         setOptions('salary-attachment-filter', [
@@ -14178,7 +14173,7 @@ App.prototype._populateSalaryReturnFilterOptions = function(rows = null) {
     let hasEmptyMonth = false;
 
     data.forEach(row => {
-        const status = String(row['الحالة'] || row['حالة الارتداد'] || row.Status || row.ReturnStatus || '').trim();
+        const status = String(this.getSalaryField(row, 'الحالة', ['حالة الارتداد', 'Status', 'ReturnStatus', 'Transaction Status', 'TransactionStatus', 'ISOStatus Description', 'ISOStatusDescription']) || '').trim();
         if (status) statusSet.add(status);
 
         let settlement = String(row['حالة التسوية'] || '').trim();
@@ -14189,7 +14184,7 @@ App.prototype._populateSalaryReturnFilterOptions = function(rows = null) {
         if (settlement === 'تم التسوية') settlement = 'تمت التسوية';
         if (settlement) settlementSet.add(settlement);
 
-        const upload = String(row['تاريخ الرفع'] || row.UploadDate || '').trim();
+        const upload = String(this.getSalaryField(row, 'تاريخ الرفع', ['UploadDate', 'uploadDate', 'CreatedAt']) || '').trim();
         if (upload) uploadDateSet.add(upload.length >= 10 ? upload.substring(0, 10) : upload);
 
         const month = this._getSalaryMonthFilterValue(row);

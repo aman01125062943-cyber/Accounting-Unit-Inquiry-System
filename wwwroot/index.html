@@ -39,6 +39,66 @@
             color: #f59e0b;
             border: 1px solid rgba(245, 158, 11, 0.3);
         }
+        /* Switch Toggle Design */
+        .unified-auto-import-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 6px 14px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            color: #94a3b8;
+            height: 48px;
+            margin-right: 15px;
+        }
+        .unified-auto-import-toggle .switch-label {
+            font-weight: 600;
+            color: #e2e8f0;
+            cursor: pointer;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 22px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #334155;
+            transition: .4s;
+            border-radius: 34px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: #94a3b8;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #10b981;
+        }
+        input:checked + .slider:before {
+            transform: translateX(22px);
+            background-color: #000;
+        }
     </style>
 </head>
 
@@ -520,6 +580,16 @@
                                                 <option value="all">الكل</option>
                                             </select>
                                         </div>
+                                        
+                                        <!-- الاستيراد التلقائي للمجلد -->
+                                        <div class="unified-auto-import-toggle" title="مراقبة مجلد سطح المكتب استيراد_تلقائي وسحب ملفات الاكسيل تلقائياً">
+                                            <span class="switch-label" onclick="document.getElementById('auto-import-toggle-input').click()">📁 استيراد تلقائي</span>
+                                            <label class="switch">
+                                                <input type="checkbox" id="auto-import-toggle-input" onchange="app.toggleAutoImport(this.checked)">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+
                                         <div class="unified-actions-inline">
                                             <button class="btn-unified-main" onclick="app.runUnifiedSearch()" title="بحث سريع">
                                                 <i class="fas fa-bolt" style="margin-left:8px;"></i> بحث سريع
@@ -1958,6 +2028,30 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="table-container mb-4 settings-card">
+                                <div class="table-header">
+                                    <div>
+                                        <h3 class="table-title">الاستيراد والتسوية التلقائية للملفات</h3>
+                                        <p class="settings-card-description">حدد المجلد الرئيسي لمراقبة واستيراد وتدوير ملفات التعلية والسداد تلقائياً.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="form-group settings-field-block">
+                                        <label class="form-label">مسار مجلد الاستيراد التلقائي</label>
+                                        <p class="text-muted settings-help-text">يمكنك إدخال مسار محلي أو مسار شبكة (UNC) مثل: \\128.30.200.225\esth_share\...</p>
+                                        <div class="settings-action-row">
+                                            <input type="text" id="auto-import-path-input" class="form-input settings-path-input" dir="ltr" placeholder="اختر أو اكتب مسار مجلد الاستيراد">
+                                            <button class="btn btn-secondary btn-outline" style="margin-left: 8px;" onclick="app.browseAutoImportPath()">📁 استعراض</button>
+                                            <button class="btn btn-primary" onclick="app.saveAutoImportPath()">حفظ وتفعيل</button>
+                                        </div>
+                                    </div>
+                                    <div class="form-group settings-field-block mt-3" style="border-top: 1px solid rgba(148,163,184,0.1); padding-top: 15px;">
+                                        <label class="form-label">إنشاء هيكل المجلدات المنظم</label>
+                                        <p class="text-muted settings-help-text">سيتم إنشاء المجلدات الفرعية (حوافز، مرتبات، استيراد، سداد) تلقائياً داخل المسار المحدد أعلاه.</p>
+                                        <button class="btn btn-accent" onclick="app.createAutoImportFolders()">🔨 إنشاء مجلدات الاستيراد</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -3181,7 +3275,7 @@
     <script src="js/database.js?v=9.27"></script>
     <script src="js/validation-service.js"></script>
     <script src="js/chat.js?v=1.1"></script>
-    <script src="js/app.js?v=9.27"></script>
+    <script src="js/app.js?v=9.33"></script>
 </body>
 
 </html>
