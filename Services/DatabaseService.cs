@@ -148,11 +148,41 @@ public class DatabaseService
     private static string ResolveDatabasePath(IConfiguration configuration, out DatabasePathValidationResult? startupValidation)
     {
         startupValidation = null;
+        var enableDatabaseDiagnostics = IsDatabaseDiagnosticsEnabled(configuration);
+
+        // 1. Check if hk.db exists in the application directory or parent directory (Local Auto-Detection Priority)
+        var localPathsToCheck = new[] {
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "hk.db"),
+            Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "hk.db"))
+        };
+
+        foreach (var path in localPathsToCheck)
+        {
+            if (File.Exists(path))
+            {
+                var localValidation = ValidateDatabasePath(path);
+                if (localValidation.Success)
+                {
+                    startupValidation = localValidation;
+                    Console.WriteLine($"[DB][AUTO-DETECT] Successfully auto-detected and prioritized database: {path}");
+                    
+                    var savedCfg = LoadServerConfig();
+                    savedCfg.DatabasePath = path;
+                    savedCfg.BasePath = Path.GetDirectoryName(path) ?? savedCfg.BasePath;
+                    savedCfg.LastSuccessfulDatabasePath = path;
+                    savedCfg.LastSuccessfulDatabaseConnection = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    SaveServerConfig(savedCfg);
+
+                    return path;
+                }
+            }
+        }
+
+        // 2. Fallback to Configured Path
         var savedConfig = LoadServerConfig();
         var configuredPath =
             FirstNonEmpty(savedConfig.DatabasePath, configuration["DatabasePath"], configuration["LocalDatabasePath"])
             ?? ServerConfig.DefaultDatabasePath;
-        var enableDatabaseDiagnostics = IsDatabaseDiagnosticsEnabled(configuration);
 
         DatabasePathResolution normalized;
         try
@@ -183,6 +213,33 @@ public class DatabaseService
             Console.WriteLine(enableDatabaseDiagnostics
                 ? $"[DB] Configured path rejected: {normalized.DatabasePath} | {startupValidation.Code}: {startupValidation.Message}"
                 : $"[DB] Configured path rejected: {FormatDatabasePathForLog(normalized.DatabasePath, false)} | {startupValidation.Code}");
+
+            // Try fallback to local directory hk.db or parent directory hk.db
+            var fallbackPaths = new[] {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "hk.db"),
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "hk.db"))
+            };
+
+            foreach (var path in fallbackPaths)
+            {
+                if (File.Exists(path))
+                {
+                    var fallbackValidation = ValidateDatabasePath(path);
+                    if (fallbackValidation.Success)
+                    {
+                        Console.WriteLine($"[DB][FALLBACK] Successfully fell back to database path: {path}");
+                        normalized = new DatabasePathResolution(path, false);
+                        startupValidation = fallbackValidation;
+
+                        savedConfig.DatabasePath = path;
+                        savedConfig.BasePath = Path.GetDirectoryName(path) ?? savedConfig.BasePath;
+                        savedConfig.LastSuccessfulDatabasePath = path;
+                        savedConfig.LastSuccessfulDatabaseConnection = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                        SaveServerConfig(savedConfig);
+                        break;
+                    }
+                }
+            }
         }
 
         return normalized.DatabasePath;
@@ -537,6 +594,7 @@ public class DatabaseService
             CREATE TABLE IF NOT EXISTS SalaryReturns (Id INTEGER PRIMARY KEY AUTOINCREMENT, ImportId INTEGER, RawData TEXT, ReturnCode TEXT, UploadDate TEXT, IsDeleted INTEGER DEFAULT 0, IsArchived INTEGER DEFAULT 0, ArchivedBatchId INTEGER NULL, UpdatedAt TEXT, [رقم تسوية التعلية] TEXT, [رقم تسوية السداد] TEXT, FOREIGN KEY(ImportId) REFERENCES SalaryArchives(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS SalaryReturnsImages (Id INTEGER PRIMARY KEY AUTOINCREMENT, ReturnId INTEGER, Filename TEXT, CreatedAt TEXT, FOREIGN KEY(ReturnId) REFERENCES SalaryReturns(Id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS NotificationEvents (Id INTEGER PRIMARY KEY AUTOINCREMENT, TableName TEXT, Operation TEXT, RowId INTEGER, CreatedBy TEXT, CreatedAt TEXT, Status TEXT DEFAULT 'Pending', Error TEXT);
+            CREATE TABLE IF NOT EXISTS AutoImportReports (Id INTEGER PRIMARY KEY AUTOINCREMENT, RunDateTime TEXT NOT NULL, Filename TEXT NOT NULL, TotalRows INTEGER NOT NULL, MatchedCount INTEGER NOT NULL, FailedCount INTEGER NOT NULL, FailedDetailsJson TEXT, Type TEXT NOT NULL);
             
             -- Extended local SQLite tables
             CREATE TABLE IF NOT EXISTS ArchiveBatches (Id INTEGER PRIMARY KEY AUTOINCREMENT, ExcelNames TEXT, RecordCount INTEGER, DateFrom TEXT, DateTo TEXT, SourceTable TEXT, Reason TEXT, ArchivedAt TEXT);
@@ -875,7 +933,7 @@ public class DatabaseService
         try {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            string[] nidKeys = new[] { "NationalID", "NID", "National_ID", "الرقم_القومي", "الرقم القومي", "National Id", "NationalId", "رقم قومي", "رقم البطاقة", "National ID", "الرقم القومى" };
+            string[] nidKeys = new[] { "NationalID", "NID", "National_ID", "الرقم_القومي", "الرقم القومي", "National Id", "NationalId", "رقم قومي", "رقم البطاقة", "National ID", "الرقم القومى", "Creditor National ID", "CreditorNationalID", "Debtor National ID" };
             foreach (var prop in root.EnumerateObject()) {
                 string cleanPropName = CleanArabic(prop.Name);
                 if (nidKeys.Any(k => string.Equals(cleanPropName, CleanArabic(k), StringComparison.OrdinalIgnoreCase))) {
@@ -1116,8 +1174,43 @@ public class DatabaseService
         try {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            string[] keys = new[] { "كود الملف", "كـود الملف", "كــود الملف", "كـــود الملف", "Batch ID", "Code", "FileCode" };
-            foreach (var k in keys) if (root.TryGetProperty(k, out var p)) return p.ToString();
+            string[] keys = new[] { "كود الملف", "كـود الملف", "كــود الملف", "كـــود الملف", "Instruction Identification", "InstructionIdentification", "Batch ID", "BatchID", "Code", "FileCode" };
+            foreach (var prop in root.EnumerateObject())
+            {
+                var cleanPropName = prop.Name.ToLowerInvariant().Trim();
+                foreach (var k in keys)
+                {
+                    if (cleanPropName == k.ToLowerInvariant().Trim())
+                    {
+                        return prop.Value.ToString();
+                    }
+                }
+            }
+            return "";
+        } catch { return ""; }
+    }
+
+    public static string ExtractInstructionId(string json) {
+        if (string.IsNullOrEmpty(json)) return "";
+        try {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            string[] keys = new[] { 
+                "Instruction Identification", "InstructionIdentification", "Instruction ID", "InstructionID",
+                "كود الملف", "كـود الملف", "كــود الملف", "كـــود الملف", 
+                "Batch ID", "BatchID", "Code", "FileCode" 
+            };
+            foreach (var k in keys)
+            {
+                var kLower = k.ToLowerInvariant().Trim();
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Name.ToLowerInvariant().Trim() == kLower)
+                    {
+                        return prop.Value.ToString();
+                    }
+                }
+            }
             return "";
         } catch { return ""; }
     }
@@ -1246,10 +1339,10 @@ public class DatabaseService
         {
             var raw = (string?)row.RawData ?? "";
             var data = ParseRawObject(raw);
-            var fileCode = FirstText(data, "كود الملف", "كـــود الملف", "كود_الملف", "FileCode", "ReturnCode");
+            var fileCode = FirstText(data, "كود الملف", "كـــود الملف", "كود_الملف", "FileCode", "ReturnCode", "Instruction Identification", "Batch ID");
             if (string.IsNullOrWhiteSpace(fileCode)) fileCode = (string?)row.ReturnCode ?? "";
-            var status = FirstText(data, "الحالة", "حالة الارتداد", "ReturnStatus", "Status", "السبب");
-            var upload = FirstText(data, "تاريخ الرفع", "UploadDate", "CreatedAt");
+            var status = FirstText(data, "الحالة", "حالة الارتداد", "ReturnStatus", "Status", "السبب", "Transaction Status", "TransactionStatus", "ISOStatus Description", "Transaction ISoStatus Reason");
+            var upload = FirstText(data, "تاريخ الرفع", "UploadDate", "CreatedAt", "Batch Settlement Date", "BatchSettlementDate", "تاريخ التعلية");
             if (string.IsNullOrWhiteSpace(upload)) upload = (string?)row.UploadDate ?? "";
             return new
             {
@@ -1260,7 +1353,7 @@ public class DatabaseService
                 AccountNumber = FirstText(data, "رقم الحساب", "رقم الحساب القديم", "AccountNumber", "IBAN"),
                 Bank = FirstText(data, "البنك", "Bank", "اسم البنك"),
                 FileCode = fileCode,
-                ExtractedMonth = NormalizeMonthText(FirstText(data, "الشهر", "شهر", "Month", "month", "ExtractedMonth", "Extracted Month", " ") is var m && !string.IsNullOrWhiteSpace(m) ? m : fileCode),
+                ExtractedMonth = NormalizeMonthText(FirstText(data, "الشهر", "شهر", "Month", "month", "ExtractedMonth", "Extracted Month") is var m && !string.IsNullOrWhiteSpace(m) && m.Trim() != "فارغ" ? m : fileCode),
                 PaymentDate = NormalizeDateOnly(FirstText(data, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ التسوية", "تاريخ السداد الفعلي", "SettlementDate")),
                 UploadDate = NormalizeDateOnly(upload),
                 Status = status,
@@ -1356,8 +1449,14 @@ public class DatabaseService
     {
         foreach (var key in keys)
         {
-            if (data.TryGetValue(key, out var value) && value is not null && !string.IsNullOrWhiteSpace(value.ToString()))
-                return value.ToString()!.Trim();
+            var keyLower = key.ToLowerInvariant().Trim();
+            foreach (var pair in data)
+            {
+                if (pair.Key.ToLowerInvariant().Trim() == keyLower && pair.Value is not null && !string.IsNullOrWhiteSpace(pair.Value.ToString()))
+                {
+                    return pair.Value.ToString()!.Trim();
+                }
+            }
         }
         return "";
     }

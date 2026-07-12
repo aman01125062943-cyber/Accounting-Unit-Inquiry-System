@@ -1382,6 +1382,7 @@ class App {
             chat: { icon: '💬', text: 'المراسلة' },
             archive: { icon: '🗄️', text: 'الأرشيف' },
             adabir: { icon: '📁', text: 'نظام الإضابير' },
+            'auto-import-reports': { icon: '📋', text: 'تقرير الاستيراد التلقائي' },
             settings: { icon: '⚙️', text: 'الإعدادات' }
         };
 
@@ -1421,6 +1422,7 @@ class App {
                 this.loadSalaryReturns();
             }
             if (page === 'smart-payment') this.refreshSearchFilterIndex();
+            if (page === 'auto-import-reports') this.loadAutoImportReports();
             if (page === 'tasks') this.loadTasksPage();
             if (page === 'chat' && window.chatModule) {
                 window.chatModule.loadConversations().then(() => {
@@ -16152,3 +16154,105 @@ App.prototype.restoreAdabir = async function(id) {
         }
     } catch(e) { console.error(e); }
 };
+
+// ========== Auto Import Reports ==========
+
+App.prototype.loadAutoImportReports = async function() {
+    const tbody = document.getElementById('auto-import-reports-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#94a3b8;">⏳ جاري تحميل التقارير...</td></tr>';
+
+    try {
+        const res = await fetch('/api/auto-import-reports/');
+        const json = await res.json();
+        if (!json.success || !json.data || json.data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#64748b;">📭 لا توجد تقارير استيراد تلقائي بعد.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = '';
+        for (const r of json.data) {
+            const tr = document.createElement('tr');
+            const typeLabel = r.Type === 'SalaryReturns' ? '💰 مرتبات' : '📊 حوافز';
+            const failedStyle = r.FailedCount > 0 ? 'color:#ef4444; font-weight:700;' : 'color:#10b981;';
+            const matchedStyle = r.MatchedCount > 0 ? 'color:#10b981; font-weight:700;' : 'color:#94a3b8;';
+
+            tr.innerHTML = `
+                <td style="white-space:nowrap;">${r.RunDateTime || '-'}</td>
+                <td style="direction:ltr; text-align:right;">${r.Filename || '-'}</td>
+                <td style="text-align:center;">${typeLabel}</td>
+                <td style="text-align:center; font-weight:600;">${r.TotalRows ?? 0}</td>
+                <td style="text-align:center; ${matchedStyle}">${r.MatchedCount ?? 0}</td>
+                <td style="text-align:center; ${failedStyle}">${r.FailedCount ?? 0}</td>
+                <td style="text-align:center; white-space:nowrap;">
+                    ${r.FailedCount > 0 ? `<button class="btn btn-sm" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); margin-left:5px;" onclick="app.viewAutoImportReportDetails(${r.Id}, '${(r.Filename || '').replace(/'/g, "\\'")}')">🔍 عرض الأخطاء</button>` : '<span style="color:#10b981;">✅ بدون أخطاء</span>'}
+                    <button class="btn btn-sm" style="background:rgba(239,68,68,0.08); color:#f87171; border:1px solid rgba(239,68,68,0.15); margin-right:5px;" onclick="app.deleteAutoImportReport(${r.Id})">🗑️</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        }
+    } catch(e) {
+        console.error('[AutoImportReports] Error loading reports:', e);
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:#ef4444;">❌ خطأ في تحميل التقارير</td></tr>';
+    }
+};
+
+App.prototype.viewAutoImportReportDetails = async function(reportId, filename) {
+    const container = document.getElementById('auto-import-details-container');
+    const filenameEl = document.getElementById('auto-import-details-filename');
+    const tbody = document.getElementById('auto-import-failures-tbody');
+    if (!container || !tbody) return;
+
+    container.classList.remove('hidden');
+    if (filenameEl) filenameEl.textContent = filename || '-';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">⏳ جاري تحميل تفاصيل الأخطاء...</td></tr>';
+
+    // Scroll to the details section
+    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    try {
+        const res = await fetch(`/api/auto-import-reports/${reportId}`);
+        const json = await res.json();
+
+        if (!json.success || !json.data || !json.data.Failures || json.data.Failures.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#10b981;">✅ لا توجد أخطاء في هذا التقرير.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = '';
+        for (const f of json.data.Failures) {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+            tr.innerHTML = `
+                <td style="text-align:center; font-weight:600; color:#f59e0b;">${f.RowIndex ?? f.rowIndex ?? '-'}</td>
+                <td style="direction:ltr; text-align:right;">${f.InstructionId ?? f.instructionId ?? '-'}</td>
+                <td>${f.CreditorName ?? f.creditorName ?? '-'}</td>
+                <td style="direction:ltr; text-align:right;">${f.CreditorNationalId ?? f.creditorNationalId ?? '-'}</td>
+                <td style="direction:ltr; text-align:right; font-weight:600;">${f.TransactionAmount ?? f.transactionAmount ?? '-'}</td>
+                <td style="color:#f87171; font-weight:600;">${f.Reason ?? f.reason ?? '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+    } catch(e) {
+        console.error('[AutoImportReports] Error loading report details:', e);
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:#ef4444;">❌ خطأ في تحميل تفاصيل الأخطاء</td></tr>';
+    }
+};
+
+App.prototype.deleteAutoImportReport = async function(reportId) {
+    if (!confirm('هل أنت متأكد من حذف هذا التقرير؟')) return;
+    try {
+        const res = await fetch(`/api/auto-import-reports/${reportId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (json.success) {
+            this.showToast('تم حذف التقرير بنجاح', 'success');
+            this.loadAutoImportReports();
+        } else {
+            this.showToast(json.message || 'خطأ في حذف التقرير', 'error');
+        }
+    } catch(e) {
+        console.error('[AutoImportReports] Error deleting report:', e);
+        this.showToast('خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
