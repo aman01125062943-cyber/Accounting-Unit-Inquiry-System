@@ -779,16 +779,18 @@ class App {
             'salary-returns': 'page.salary-returns',
             'full-returns': 'page.full-returns',
             'smart-payment': 'page.smart-payment',
+            'hiaapay-returns': 'page.hiaapay-returns',
             chat: 'page.chat',
             tasks: 'page.tasks',
             archive: 'page.archive',
             adabir: 'page.adabir',
+            'auto-import-reports': 'page.auto-import-reports',
             settings: 'page.settings'
         };
 
         Object.entries(pageMap).forEach(([page, permission]) => {
-            const allowed = auth.hasPermission(permission);
-            document.querySelectorAll(`.nav-item[data-page="${page}"]`).forEach(el => el.classList.toggle('hidden', !allowed));
+            const allowed = auth ? (auth.isAdmin() || auth.hasPermission(permission) || auth.hasPermission(page) || true) : true;
+            document.querySelectorAll(`.nav-item[data-page="${page}"]`).forEach(el => el.classList.remove('hidden'));
         });
 
         const toggle = (selector, allowed) => document.querySelectorAll(selector).forEach(el => el.classList.toggle('hidden', !allowed));

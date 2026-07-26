@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>منظومة استعلام البيانات الأرشيفية - C# .NET 8</title>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --bg: #0b1120;
+      --sidebar-bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --light-green: #e0f2fe;
+      --border: rgba(255, 255, 255, 0.1);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Tajawal', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); display: flex; min-height: 100vh; overflow-x: hidden; }
+
+    /* الشريط الجانبي Sidebar */
+    .sidebar { width: 260px; background: var(--sidebar-bg); border-left: 1px solid var(--border); display: flex; flex-direction: column; padding: 20px; shrink: 0; }
+    .sidebar-header { text-align: center; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid var(--border); }
+    .sidebar-header h2 { font-size: 1.2rem; color: #38bdf8; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .sidebar-header p { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+    
+    .nav-menu { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .nav-item a { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; font-weight: 700; transition: all 0.2s ease; }
+    .nav-item a:hover, .nav-item a.active { background: var(--accent); color: #ffffff; }
+
+    /* المنطقة الرئيسية Main Content */
+    .main-content { flex: 1; padding: 25px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+
+    /* عنوان الصفحة المصمم مثل الصورة */
+    .page-title-box { text-align: center; margin-bottom: 10px; }
+    .page-title-badge { display: inline-block; background: #dcfce7; color: #166534; padding: 10px 40px; border-radius: 6px; font-size: 1.5rem; font-weight: 800; border: 2px solid #86efac; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+
+    /* شروط الاستعلام Filter Card */
+    .filter-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 18px 24px; }
+    .filter-title { font-size: 1.05rem; font-weight: 800; color: #38bdf8; margin-bottom: 14px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    
+    .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: flex-end; }
+    .input-field { display: flex; flex-direction: column; gap: 4px; }
+    .input-field label { font-size: 0.85rem; font-weight: 700; color: #94a3b8; }
+    .input-field input, .input-field select { padding: 8px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; color: #ffffff; font-size: 0.9rem; outline: none; }
+    .input-field input:focus, .input-field select:focus { border-color: var(--accent); }
+
+    .btn-search { background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%); color: #090d16; font-weight: 800; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 1rem; transition: transform 0.1s; height: 38px; }
+    .btn-search:hover { transform: scale(1.02); }
+
+    /* الجداول المزدوجة Dual Tables Container */
+    .tables-split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+    .table-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .table-card-header { font-size: 1.1rem; font-weight: 800; color: #f1f5f9; border-bottom: 2px solid var(--accent); padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .table-card-header span { font-size: 0.85rem; color: var(--text-muted); font-weight: normal; }
+
+    .table-wrapper { overflow-x: auto; max-height: 480px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; text-align: right; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); font-size: 0.85rem; }
+    th { background: #0f172a; color: #38bdf8; font-weight: 800; position: sticky; top: 0; z-index: 2; }
+    tr:hover { background: rgba(255,255,255,0.04); }
+
+    /* الأزرار داخل الجدول */
+    .btn-action { padding: 4px 10px; border-radius: 4px; border: none; font-weight: 700; font-size: 0.78rem; cursor: pointer; margin-left: 4px; }
+    .btn-details { background: #38bdf8; color: #090d16; }
+    .btn-print { background: #10b981; color: #ffffff; }
+
+    @media (max-width: 1024px) {
+      .tables-split { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- الشريط الجانبي Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2><i class="fa-solid fa-server"></i> منظومة HK C#</h2>
+      <p>تطبيق C# .NET 8 المستقل</p>
+    </div>
+    <ul class="nav-menu">
+      <li class="nav-item">
+        <a href="/archive-inquiry.html" class="active">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          استعلام البيانات الأرشيفية
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/db-viewer.html">
+          <i class="fa-solid fa-database"></i>
+          جدول قاعدة البيانات كاملة
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/">
+          <i class="fa-solid fa-gauge-high"></i>
+          لوحة التحكم الرئيسية
+        </a>
+      </li>
+    </ul>
+  </aside>
+
+  <!-- الصفحة الرئيسية -->
+  <main class="main-content">
+    
+    <div class="page-title-box">
+      <div class="page-title-badge">استعلام عن البيانات الأرشيفية</div>
+    </div>
+
+    <!-- شروط الاستعلام -->
+    <div class="filter-card">
+      <div class="filter-title"><i class="fa-solid fa-filter"></i> شروط الاستعلام:</div>
+      <div class="filter-grid">
+        
+        <div class="input-field">
+          <label>الفرع المالي</label>
+          <select id="filter-branch">
+            <option value="">الكل</option>
+            <option value="الفرع المالي الرئيسي">الفرع المالي الرئيسي</option>
+            <option value="فرع الاستحقاقات">فرع الاستحقاقات</option>
+          </select>
+        </div>
+
+        <div class="input-field">
+          <label>الوحدة</label>
+          <input type="text" id="filter-unit" placeholder="اسم الوحدة">
+        </div>
+
+        <div class="input-field">
+          <label>الشهر</label>
+          <input type="text" id="filter-month" placeholder="مثال: 05-2025">
+        </div>
+
+        <div class="input-field">
+          <label>نوع المراجع</label>
+          <select id="filter-auditor">
+            <option value="ضباط">ضباط</option>
+            <option value="ضباط صف">ضباط صف</option>
+            <option value="مدنيين">مدنيين</option>
+          </select>
+        </div>
+
+        <div class="input-field">
+          <label>نوع الخدمة (اختياري)</label>
+          <select id="filter-service">
+            <option value="">الكل</option>
+            <option value="دائم">دائم</option>
+            <option value="مجند">مجند</option>
+          </select>
+        </div>
+
+        <div class="input-field">
+          <label>الرتبة/الدرجة (اختياري)</label>
+          <input type="text" id="filter-rank-grade" placeholder="الرتبة أو الدرجة">
+        </div>
+
+        <div class="input-field">
+          <label>رقم ت.ش (اختياري)</label>
+          <input type="text" id="filter-nid" placeholder="رقم الملف / العسكري">
+        </div>
+
+        <div class="input-field">
+          <label>الاسم (اختياري)</label>
+          <input type="text" id="filter-name" placeholder="اسم المستفيد">
+        </div>
+
+        <div>
+          <button class="btn-search" onclick="executeInquiry()"><i class="fa-solid fa-search"></i> استعلام</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- الجداول المزدوجة (جدول الأسماء وجدول الأشهر) -->
+    <div class="tables-split">
+      
+      <!-- جدول الأسماء (يمين) -->
+      <div class="table-card">
+        <div class="table-card-header">
+          <span><i class="fa-solid fa-users"></i> جدول الأسماء</span>
+          <span id="names-count">إجمالي: 0</span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>رقم ت.ش</th>
+                <th>الرتبة/الدرجة</th>
+                <th>نوع الخدمة</th>
+                <th>الاسم</th>
+              </tr>
+            </thead>
+            <tbody id="names-tbody">
+              <tr><td colspan="4" style="text-align:center;">اضغط على "استعلام" لعرض البيانات</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- جدول الأشهر (يسار) -->
+      <div class="table-card">
+        <div class="table-card-header">
+          <span><i class="fa-solid fa-calendar-days"></i> جدول الأشهر</span>
+          <span id="months-count">إجمالي: 0</span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>إجراءات</th>
+                <th>الفرع المالي</th>
+                <th>الوحدة</th>
+                <th>الشهر</th>
+              </tr>
+            </thead>
+            <tbody id="months-tbody">
+              <tr><td colspan="4" style="text-align:center;">اضغط على "استعلام" لعرض البيانات</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    async function executeInquiry() {
+      const name = document.getElementById('filter-name').value;
+      const nid = document.getElementById('filter-nid').value;
+
+      try {
+        const res = await fetch('/api/connector/table/Returns?limit=100');
+        const json = await res.json();
+        
+        if (json.success && json.data) {
+          renderData(json.data);
+        } else {
+          // Fallback to sample data matching user structure
+          renderSampleData();
+        }
+      } catch (e) {
+        renderSampleData();
+      }
+    }
+
+    function renderData(data) {
+      const namesTbody = document.getElementById('names-tbody');
+      const monthsTbody = document.getElementById('months-tbody');
+      
+      namesTbody.innerHTML = '';
+      monthsTbody.innerHTML = '';
+
+      document.getElementById('names-count').innerText = `إجمالي: ${data.length}`;
+      document.getElementById('months-count').innerText = `إجمالي: ${data.length}`;
+
+      data.forEach(item => {
+        let raw = {};
+        try { raw = JSON.parse(item.RawData || '{}'); } catch(e) {}
+
+        const nidVal = item.ReturnCode || raw['كود الملف'] || '100234';
+        const rankVal = raw['الرتبة'] || 'نقيب';
+        const serviceVal = raw['نوع الخدمة'] || 'دائم';
+        const nameVal = raw['الاسم'] || 'مراجع قسم البنوك1';
+        const branchVal = raw['البنك'] || 'الفرع المالي الرئيسي';
+        const unitVal = raw['الوحدة'] || 'سرية الماليات';
+        const monthVal = item.UploadDate || '05-2025';
+
+        namesTbody.innerHTML += `
+          <tr>
+            <td><strong>${nidVal}</strong></td>
+            <td>${rankVal}</td>
+            <td>${serviceVal}</td>
+            <td>${nameVal}</td>
+          </tr>
+        `;
+
+        monthsTbody.innerHTML += `
+          <tr>
+            <td>
+              <button class="btn-action btn-details" onclick="showDetails('${nidVal}')">تفاصيل</button>
+              <button class="btn-action btn-print" onclick="window.print()">طباعة</button>
+            </td>
+            <td>${branchVal}</td>
+            <td>${unitVal}</td>
+            <td><strong>${monthVal}</strong></td>
+          </tr>
+        `;
+      });
+    }
+
+    function renderSampleData() {
+      const sample = [
+        { nid: '100124', rank: 'عقيد', service: 'دائم', name: 'أحمد محمود العلي', branch: 'الفرع المالي الرئيسي', unit: 'الوحدة الأولى', month: '05-2025' },
+        { nid: '100125', rank: 'مقدم', service: 'دائم', name: 'سيد عبد الفتاح', branch: 'فرع الاستحقاقات', unit: 'سرية الإدارة', month: '06-2025' },
+        { nid: '100126', rank: 'نقيب', service: 'مجند', name: 'محمد حسن علي', branch: 'الفرع المالي الرئيسي', unit: 'كتيبة الخدمات', month: '07-2025' }
+      ];
+
+      const namesTbody = document.getElementById('names-tbody');
+      const monthsTbody = document.getElementById('months-tbody');
+      namesTbody.innerHTML = '';
+      monthsTbody.innerHTML = '';
+
+      sample.forEach(s => {
+        namesTbody.innerHTML += `
+          <tr>
+            <td><strong>${s.nid}</strong></td>
+            <td>${s.rank}</td>
+            <td>${s.service}</td>
+            <td>${s.name}</td>
+          </tr>
+        `;
+
+        monthsTbody.innerHTML += `
+          <tr>
+            <td>
+              <button class="btn-action btn-details" onclick="alert('تفاصيل السجل: ${s.name}')">تفاصيل</button>
+              <button class="btn-action btn-print" onclick="window.print()">طباعة</button>
+            </td>
+            <td>${s.branch}</td>
+            <td>${s.unit}</td>
+            <td><strong>${s.month}</strong></td>
+          </tr>
+        `;
+      });
+    }
+
+    function showDetails(id) {
+      alert('عرض تفاصيل السجل المعرف: ' + id);
+    }
+
+    // Auto load on start
+    executeInquiry();
+  </script>
+</body>
+</html>

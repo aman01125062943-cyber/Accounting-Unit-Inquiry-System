@@ -152,6 +152,7 @@ public class DatabaseService
 
         // 1. Check if hk.db exists in the application directory or parent directory (Local Auto-Detection Priority)
         var localPathsToCheck = new[] {
+            Path.Combine(Directory.GetCurrentDirectory(), "hk.db"),
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "hk.db"),
             Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "hk.db"))
         };
@@ -547,10 +548,11 @@ public class DatabaseService
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
             PRAGMA busy_timeout=15000;
-            PRAGMA journal_mode=DELETE;
-            PRAGMA cache_size=-65536;
-            PRAGMA temp_store=MEMORY;
-            PRAGMA synchronous=NORMAL;";
+            PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=NORMAL;
+            PRAGMA mmap_size=268435456;
+            PRAGMA cache_size=-64000;
+            PRAGMA temp_store=MEMORY;";
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -1145,8 +1147,8 @@ public class DatabaseService
 
         static string? Format(string month, string year) {
             if (!int.TryParse(month, out var m) || m < 1 || m > 12) return null;
-            if (!Regex.IsMatch(year ?? "", @"^\d{4}$")) return null;
-            return $"{m:00}-{year}";
+            if (!int.TryParse(year, out var y) || y < 2020 || y > 2030) return null;
+            return $"{m:00}-{y}";
         }
 
         static List<(int Index, string Value)> Collect(string input, string pattern, Func<Match, string?> map) {

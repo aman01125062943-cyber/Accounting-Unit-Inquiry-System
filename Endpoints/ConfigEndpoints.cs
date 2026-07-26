@@ -349,6 +349,56 @@ public static class ConfigEndpoints
                  return Results.Json(new { success = false, message = ex.Message });
             }
         });
+
+        app.MapPost("/config/auto-import", async (HttpContext context) => {
+            var req = await context.Request.ReadFromJsonAsync<AutoImportConfigRequest>();
+            if (req == null) return Results.BadRequest();
+
+            try {
+                var config = DatabaseService.LoadServerConfig();
+                config.AutoImportEnabled = req.Enabled;
+                if (!string.IsNullOrWhiteSpace(req.Path))
+                {
+                    config.AutoImportPath = req.Path;
+                }
+                DatabaseService.SaveServerConfig(config);
+                
+                return Results.Ok(new { success = true, message = "تم تحديث إعدادات الاستيراد التلقائي بنجاح" });
+            } catch (Exception ex) {
+                return Results.Json(new { success = false, message = ex.Message });
+            }
+        });
+
+        app.MapPost("/config/create-auto-import-folders", async (HttpContext context) => {
+            var req = await context.Request.ReadFromJsonAsync<PathRequest>();
+            if (string.IsNullOrWhiteSpace(req?.path)) return Results.BadRequest();
+
+            try {
+                var configPath = req.path;
+                var baseImportPath = configPath.EndsWith("استيراد_تلقائي", StringComparison.OrdinalIgnoreCase) || 
+                                     configPath.EndsWith("استيراد_تلقائي\\", StringComparison.OrdinalIgnoreCase) ||
+                                     configPath.EndsWith("استيراد_تلقائي/", StringComparison.OrdinalIgnoreCase)
+                    ? configPath
+                    : Path.Combine(configPath, "استيراد_تلقائي");
+
+                var incentivesPath = Path.Combine(baseImportPath, "حوافز");
+                var salariesPath = Path.Combine(baseImportPath, "مرتبات");
+
+                var incImportPath = Path.Combine(incentivesPath, "استيراد");
+                var incSidadPath = Path.Combine(incentivesPath, "سداد");
+                var salImportPath = Path.Combine(salariesPath, "استيراد");
+                var salSidadPath = Path.Combine(salariesPath, "سداد");
+
+                if (!Directory.Exists(incImportPath)) Directory.CreateDirectory(incImportPath);
+                if (!Directory.Exists(incSidadPath)) Directory.CreateDirectory(incSidadPath);
+                if (!Directory.Exists(salImportPath)) Directory.CreateDirectory(salImportPath);
+                if (!Directory.Exists(salSidadPath)) Directory.CreateDirectory(salSidadPath);
+
+                return Results.Ok(new { success = true, message = "تم إنشاء مجلد 'استيراد_تلقائي' والمجلدات الفرعية بنجاح في المسار المحدد" });
+            } catch (Exception ex) {
+                return Results.Json(new { success = false, message = ex.Message });
+            }
+        });
     }
 
 
@@ -365,6 +415,7 @@ public static class ConfigEndpoints
     );
 
     public record AttachmentLinkModeRequest(string Mode);
+    public record AutoImportConfigRequest(bool Enabled, string Path);
     public record DatabasePathRequest(string path, bool createIfMissing = false);
 
     private static DatabasePathValidationResult ValidateSelectedPath(string inputPath, bool allowCreateMissing, out DatabasePathResolution resolved)

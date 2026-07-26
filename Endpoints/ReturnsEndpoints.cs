@@ -840,12 +840,17 @@ var data = pagedRows.Select(r => {
             var serverTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             latestUpdatedAt = string.IsNullOrWhiteSpace(latestUpdatedAt) ? serverTime : latestUpdatedAt;
 
+            var systemTotalCount = await conn.ExecuteScalarAsync<int>(
+                $@"SELECT COUNT(*) FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0 {activeImportSql}",
+                parameters);
+
             return Results.Ok(new {
                 hasChanges = string.IsNullOrWhiteSpace(since) ? changedCount > 0 : (changedCount + archivedOrDeletedCount) > 0,
                 latestUpdatedAt,
                 latestVersion = latestUpdatedAt,
                 changedCount,
                 archivedOrDeletedCount,
+                systemTotalCount,
                 serverTime
             });
         });

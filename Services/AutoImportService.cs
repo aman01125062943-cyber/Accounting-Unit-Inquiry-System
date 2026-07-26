@@ -38,7 +38,14 @@ public class AutoImportService : BackgroundService
                 Console.WriteLine($"[AutoImport] Error in loop: {ex.Message}");
             }
 
-            await Task.Delay(5000, stoppingToken); // check every 5 seconds
+            try
+            {
+                await Task.Delay(5000, stoppingToken); // check every 5 seconds
+            }
+            catch (TaskCanceledException)
+            {
+                break;
+            }
         }
     }
 

@@ -62,23 +62,35 @@ public static class SmartSettlementEndpoints
                 foreach(var excelRow in request.Records) {
                     var item = new MatchResultItem { SourceExcelRow = excelRow };
                     
-                    // Fix: Check if matchBy is "name" or "الاسم"
-                    string cleanMatchBy = (matchBy ?? "").Trim().ToLower();
-                    if (cleanMatchBy == "name" || cleanMatchBy == "الاسم" || DatabaseService.CleanArabic(cleanMatchBy) == "الاسم") {
-                        string cleanExcelName = DatabaseService.CleanArabic(excelRow.Name?.ToString() ?? "");
-                        if (!string.IsNullOrEmpty(cleanExcelName)) {
-                            // Priority: Strict Exact Match
-                            item.Matches = dbIncentives.Where(d => DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName).ToList();
-                            item.SalaryMatches = dbSalaries.Where(d => DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName).ToList();
-                        }
-                    } else { // الرقم القومي (nid)
-                        // Clean the National ID from Excel to match the cleaned DB format (digits only)
-                        string nId = System.Text.RegularExpressions.Regex.Replace(excelRow.NationalId?.ToString() ?? "", @"[^\d]", "");
-                        if(!string.IsNullOrEmpty(nId)) {
-                            item.Matches = dbIncentives.Where(d => d.NationalId == nId).ToList();
-                            item.SalaryMatches = dbSalaries.Where(d => d.NationalId == nId).ToList();
-                        }
+                    string cleanExcelName = DatabaseService.CleanArabic(excelRow.Name?.ToString() ?? "");
+                    string nId = System.Text.RegularExpressions.Regex.Replace(excelRow.NationalId?.ToString() ?? "", @"[^\d]", "");
+                    string excelBatch = (excelRow.BatchCode ?? "").Trim();
+                    double excelAmount = excelRow.Amount ?? 0;
+
+                    // Get candidates matching: BatchCode, Name, and Amount
+                    var incCandidates = dbIncentives.Where(d => 
+                        (d.BatchCode ?? "").Trim().Equals(excelBatch, StringComparison.OrdinalIgnoreCase) &&
+                        DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName &&
+                        Math.Abs((d.Amount ?? 0) - excelAmount) < 0.01
+                    ).ToList();
+
+                    var salCandidates = dbSalaries.Where(d => 
+                        (d.BatchCode ?? "").Trim().Equals(excelBatch, StringComparison.OrdinalIgnoreCase) &&
+                        DatabaseService.CleanArabic(d.Name ?? "") == cleanExcelName &&
+                        Math.Abs((d.Amount ?? 0) - excelAmount) < 0.01
+                    ).ToList();
+
+                    if (!string.IsNullOrEmpty(nId))
+                    {
+                        item.Matches = incCandidates.Where(d => d.NationalId == nId).ToList();
+                        item.SalaryMatches = salCandidates.Where(d => d.NationalId == nId).ToList();
                     }
+                    else
+                    {
+                        item.Matches = incCandidates;
+                        item.SalaryMatches = salCandidates;
+                    }
+
                     results.Add(item);
                 }
 
@@ -344,6 +356,7 @@ public class ExcelRow
     public string? BatchCode { get; set; }
     public string? Name { get; set; }
     public string? NationalId { get; set; }
+    public double? Amount { get; set; }
     public string? CurrentAccount { get; set; }
     public string? CurrentBank { get; set; }
     public string? ModifiedAccount { get; set; }

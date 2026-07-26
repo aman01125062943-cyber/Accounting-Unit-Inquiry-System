@@ -88,6 +88,8 @@ builder.Services.ConfigureHttpJsonOptions(options => {
 builder.Services.AddSingleton<DatabaseService>();
 builder.Services.AddSingleton<HKServer.Services.AutoSyncService>();
 builder.Services.AddHostedService<HKServer.Services.NotificationDispatcherService>();
+builder.Services.AddHostedService<HKServer.Services.AutoImportService>();
+builder.Services.AddHostedService<HKServer.Services.HiaapayAutoSyncService>();
 builder.Services.AddMemoryCache();
 
 // 5. Open Browser Automatically (Configure Port)
@@ -124,6 +126,8 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.MapGet("/api/ping", () => Results.Ok(new { success = true, status = "ok", timestamp = DateTime.UtcNow }));
+
+
 
 app.Use(async (context, next) => {
     var path = context.Request.Path.Value ?? "";
@@ -244,6 +248,8 @@ app.MapReturnsEndpoints();
 app.MapFullReturnsEndpoints();
 app.MapSalaryReturnsEndpoints();
 app.MapSmartSettlementEndpoints();
+app.MapBankLedgerEndpoints();
+app.MapAutoImportReportEndpoints();
 app.MapChatEndpoints();
 app.MapTaskEndpoints();
 app.MapNotificationEndpoints();
@@ -251,6 +257,9 @@ app.MapDashboardEndpoints();
 app.MapAccountStatementEndpoints();
 app.MapAdabirEndpoints();
 app.MapSearchIndexEndpoints();
+app.MapHiaapayEndpoints();
+app.MapConnectorEndpoints();
+app.MapDailyReportEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");

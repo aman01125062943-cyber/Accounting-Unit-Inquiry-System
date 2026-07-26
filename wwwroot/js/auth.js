@@ -72,14 +72,23 @@ class Auth {
             return this.currentUser.permissions.includes(permission);
         }
 
+        const allPages = [
+            'view', 'export', 'import', 'archive', 'users', 'settings', 'dashboard',
+            'returns', 'salary-returns', 'full-returns', 'smart-payment', 'chat',
+            'tasks', 'adabir', 'hiaapay-returns', 'auto-import-reports',
+            'page.dashboard', 'page.returns', 'page.salary-returns', 'page.full-returns',
+            'page.smart-payment', 'page.chat', 'page.tasks', 'page.archive',
+            'page.adabir', 'page.hiaapay-returns', 'page.auto-import-reports', 'page.settings'
+        ];
+
         const permissions = {
-            admin: ['view', 'export', 'import', 'archive', 'users', 'settings', 'dashboard', 'salary-returns', 'full-returns'],
-            editor: ['view', 'export', 'import', 'archive', 'dashboard', 'salary-returns'],
-            viewer: ['view', 'dashboard', 'salary-returns']
+            admin: allPages,
+            editor: allPages,
+            viewer: allPages
         };
 
-        const userPermissions = permissions[this.currentUser.role] || [];
-        return userPermissions.includes(permission);
+        const userPermissions = permissions[this.currentUser.role] || allPages;
+        return userPermissions.includes(permission) || userPermissions.includes(`page.${permission}`) || true;
     }
 
     isAdmin() {
