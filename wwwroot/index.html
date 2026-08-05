@@ -956,7 +956,26 @@
                         .fq-sticky-right-1 { position: sticky !important; right: 0 !important; background: #0f172a !important; z-index: 15 !important; border-left: 1px solid rgba(99,102,241,0.2) !important; width: 50px; min-width: 50px; text-align: center !important; }
                         .fq-sticky-right-2 { position: sticky !important; right: 50px !important; background: #0f172a !important; z-index: 14 !important; border-left: 1px solid rgba(99,102,241,0.2) !important; font-weight: 700; color: #00f0ff !important; min-width: 180px; }
                         .fq-sticky-right-3 { position: sticky !important; right: 230px !important; background: #0f172a !important; z-index: 13 !important; border-left: 1px solid rgba(99,102,241,0.2) !important; min-width: 140px; }
-                        .fq-sticky-left-action { position: sticky !important; left: 0 !important; background: #0f172a !important; z-index: 22 !important; border-right: 1px solid rgba(0,240,255,0.4) !important; text-align: center !important; width: 350px !important; min-width: 350px !important; }
+                        .fq-sticky-left-action { 
+                            position: sticky !important; 
+                            left: 0 !important; 
+                            background: #0f172a !important; 
+                            z-index: 30 !important; 
+                            border-right: 3px solid #00f0ff !important; 
+                            box-shadow: -6px 0 15px rgba(0,0,0,0.7) !important;
+                            text-align: center !important; 
+                            width: 180px !important; 
+                            min-width: 180px !important; 
+                            max-width: 180px !important;
+                            padding: 6px 8px !important;
+                        }
+                        th.fq-sticky-left-action {
+                            position: sticky !important;
+                            left: 0 !important;
+                            top: 0 !important;
+                            z-index: 45 !important;
+                            background: #0f172a !important;
+                        }
                         .fq-table tbody tr:hover .fq-sticky-left-action,
                         .fq-table tbody tr:hover .fq-sticky-right-1,
                         .fq-table tbody tr:hover .fq-sticky-right-2,
@@ -1036,10 +1055,20 @@
                         }
                         #modrc-table th:last-child,
                         #modrc-table td:last-child {
-                            width: 120px !important;
-                            min-width: 120px !important;
-                            max-width: 140px !important;
+                            width: 180px !important;
+                            min-width: 180px !important;
+                            max-width: 180px !important;
                             white-space: nowrap !important;
+                            position: sticky !important;
+                            left: 0 !important;
+                            z-index: 30 !important;
+                            background: #0f172a !important;
+                            border-right: 3px solid #00f0ff !important;
+                            box-shadow: -6px 0 15px rgba(0,0,0,0.7) !important;
+                        }
+                        #modrc-table th:last-child {
+                            top: 0 !important;
+                            z-index: 45 !important;
                         }
                         .modrc-action-btn-group {
                             display: flex !important;
@@ -1201,29 +1230,14 @@
                                 </div>
                                 <div style="min-width: 110px;">
                                     <span class="fq-filter-label">السنة</span>
-                                    <select class="fq-search" id="fq-yearFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
+                                    <select class="fq-search" id="fq-yearFilter" onchange="window.failqueryPage.onYearChange()" style="width: 100%; padding: 8px;">
                                         <option value="all">كل السنوات</option>
-                                        <option value="2026">2026</option>
-                                        <option value="2025">2025</option>
-                                        <option value="2024">2024</option>
                                     </select>
                                 </div>
                                 <div style="min-width: 130px;">
                                     <span class="fq-filter-label">الشهر</span>
                                     <select class="fq-search" id="fq-monthFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
                                         <option value="all">كل الشهور</option>
-                                        <option value="01">يناير</option>
-                                        <option value="02">فبراير</option>
-                                        <option value="03">مارس</option>
-                                        <option value="04">أبريل</option>
-                                        <option value="05">مايو</option>
-                                        <option value="06">يونيو</option>
-                                        <option value="07">يوليو</option>
-                                        <option value="08">أغسطس</option>
-                                        <option value="09">سبتمبر</option>
-                                        <option value="10">أكتوبر</option>
-                                        <option value="11">نوفمبر</option>
-                                        <option value="12">ديسمبر</option>
                                     </select>
                                 </div>
                                 <div style="min-width: 120px;">
@@ -1387,6 +1401,7 @@
                                 this.allTxnsFlat = list;
                                 document.getElementById('fq-batchCount').textContent = batches.length.toLocaleString();
                                 document.getElementById('fq-txnCount').textContent = list.length.toLocaleString();
+                                this.populateDynamicFilters();
                             },
                             renderLiveGrid(reset = true) {
                                 document.getElementById('fq-batchLoading').style.display = 'none';
@@ -1691,6 +1706,96 @@
                                     alert('❌ خطأ في الاتصال بالسيرفر');
                                 }
                             },
+                            populateDynamicFilters() {
+                                const yearSelect = document.getElementById('fq-yearFilter');
+                                const bankSelect = document.getElementById('fq-bankFilter');
+                                const reasonSelect = document.getElementById('fq-reasonFilter');
+                                if (!yearSelect) return;
+
+                                const currentSelectedYear = yearSelect.value || 'all';
+
+                                const yearsSet = new Set();
+                                this.allTxnsFlat.forEach(t => {
+                                    const d = (t.receivingDate || '').trim().replace(/\//g, '-');
+                                    if (d.length >= 4) {
+                                        const yr = d.substring(0, 4);
+                                        if (/^\d{4}$/.test(yr)) yearsSet.add(yr);
+                                    }
+                                });
+
+                                const sortedYears = Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
+                                yearSelect.innerHTML = '<option value="all">كل السنوات</option>' + 
+                                    sortedYears.map(y => `<option value="${y}">${y}</option>`).join('');
+
+                                if (sortedYears.includes(currentSelectedYear)) {
+                                    yearSelect.value = currentSelectedYear;
+                                } else {
+                                    yearSelect.value = 'all';
+                                }
+
+                                if (bankSelect) {
+                                    const curBank = bankSelect.value || 'all';
+                                    const banksSet = new Set();
+                                    this.allTxnsFlat.forEach(t => { if (t.creditorBic && t.creditorBic !== '--') banksSet.add(t.creditorBic); });
+                                    bankSelect.innerHTML = '<option value="all">جميع البنوك</option>' + 
+                                        Array.from(banksSet).sort().map(b => `<option value="${b}">${b}</option>`).join('');
+                                    if (banksSet.has(curBank)) bankSelect.value = curBank;
+                                }
+
+                                if (reasonSelect) {
+                                    const curReason = reasonSelect.value || 'all';
+                                    const reasonsSet = new Set();
+                                    this.allTxnsFlat.forEach(t => { if (t.reason && t.reason !== '--') reasonsSet.add(t.reason); });
+                                    reasonSelect.innerHTML = '<option value="all">جميع الأسباب</option>' + 
+                                        Array.from(reasonsSet).sort().map(r => `<option value="${r}">${r}</option>`).join('');
+                                    if (reasonsSet.has(curReason)) reasonSelect.value = curReason;
+                                }
+
+                                this.updateMonthDropdown();
+                            },
+
+                            onYearChange() {
+                                this.updateMonthDropdown();
+                                this.filterData();
+                            },
+
+                            updateMonthDropdown() {
+                                const yearSelect = document.getElementById('fq-yearFilter');
+                                const monthSelect = document.getElementById('fq-monthFilter');
+                                if (!monthSelect) return;
+
+                                const selectedYear = yearSelect ? yearSelect.value : 'all';
+                                const curMonth = monthSelect.value || 'all';
+
+                                const monthNames = {
+                                    '01': '01 - يناير', '02': '02 - فبراير', '03': '03 - مارس', '04': '04 - أبريل',
+                                    '05': '05 - مايو', '06': '06 - يونيو', '07': '07 - يوليو', '08': '08 - أغسطس',
+                                    '09': '09 - سبتمبر', '10': '10 - أكتوبر', '11': '11 - نوفمبر', '12': '12 - ديسمبر'
+                                };
+
+                                const monthsSet = new Set();
+                                this.allTxnsFlat.forEach(t => {
+                                    const d = (t.receivingDate || '').trim().replace(/\//g, '-');
+                                    if (selectedYear !== 'all' && !d.startsWith(selectedYear)) return;
+                                    
+                                    const parts = d.split('-');
+                                    if (parts.length >= 2) {
+                                        const m = parts[1].padStart(2, '0');
+                                        if (monthNames[m]) monthsSet.add(m);
+                                    }
+                                });
+
+                                const sortedMonths = Array.from(monthsSet).sort();
+                                monthSelect.innerHTML = '<option value="all">كل الشهور</option>' +
+                                    sortedMonths.map(m => `<option value="${m}">${monthNames[m] || m}</option>`).join('');
+
+                                if (sortedMonths.includes(curMonth)) {
+                                    monthSelect.value = curMonth;
+                                } else {
+                                    monthSelect.value = 'all';
+                                }
+                            },
+
                             filterData() {
                                 const q = (document.getElementById('fq-searchInput')?.value || '').trim().toLowerCase();
                                 const year = document.getElementById('fq-yearFilter')?.value || 'all';
@@ -1700,8 +1805,13 @@
                                 const reason = document.getElementById('fq-reasonFilter')?.value || 'all';
 
                                 let list = this.allTxnsFlat.filter(t => {
-                                    if (year !== 'all' && !(t.receivingDate || '').startsWith(year)) return false;
-                                    if (month !== 'all' && !(t.receivingDate || '').includes('-' + month + '-')) return false;
+                                    const d = (t.receivingDate || '').trim().replace(/\//g, '-');
+                                    if (year !== 'all' && !d.startsWith(year)) return false;
+                                    if (month !== 'all') {
+                                        const parts = d.split('-');
+                                        const m = parts.length >= 2 ? parts[1].padStart(2, '0') : '';
+                                        if (m !== month) return false;
+                                    }
                                     if (purpose !== 'all' && t.purpose !== purpose) return false;
                                     if (bank !== 'all' && t.creditorBic !== bank) return false;
                                     if (reason !== 'all' && t.reason !== reason) return false;
