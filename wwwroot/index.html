@@ -1393,8 +1393,9 @@
                                     if (changed) {
                                         this.allBatches = newBatches;
                                         this.allTxnsFlat = newFlat;
-                                        document.getElementById('fq-batchCount').textContent = newBatches.length.toLocaleString();
-                                        document.getElementById('fq-txnCount').textContent = newFlat.length.toLocaleString();
+                                        const bCount = document.getElementById('fq-batchCount');
+                                        if (bCount) bCount.textContent = newBatches.length.toLocaleString();
+                                        this.updateStatsCards(newFlat);
                                         this.filterData();
                                         const badge = document.getElementById('fq-auto-badge');
                                         if (badge) { badge.style.background = 'rgba(16,185,129,0.5)'; badge.textContent = '✅ جديد!'; setTimeout(() => { badge.style.background=''; this._updateCountdownUI(); }, 3000); }
@@ -1409,9 +1410,10 @@
                                     });
                                 });
                                 this.allTxnsFlat = list;
-                                document.getElementById('fq-batchCount').textContent = batches.length.toLocaleString();
-                                document.getElementById('fq-txnCount').textContent = list.length.toLocaleString();
+                                const bCount = document.getElementById('fq-batchCount');
+                                if (bCount) bCount.textContent = batches.length.toLocaleString();
                                 this.populateDynamicFilters();
+                                this.updateStatsCards(list);
                             },
                             renderLiveGrid(reset = true) {
                                 document.getElementById('fq-batchLoading').style.display = 'none';
