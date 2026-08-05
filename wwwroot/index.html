@@ -1490,14 +1490,16 @@
                                             <td>${newAccCell}</td><td>${t.newCreditorBic||'--'}</td><td>${t.newCreditorBranch||'--'}</td>
                                             <td>${stageBadge}</td>
                                             <td>${syncStatusBadge}</td>
-                                            <td class="fq-sticky-left-action" style="display:flex; gap:6px; align-items:center; justify-content:center;">
-                                                <button class="btn-action-edit" onclick="window.failqueryPage.openEditModalByIndex(${i})" title="تعديل بيانات الحساب والمعاملة">✏️</button>
-                                                <label class="tas-toggle-label ${tasCheckedClass}" title="${isSettled ? 'إلغاء محدد كتسوية' : 'تحديد المعاملة كمحدد كتسوية'}">
-                                                    <input type="checkbox" class="custom-cb" ${isSettled ? 'checked' : ''} onchange="window.failqueryPage.toggleSettlementCheckDirect(${i}, this.checked)">
-                                                    <span>${isSettled ? '✅' : '☐'}</span>
-                                                </label>
-                                                <button class="btn-action-send" onclick="window.failqueryPage.transferToHossamDirect(${i})" title="إرسال وتحويل المعاملة لرئيس القسم (حسام السيد)">📤</button>
-                                                ${(t.tasFlag == '1' || t.tasFlag === 1) ? '<button class="btn-action-retrieve" onclick="window.failqueryPage.retrieveFromHossamDirect('+i+')" title="استرجاع / سحب المعاملة من رئيس القسم إلى شاشة أمين">🔄</button>' : ''}
+                                            <td class="fq-sticky-left-action">
+                                                <div style="display:flex; gap:6px; align-items:center; justify-content:center; width:100%;">
+                                                    <button class="btn-action-edit" onclick="window.failqueryPage.openEditModalByIndex(${i})" title="تعديل بيانات الحساب والمعاملة">✏️</button>
+                                                    <label class="tas-toggle-label ${tasCheckedClass}" title="${isSettled ? 'إلغاء محدد كتسوية' : 'تحديد المعاملة كمحدد كتسوية'}">
+                                                        <input type="checkbox" class="custom-cb" ${isSettled ? 'checked' : ''} onchange="window.failqueryPage.toggleSettlementCheckDirect(${i}, this.checked)">
+                                                        <span>${isSettled ? '✅' : '☐'}</span>
+                                                    </label>
+                                                    <button class="btn-action-send" onclick="window.failqueryPage.transferToHossamDirect(${i})" title="إرسال وتحويل المعاملة لرئيس القسم (حسام السيد)">📤</button>
+                                                    ${(t.tasFlag == '1' || t.tasFlag === 1) ? '<button class="btn-action-retrieve" onclick="window.failqueryPage.retrieveFromHossamDirect('+i+')" title="استرجاع / سحب المعاملة من رئيس القسم إلى شاشة أمين">🔄</button>' : ''}
+                                                </div>
                                             </td>
                                         </tr>
                                     `;
