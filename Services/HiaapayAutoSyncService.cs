@@ -123,6 +123,9 @@ public class HiaapayAutoSyncService : BackgroundService
                                 updated
                             }, stoppingToken);
                         }
+
+                        // Mux FailQuery History auto-sync
+                        _ = HKServer.Endpoints.FailQueryEndpoints.SyncHistoryToDbAsync(_db);
                     }
                 }
                 catch (Exception jsonEx)

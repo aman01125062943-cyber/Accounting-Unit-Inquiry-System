@@ -2914,10 +2914,16 @@ select:focus {
 
 
 
-/* Fix Scrollbar Position (Right Side) */
 .table-responsive {
-    direction: ltr;
-    /* Forces scrollbar to right */
+    direction: rtl !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+
+.table-responsive::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 
 .table-responsive table {
@@ -3045,9 +3051,9 @@ select:focus {
 }
 
 .table-wrapper-scroll {
-    overflow-y: scroll !important;
-    overflow-x: auto !important;
-    direction: ltr;
+    overflow-y: auto;
+    overflow-x: auto;
+    direction: rtl !important;
     height: calc(100vh - 350px);
     /* Dynamic height to fill the screen to the bottom */
     min-height: 400px;
@@ -3058,8 +3064,14 @@ select:focus {
     background: #050b14;
     /* Pure Deep Space Background - No Silver */
     /* Custom Scrollbar */
-    scrollbar-width: thin;
-    scrollbar-color: #00f0ff #050b14;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+
+.table-wrapper-scroll::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
 }
 
 .table-wrapper-scroll table {

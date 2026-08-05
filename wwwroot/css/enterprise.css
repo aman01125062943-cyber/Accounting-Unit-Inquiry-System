@@ -3,36 +3,13 @@
    ======================================== */
 
 .unified-premium-container {
-    max-width: 1400px;
-    margin: 0 auto !important;
-    padding: 10px 20px;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10px 5px !important;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    width: 100%;
-}
-
-.unified-hero-premium {
-    width: 100%;
-    max-width: 1000px;
-    position: relative;
-    padding: 35px 40px;
-    border-radius: 32px;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)) !important;
-    backdrop-filter: blur(40px) saturate(200%);
-    -webkit-backdrop-filter: blur(40px) saturate(200%);
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
-    margin-bottom: 35px;
-    box-shadow: 
-        0 30px 60px -12px rgba(0, 0, 0, 0.6),
-        inset 0 1px 1px rgba(255, 255, 255, 0.3),
-        inset 0 0 20px rgba(255, 255, 255, 0.05);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    overflow: hidden;
-    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    animation: floatingCard 8s ease-in-out infinite;
+    align-items: stretch !important;
 }
 
 #unified-search-card::after {
@@ -792,19 +769,79 @@ th.sticky-col {
 
 /* ============================================================ 
    Smart Payment Large Card Expansion (Fixed Width & Styling)
-   ============================================================ */
-#page-smart-payment .unified-premium-container {
-    padding: 10px 0 !important;
-}
-
-#page-smart-payment .unified-search-banner-v3 {
-    width: 100% !important;
     max-width: none !important;
-    display: block !important;
+    margin: 0 auto 30px !important;
+    border-right: 5px solid #00f0ff !important; /* Thick Cyan Border like large match cards */
+    padding: 30px 40px !important;
+    background: rgba(13, 22, 35, 0.9) !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
+    border-radius: 24px !important;
 }
 
-#smart-payment-upload-card {
+#smart-payment-upload-card .u-v2-info {
+    width: 100%;
+}
+
+/* Enhancing Drop Zone for Large Card */
+#smart-payment-drop-zone {
+    padding: 25px !important;
+    border-width: 2px !important;
+    background: rgba(0, 240, 255, 0.08) !important;
+    min-height: 100px;
+}
+
+/* Ensures results container also uses the full space */
+#smart-payment-results {
     width: 100% !important;
+    padding: 20px 0 40px !important;
+}
+
+/* Redesigned Smart Payment UI Components */
+.upload-card-premium:hover {
+    border-color: #00f0ff !important;
+    background: rgba(0, 240, 255, 0.05) !important;
+    transform: translateY(-5px);
+    box-shadow: 0 15px 35px rgba(0, 240, 255, 0.15) !important;
+}
+
+.filter-input-wrapper:focus-within {
+    border-color: #00f0ff !important;
+    background: rgba(0, 240, 255, 0.05) !important;
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.1) !important;
+}
+
+.smart-filter-card:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    transform: translateY(-3px);
+    border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.smart-filter-card.active {
+    background: rgba(0, 240, 255, 0.1) !important;
+    border-color: #00f0ff !important;
+    color: #00f0ff !important;
+    box-shadow: 0 8px 25px rgba(0, 240, 255, 0.2) !important;
+    transform: translateY(-2px);
+}
+
+.smart-chip:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    transform: translateY(-1px);
+}
+
+.smart-chip.active {
+    background: #00f0ff !important;
+    color: #0d121f !important;
+    font-weight: 800 !important;
+    border-color: #00f0ff !important;
+    box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3) !important;
+}
+
+/* Animations */
+@keyframes pulseDashed {
+
+/* ============================================================ 
+   Smart Payment Large Card Expansion (Fixed Width & Styling)
     max-width: none !important;
     margin: 0 auto 30px !important;
     border-right: 5px solid #00f0ff !important; /* Thick Cyan Border like large match cards */
@@ -882,4 +919,132 @@ th.sticky-col {
 
 .upload-card-premium {
     animation: pulseDashed 3s infinite ease-in-out;
+}
+
+/* ============================================================ 
+   Full Width Page Expansion (ملء كامل مساحة الصفحة للجداول)
+   ============================================================ */
+.main-content {
+    padding: 15px 20px !important;
+}
+
+.unified-premium-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch !important;
+}
+
+.pro-table-container,
+.table-container {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+.table-wrapper-scroll {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    scroll-behavior: smooth;
+    padding-bottom: 6px;
+}
+
+/* شريط التمرير الأفقي والرأسي الكريستالي النيون البارز */
+.table-wrapper-scroll::-webkit-scrollbar {
+    height: 14px !important;
+    width: 10px !important;
+}
+
+.table-wrapper-scroll::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.95) !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+}
+
+.table-wrapper-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(90deg, #00f0ff 0%, #3b82f6 100%) !important;
+    border-radius: 8px !important;
+    border: 2px solid #0f172a !important;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.6) !important;
+}
+
+.table-wrapper-scroll::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(90deg, #38bdf8 0%, #60a5fa 100%) !important;
+}
+
+.data-table {
+    width: max-content !important;
+    min-width: 100% !important;
+}
+
+.dashboard-stats-row-pro,
+.dashboard-controls-row-pro {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* ============================================================ 
+   Sticky Columns on Right (تثبيت #:1, الاسم:2, الشهر:3, قيمة العملية:4)
+   ============================================================ */
+.sticky-col-1 {
+    position: sticky !important;
+    right: 0 !important;
+    z-index: 20 !important;
+    background: linear-gradient(180deg, #132238 0%, #0c1827 100%) !important;
+    min-width: 55px !important;
+    width: 55px !important;
+    border-left: 1px solid rgba(0, 240, 255, 0.2) !important;
+    box-shadow: -3px 0 8px rgba(0,0,0,0.5);
+    color: #38bdf8 !important;
+}
+
+.sticky-col-2 {
+    position: sticky !important;
+    right: 55px !important;
+    z-index: 20 !important;
+    background: linear-gradient(180deg, #162a45 0%, #0e1e33 100%) !important;
+    min-width: 280px !important;
+    width: max-content !important;
+    border-left: 1px solid rgba(0, 240, 255, 0.2) !important;
+    box-shadow: -3px 0 8px rgba(0,0,0,0.5);
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+}
+
+.sticky-col-3 {
+    position: sticky !important;
+    right: 335px !important;
+    z-index: 20 !important;
+    background: linear-gradient(180deg, #132238 0%, #0c1827 100%) !important;
+    min-width: 100px !important;
+    border-left: 1px solid rgba(0, 240, 255, 0.2) !important;
+    box-shadow: -3px 0 8px rgba(0,0,0,0.5);
+    color: #fbbf24 !important;
+    white-space: nowrap !important;
+}
+
+.sticky-col-4 {
+    position: sticky !important;
+    right: 435px !important;
+    z-index: 20 !important;
+    background: linear-gradient(180deg, #162a45 0%, #0e1e33 100%) !important;
+    min-width: 140px !important;
+    border-left: 3px solid #00f0ff !important;
+    box-shadow: -5px 0 12px rgba(0, 240, 255, 0.25);
+    color: #34d399 !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+}
+
+th.sticky-col-1, th.sticky-col-2, th.sticky-col-3, th.sticky-col-4 {
+    z-index: 30 !important;
+    background: linear-gradient(180deg, #1e3a8a 0%, #0f172a 100%) !important;
+    color: #00f0ff !important;
+    font-weight: 800 !important;
+    border-bottom: 2px solid #00f0ff !important;
 }

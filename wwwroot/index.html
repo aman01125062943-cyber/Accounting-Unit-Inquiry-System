@@ -99,6 +99,132 @@
             transform: translateX(22px);
             background-color: #000;
         }
+
+        /* Modern Glassmorphic Bulk Bar & Ultra Sleek Buttons */
+        .pro-bulk-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: 14px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        }
+        .pro-bulk-info {
+            font-weight: 700;
+            color: #fbbf24;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95rem;
+        }
+        .pro-count-badge {
+            background: rgba(245, 158, 11, 0.2);
+            border: 1px solid rgba(245, 158, 11, 0.5);
+            padding: 3px 12px;
+            border-radius: 20px;
+            color: #fef08a;
+            font-size: 0.88rem;
+            font-weight: 800;
+        }
+        .btn-pro-bulk {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: #0f172a;
+            font-weight: 800;
+            padding: 9px 22px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 0.92rem;
+            box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-pro-bulk:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.5);
+            filter: brightness(1.1);
+        }
+
+        .btn-action-edit {
+            background: rgba(56, 189, 248, 0.12);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            color: #38bdf8;
+            font-weight: 700;
+            padding: 6px 13px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-action-edit:hover {
+            background: rgba(56, 189, 248, 0.28);
+            border-color: #38bdf8;
+            color: #fff;
+            transform: scale(1.04);
+            box-shadow: 0 2px 10px rgba(56, 189, 248, 0.3);
+        }
+
+        .btn-action-send {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            color: #fbbf24;
+            font-weight: 700;
+            padding: 6px 13px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .btn-action-send:hover {
+            background: rgba(245, 158, 11, 0.28);
+            border-color: #f59e0b;
+            color: #fff;
+            transform: scale(1.04);
+            box-shadow: 0 2px 10px rgba(245, 158, 11, 0.3);
+        }
+
+        .custom-cb {
+            width: 17px;
+            height: 17px;
+            accent-color: #f59e0b;
+            cursor: pointer;
+            vertical-align: middle;
+        }
+
+        .send-toggle-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 10px;
+            border-radius: 8px;
+            font-size: 0.83rem;
+            font-weight: 800;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        .send-toggle-label.yes {
+            background: rgba(245, 158, 11, 0.2);
+            border: 1px solid #f59e0b;
+            color: #fbbf24;
+        }
+        .send-toggle-label.no {
+            background: rgba(148, 163, 184, 0.1);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            color: #94a3b8;
+        }
     </style>
 </head>
 
@@ -271,17 +397,21 @@
                         <span class="nav-item-icon">💰</span>
                         <span class="nav-item-text">مرتادات المرتبات</span>
                     </div>
-                    <div class="nav-item" data-page="adabir" onclick="app.navigateTo('adabir')">
-                        <span class="nav-item-icon">📖</span>
-                        <span class="nav-item-text">دفتر متابعة البنوك (الإضابير)</span>
+                    <div class="nav-item hidden" data-page="incentives-page" onclick="app.navigateTo('incentives-page')" style="display: none !important;">
+                        <span class="nav-item-icon">🎁</span>
+                        <span class="nav-item-text">جدول الحوافز اللحظي</span>
+                    </div>
+                    <div class="nav-item hidden" data-page="salaries-page" onclick="app.navigateTo('salaries-page')" style="display: none !important;">
+                        <span class="nav-item-icon">💵</span>
+                        <span class="nav-item-text">جدول المرتبات اللحظي</span>
+                    </div>
+                    <div class="nav-item hidden" data-page="live-data" onclick="app.navigateTo('live-data')" style="display: none !important;">
+                        <span class="nav-item-icon">⚡</span>
+                        <span class="nav-item-text">البيانات المباشرة (Live Data)</span>
                     </div>
                     <div class="nav-item" data-page="smart-payment" onclick="app.navigateTo('smart-payment')">
                         <span class="nav-item-icon">💸</span>
                         <span class="nav-item-text">السداد الذكي</span>
-                    </div>
-                    <div class="nav-item" data-page="hiaapay-returns" onclick="app.navigateTo('hiaapay-returns')">
-                        <span class="nav-item-icon">🌐</span>
-                        <span class="nav-item-text">مرتدات Hiaapay الخارجية</span>
                     </div>
                     <div class="nav-item" data-page="chat" onclick="app.navigateTo('chat')">
                         <span class="nav-item-icon">💬</span>
@@ -292,6 +422,10 @@
                         <span class="nav-item-icon">📝</span>
                         <span class="nav-item-text">مهام اليوم</span>
                         <span id="tasks-count-badge" class="chat-unread-badge hidden" style="background: #f59e0b;">0</span>
+                    </div>
+                    <div class="nav-item" data-page="failquery" onclick="app.navigateTo('failquery')">
+                        <span class="nav-item-icon">📋</span>
+                        <span class="nav-item-text">استعلام عن مرتدات (البوابة)</span>
                     </div>
                 </div>
 
@@ -305,6 +439,10 @@
                     <div class="nav-item" data-page="auto-import-reports" onclick="app.navigateTo('auto-import-reports')">
                         <span class="nav-item-icon">📋</span>
                         <span class="nav-item-text">تقرير الاستيراد التلقائي</span>
+                    </div>
+                    <div class="nav-item" data-page="modified-records" onclick="app.navigateTo('modified-records')">
+                        <span class="nav-item-icon">✏️</span>
+                        <span class="nav-item-text">سجلات التعديلات</span>
                     </div>
                     <div class="nav-item" data-page="settings" id="nav-settings"
                         onclick="app.navigateTo('settings'); app.loadArchivePath();">
@@ -738,6 +876,974 @@
                     </div>
 
                 </section>
+
+                <!-- ========== FailQuery Page (استعلام عن مرتدات - البوابة الخارجية) ========== -->
+                <section id="page-failquery" class="page-content hidden" dir="rtl" style="direction: rtl; text-align: right;">
+                    <style>
+                        #page-failquery:not(.hidden) { 
+                            direction: rtl; 
+                            text-align: right; 
+                            font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+                            height: auto !important;
+                            display: flex !important;
+                            flex-direction: column !important;
+                            overflow: visible !important;
+                            box-sizing: border-box !important;
+                        }
+                        #page-failquery.hidden {
+                            display: none !important;
+                        }
+                        .fq-toolbar { padding: 12px 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; direction: rtl; }
+                        .fq-btn { padding: 8px 18px; border-radius: 10px; border: 1px solid rgba(99,102,241,0.3); background: rgba(99,102,241,0.12); color: #c7d2fe; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; font-family: inherit; }
+                        .fq-btn:hover { background: rgba(99,102,241,0.25); transform: translateY(-1px); }
+                        .fq-search { flex:1; max-width:420px; padding:8px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.1); background:rgba(15,23,42,0.6); color:#e2e8f0; font-size:0.85rem; font-family:inherit; outline:none; text-align: right; direction: rtl; }
+                        .fq-search:focus { border-color: rgba(0,240,255,0.5); }
+                        .fq-panel { 
+                            background: rgba(15,23,42,0.6); 
+                            border: 1px solid rgba(255,255,255,0.06); 
+                            border-radius: 14px; 
+                            overflow: hidden; 
+                            backdrop-filter: blur(8px); 
+                            margin-bottom: 0; 
+                            width: 100%; 
+                            direction: rtl; 
+                            display: flex !important;
+                            flex-direction: column !important;
+                        }
+                        
+                        /* Scrollbar & Height Styles */
+                        .fq-table-wrap {
+                            height: calc(100vh - 530px) !important;
+                            max-height: calc(100vh - 530px) !important;
+                            min-height: 250px !important;
+                            overflow-x: scroll !important;
+                            overflow-y: scroll !important;
+                            width: 100% !important;
+                            border: 3px solid #00f0ff !important;
+                            border-radius: 14px !important;
+                            background: rgba(15, 23, 42, 0.98) !important;
+                            box-shadow: 0 0 25px rgba(0, 240, 255, 0.5), inset 0 0 15px rgba(0, 240, 255, 0.2) !important;
+                            scrollbar-width: auto !important;
+                            scrollbar-color: #00f0ff #090d16 !important;
+                            margin-bottom: 25px !important;
+                        }
+                        .fq-table-wrap::-webkit-scrollbar {
+                            width: 20px !important;
+                            height: 20px !important;
+                            display: block !important;
+                        }
+                        .fq-table-wrap::-webkit-scrollbar-track {
+                            background: #090d16 !important;
+                            border: 1px solid rgba(0, 240, 255, 0.3) !important;
+                        }
+                        .fq-table-wrap::-webkit-scrollbar-thumb {
+                            background: linear-gradient(135deg, #00f0ff, #0284c7) !important;
+                            border-radius: 6px !important;
+                            border: 2px solid #090d16 !important;
+                            box-shadow: 0 0 18px rgba(0, 240, 255, 1) !important;
+                        }
+                        .fq-table-wrap::-webkit-scrollbar-thumb:hover {
+                            background: #38bdf8 !important;
+                            box-shadow: 0 0 25px #00f0ff !important;
+                        }
+
+
+
+                        .fq-table { width: 100%; min-width: 2500px !important; border-collapse: collapse; font-size: 0.83rem; white-space: nowrap; direction: rtl; text-align: right; }
+                        .fq-table thead th { position: sticky; top: 0; background: #0f172a; color: #94a3b8; padding: 12px 14px; text-align: right; font-weight: 600; font-size: 0.8rem; border-bottom: 1px solid rgba(0,240,255,0.3); z-index: 25; }
+                        .fq-table tbody td { text-align: right !important; padding: 10px 14px; background: #0f172a; }
+                        .fq-table tbody tr:hover td { background: #1e293b !important; }
+                        .fq-sticky-right-1 { position: sticky !important; right: 0 !important; background: #0f172a !important; z-index: 15 !important; border-left: 1px solid rgba(99,102,241,0.2) !important; width: 50px; min-width: 50px; text-align: center !important; }
+                        .fq-sticky-right-2 { position: sticky !important; right: 50px !important; background: #0f172a !important; z-index: 14 !important; border-left: 1px solid rgba(99,102,241,0.2) !important; font-weight: 700; color: #00f0ff !important; min-width: 180px; }
+                        .fq-sticky-right-3 { position: sticky !important; right: 230px !important; background: #0f172a !important; z-index: 13 !important; border-left: 1px solid rgba(99,102,241,0.2) !important; min-width: 140px; }
+                        .fq-sticky-left-action { position: sticky !important; left: 0 !important; background: #0f172a !important; z-index: 22 !important; border-right: 1px solid rgba(0,240,255,0.4) !important; text-align: center !important; width: 350px !important; min-width: 350px !important; }
+                        .fq-table tbody tr:hover .fq-sticky-left-action,
+                        .fq-table tbody tr:hover .fq-sticky-right-1,
+                        .fq-table tbody tr:hover .fq-sticky-right-2,
+                        .fq-table tbody tr:hover .fq-sticky-right-3 { background: #1e293b !important; }
+                        .fq-edit-btn { padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(0,240,255,0.6); background: rgba(0,240,255,0.18); color: #00f0ff; cursor: pointer; font-size: 0.78rem; font-weight: 800; font-family: inherit; transition: all 0.2s; }
+                        .fq-edit-btn:hover { background: #00f0ff; color: #000; box-shadow: 0 0 10px rgba(0,240,255,0.8); transform: translateY(-1px); }
+                        .fq-filter-label { font-size: 0.75rem; color: #94a3b8; font-weight: 600; margin-bottom: 4px; display: block; text-align: right; }
+
+                        .btn-action-edit {
+                            padding: 4px 10px;
+                            border-radius: 8px;
+                            border: 1px solid rgba(0, 240, 255, 0.6);
+                            background: rgba(0, 240, 255, 0.15);
+                            color: #00f0ff;
+                            cursor: pointer;
+                            font-size: 0.78rem;
+                            font-weight: 800;
+                            font-family: inherit;
+                            transition: all 0.2s ease;
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                        }
+                        .btn-action-edit:hover {
+                            background: #00f0ff;
+                            color: #000;
+                            box-shadow: 0 0 10px rgba(0, 240, 255, 0.8);
+                            transform: translateY(-1px);
+                        }
+
+                        .tas-toggle-label {
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 4px;
+                            padding: 4px 10px;
+                            border-radius: 8px;
+                            font-size: 0.78rem;
+                            font-weight: 700;
+                            cursor: pointer;
+                            user-select: none;
+                            transition: all 0.2s ease;
+                            border: 1px solid rgba(245, 158, 11, 0.4);
+                            background: rgba(245, 158, 11, 0.1);
+                            color: #fbbf24;
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                        }
+                        .tas-toggle-label.checked {
+                            border-color: rgba(16, 185, 129, 0.6);
+                            background: rgba(16, 185, 129, 0.2);
+                            color: #34d399;
+                            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+                        }
+
+                        .btn-action-send {
+                            padding: 4px 10px;
+                            border-radius: 8px;
+                            border: 1px solid rgba(245, 158, 11, 0.6);
+                            background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.4));
+                            color: #fef08a;
+                            cursor: pointer;
+                            font-size: 0.78rem;
+                            font-weight: 800;
+                            font-family: inherit;
+                            transition: all 0.2s ease;
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                        }
+                        .btn-action-send:hover {
+                            background: #f59e0b;
+                            color: #000;
+                            box-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
+                            transform: translateY(-1px);
+                        }
+
+                        #modrc-table {
+                            min-width: 1800px !important;
+                        }
+                        #modrc-table th:last-child,
+                        #modrc-table td:last-child {
+                            width: 120px !important;
+                            min-width: 120px !important;
+                            max-width: 140px !important;
+                            white-space: nowrap !important;
+                        }
+                        .modrc-action-btn-group {
+                            display: flex !important;
+                            flex-direction: row !important;
+                            flex-wrap: nowrap !important;
+                            align-items: center !important;
+                            justify-content: center !important;
+                            gap: 4px !important;
+                            width: 100% !important;
+                        }
+
+                        .btn-action-retrieve {
+                            padding: 4px 10px;
+                            border-radius: 8px;
+                            border: 1px solid rgba(16, 185, 129, 0.6);
+                            background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.4));
+                            color: #6ee7b7;
+                            cursor: pointer;
+                            font-size: 0.78rem;
+                            font-weight: 800;
+                            font-family: inherit;
+                            transition: all 0.2s ease;
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                        }
+                        .btn-action-retrieve:hover {
+                            background: #10b981;
+                            color: #000;
+                            box-shadow: 0 0 12px rgba(16, 185, 129, 0.8);
+                            transform: translateY(-1px);
+                        }
+
+                        /* 1. التعديل من المنظومة الجديدة (Emerald Green) */
+                        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+                        tr.fq-edited-row-new td {
+                            background: rgba(16, 185, 129, 0.18) !important;
+                            color: #ecfdf5 !important;
+                            border-bottom: 1px solid rgba(16, 185, 129, 0.3) !important;
+                        }
+                        tr.fq-edited-row-new .fq-sticky-right-1,
+                        tr.fq-edited-row-new .fq-sticky-right-2,
+                        tr.fq-edited-row-new .fq-sticky-right-3,
+                        tr.fq-edited-row-new .fq-sticky-left-action {
+                            background: #064e3b !important;
+                            color: #a7f3d0 !important;
+                        }
+                        .fq-table tbody tr.fq-edited-row-new:hover td,
+                        .fq-table tbody tr.fq-edited-row-new:hover .fq-sticky-right-1,
+                        .fq-table tbody tr.fq-edited-row-new:hover .fq-sticky-right-2,
+                        .fq-table tbody tr.fq-edited-row-new:hover .fq-sticky-right-3,
+                        .fq-table tbody tr.fq-edited-row-new:hover .fq-sticky-left-action {
+                            background: #047857 !important;
+                        }
+                        .fq-edited-badge-new {
+                            background: linear-gradient(135deg, #059669, #10b981);
+                            color: #ffffff;
+                            padding: 3px 10px;
+                            border-radius: 6px;
+                            font-weight: 700;
+                            font-size: 0.85rem;
+                            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+                            display: inline-block;
+                            letter-spacing: 0.5px;
+                            cursor: help;
+                        }
+
+                        /* 2. التعديل من المنظومة القديمة (Amber / Gold / Orange) */
+                        tr.fq-edited-row-old td {
+                            background: rgba(245, 158, 11, 0.20) !important;
+                            color: #fffbeb !important;
+                            border-bottom: 1px solid rgba(245, 158, 11, 0.35) !important;
+                        }
+                        tr.fq-edited-row-old .fq-sticky-right-1,
+                        tr.fq-edited-row-old .fq-sticky-right-2,
+                        tr.fq-edited-row-old .fq-sticky-right-3,
+                        tr.fq-edited-row-old .fq-sticky-left-action {
+                            background: #78350f !important;
+                            color: #fde68a !important;
+                        }
+                        .fq-table tbody tr.fq-edited-row-old:hover td,
+                        .fq-table tbody tr.fq-edited-row-old:hover .fq-sticky-right-1,
+                        .fq-table tbody tr.fq-edited-row-old:hover .fq-sticky-right-2,
+                        .fq-table tbody tr.fq-edited-row-old:hover .fq-sticky-right-3,
+                        .fq-table tbody tr.fq-edited-row-old:hover .fq-sticky-left-action {
+                            background: #b45309 !important;
+                        }
+                        .fq-edited-badge-old {
+                            background: linear-gradient(135deg, #d97706, #f59e0b);
+                            color: #ffffff;
+                            padding: 3px 10px;
+                            border-radius: 6px;
+                            font-weight: 700;
+                            font-size: 0.85rem;
+                            box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+                            display: inline-block;
+                            letter-spacing: 0.5px;
+                            cursor: help;
+                        }
+                        .fq-sync-badge {
+                            padding: 3px 10px;
+                            border-radius: 6px;
+                            font-size: 0.78rem;
+                            font-weight: 700;
+                            display: inline-block;
+                        }
+                        .fq-sync-badge.synced {
+                            background: rgba(16, 185, 129, 0.25);
+                            color: #34d399;
+                            border: 1px solid rgba(16, 185, 129, 0.5);
+                        }
+                        .fq-sync-badge.pending {
+                            background: rgba(245, 158, 11, 0.25);
+                            color: #fbbf24;
+                            border: 1px solid rgba(245, 158, 11, 0.5);
+                        }
+                    </style>
+
+                    <!-- Stats Bar (Live Data Premium Style) -->
+                    <div class="dashboard-stats-row-pro search-stats-summary" style="width: 100%; margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+                        <div class="stat-card-pro pro-total-summary" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="stat-details-pro">
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block;">إجمالي الدفعات التاريخية</span>
+                                <span class="stat-value" id="fq-batchCount" style="font-size: 1.4rem; font-weight: 800; color: #00f0ff;">--</span>
+                            </div>
+                            <div class="stat-icon" style="background: rgba(0, 240, 255, 0.1); color: #00f0ff; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                📦
+                            </div>
+                        </div>
+                        <div class="stat-card-pro pro-pending" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="stat-details-pro">
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block;">إجمالي معاملات المرتدات</span>
+                                <span class="stat-value" id="fq-txnCount" style="font-size: 1.4rem; font-weight: 800; color: #fbbf24;">--</span>
+                            </div>
+                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                ⚡
+                            </div>
+                        </div>
+                        <div class="stat-card-pro" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="stat-details-pro">
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block;">النطاق الزمني للسجل</span>
+                                <span class="stat-value" id="fq-dateRange" style="font-size: 0.95rem; font-weight: 700; color: #a5b4fc;">--</span>
+                            </div>
+                            <div class="stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                📅
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filter Control Bar (Matching Live Data Page) -->
+                    <div class="dashboard-controls-row-pro" style="width: 100%; margin-bottom: 16px; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 14px 18px; direction: rtl;">
+                        <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; justify-content: space-between; direction: rtl;">
+                            
+                            <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; flex: 1; direction: rtl;">
+                                <!-- Live Search Input -->
+                                <div style="flex: 2; min-width: 260px;">
+                                    <span class="fq-filter-label">🔍 البحث المباشر السريع</span>
+                                    <input type="text" class="fq-search" id="fq-searchInput" placeholder="البحث المباشر بالاسم، الرقم القومي، رقم الحساب، كود البنك، أو رقم الدفعة..." oninput="window.failqueryPage.filterData()" style="width: 100%; max-width: 100%;">
+                                </div>
+                                <div style="min-width: 110px;">
+                                    <span class="fq-filter-label">السنة</span>
+                                    <select class="fq-search" id="fq-yearFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
+                                        <option value="all">كل السنوات</option>
+                                        <option value="2026">2026</option>
+                                        <option value="2025">2025</option>
+                                        <option value="2024">2024</option>
+                                    </select>
+                                </div>
+                                <div style="min-width: 130px;">
+                                    <span class="fq-filter-label">الشهر</span>
+                                    <select class="fq-search" id="fq-monthFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
+                                        <option value="all">كل الشهور</option>
+                                        <option value="01">يناير</option>
+                                        <option value="02">فبراير</option>
+                                        <option value="03">مارس</option>
+                                        <option value="04">أبريل</option>
+                                        <option value="05">مايو</option>
+                                        <option value="06">يونيو</option>
+                                        <option value="07">يوليو</option>
+                                        <option value="08">أغسطس</option>
+                                        <option value="09">سبتمبر</option>
+                                        <option value="10">أكتوبر</option>
+                                        <option value="11">نوفمبر</option>
+                                        <option value="12">ديسمبر</option>
+                                    </select>
+                                </div>
+                                <div style="min-width: 120px;">
+                                    <span class="fq-filter-label">نوع الغرض</span>
+                                    <select class="fq-search" id="fq-purposeFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
+                                        <option value="all">كل الأغراض</option>
+                                        <option value="Salary">مرتبات</option>
+                                        <option value="Incentive">حوافز</option>
+                                    </select>
+                                </div>
+                                <div style="min-width: 130px;">
+                                    <span class="fq-filter-label">البنك الأصلي</span>
+                                    <select class="fq-search" id="fq-bankFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
+                                        <option value="all">جميع البنوك</option>
+                                    </select>
+                                </div>
+                                <div style="min-width: 140px;">
+                                    <span class="fq-filter-label">سبب الارتداد</span>
+                                    <select class="fq-search" id="fq-reasonFilter" onchange="window.failqueryPage.filterData()" style="width: 100%; padding: 8px;">
+                                        <option value="all">جميع الأسباب</option>
+                                    </select>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                <button class="fq-btn" onclick="window.failqueryPage.loadData()" style="background: linear-gradient(135deg, rgba(0,240,255,0.15), rgba(2,132,199,0.2)); border-color: rgba(0,240,255,0.4); color: #00f0ff; padding: 8px 16px; font-weight:700;" title="تحديث يدوي">🔄 تحديث يدوي</button>
+                                <div id="fq-auto-refresh-indicator" style="display:flex; align-items:center; gap:6px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); border-radius:8px; padding:6px 12px; font-size:13px; color:#4ade80;">
+                                    <span style="animation: spin 2s linear infinite; display:inline-block;">⟳</span>
+                                    <span>تحديث تلقائي كل 30ث</span>
+                                    <span id="fq-auto-badge" style="background:rgba(16,185,129,0.25); border-radius:6px; padding:2px 8px; font-weight:700; min-width:32px; text-align:center; transition:background 0.3s;">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Continuous Scroll Grid View (Fills Available Height) -->
+                    <div class="fq-panel" id="fq-liveDataPanel" style="margin-bottom:0; display:flex; flex-direction:column;">
+                        <div id="fq-bulkActionBar" class="pro-bulk-bar">
+                            <div class="pro-bulk-info">
+                                <i class="fas fa-tasks" style="font-size:1.1rem; color:#f59e0b;"></i>
+                                <span>تم تحديد</span>
+                                <span class="pro-count-badge" id="fq-selectedCountText">0 معاملة</span>
+                            </div>
+                            <div style="display:flex; gap:10px; align-items:center;">
+                                <button class="btn-pro-bulk" onclick="window.failqueryPage.transferSelectedToHossam()" style="background: linear-gradient(135deg, #059669, #10b981);" title="قبول وإرسال العمليات المحددة إلى رئيس القسم حسام السيد">
+                                    <i class="fas fa-paper-plane"></i> قبول وإرسال العمليات المحددة إلى رئيس القسم
+                                </button>
+                                <button class="btn-pro-bulk" onclick="window.failqueryPage.rejectSelected()" style="background: linear-gradient(135deg, #dc2626, #ef4444);" title="رفض العمليات المحددة وتأكيد الرفض">
+                                    <i class="fas fa-times-circle"></i> رفض العمليات المحددة
+                                </button>
+                            </div>
+                        </div>
+                        <div class="fq-table-wrap" id="fq-liveTableWrap" style="flex: 1; height: 100%; min-height: 0;">
+                            <div class="fq-loading" id="fq-batchLoading"><div class="fq-spinner"></div>جاري جلب كافة البيانات المباشرة...</div>
+                            <table class="fq-table" id="fq-liveTable" style="display:none; width: 100%; border-collapse: collapse;">
+                                <thead><tr>
+                                    <th style="width:40px; text-align:center;"><input type="checkbox" id="fq-selectAll" onclick="window.failqueryPage.toggleSelectAll(this)" title="تحديد / إلغاء تحديد الكل"></th>
+                                    <th class="fq-sticky-right-1">#</th>
+                                    <th class="fq-sticky-right-2">اسم المستفيد</th>
+                                    <th class="fq-sticky-right-3">الرقم القومي</th>
+                                    <th>رقم الحساب الأصلي</th><th>كود البنك</th><th>فرع البنك</th><th>المبلغ</th><th>الحالة</th><th>السبب</th><th>رقم الدفعة</th><th>التاريخ</th><th>الحساب الجديد</th><th>البنك الجديد</th><th>الفرع الجديد</th><th>التسوية</th><th>المسلسل</th>
+                                    <th class="fq-sticky-left-action">العمليات</th>
+                                </tr></thead>
+                                <tbody id="fq-liveBody"></tbody>
+                            </table>
+                            <div class="fq-empty" id="fq-liveEmpty" style="display:none; padding: 40px; text-align: center; color: #94a3b8;">📭 لا توجد سجلات مطابقة</div>
+                        </div>
+                    </div>
+
+
+                    <script>
+                        window.failqueryPage = {
+                            allBatches: [], 
+                            allTxnsFlat: [], 
+                            filteredLiveTxns: [],
+                            renderChunkSize: 100,
+                            currentlyRenderedCount: 0,
+                            _autoTimer: null,
+                            _autoSeconds: 30,
+                            _countdownVal: 30,
+
+
+                            async loadData() {
+                                document.getElementById('fq-batchLoading').style.display = 'block';
+                                document.getElementById('fq-liveTable').style.display = 'none';
+                                try {
+                                    // 1. مزامنة فورية صريحة لسحب أي تعديل جديد أجري في البوابة القديمة
+                                    try { await fetch('/api/failquery/sync', { method: 'POST' }); } catch (e) {}
+
+                                    // 2. جلب البيانات المحفظة والمحدثة
+                                    const resp = await fetch('/api/failquery/history');
+                                    const data = await resp.json();
+                                    this.allBatches = Array.isArray(data) ? data : [];
+                                    this.extractAllFlatTransactions(this.allBatches);
+                                    this.setupInfiniteScroll();
+                                    this.filterData();
+                                } catch (err) { alert('Error: ' + err.message); }
+                            },
+
+                            // ====== التحديث التلقائي ======
+                            startAutoRefresh() {
+                                this.stopAutoRefresh();
+                                this._countdownVal = this._autoSeconds;
+                                this._updateCountdownUI();
+                                this._autoTimer = setInterval(() => {
+                                    this._countdownVal--;
+                                    this._updateCountdownUI();
+                                    if (this._countdownVal <= 0) {
+                                        this._countdownVal = this._autoSeconds;
+                                        this.silentRefresh();
+                                    }
+                                }, 1000);
+                            },
+
+                            stopAutoRefresh() {
+                                if (this._autoTimer) { clearInterval(this._autoTimer); this._autoTimer = null; }
+                                const badge = document.getElementById('fq-auto-badge');
+                                if (badge) badge.textContent = '--';
+                            },
+
+                            _updateCountdownUI() {
+                                const badge = document.getElementById('fq-auto-badge');
+                                if (badge) badge.textContent = this._countdownVal + 'ث';
+                            },
+
+                            async silentRefresh() {
+                                try {
+                                    try { await fetch('/api/failquery/sync', { method: 'POST' }); } catch(e) {}
+                                    const resp = await fetch('/api/failquery/history');
+                                    const _raw = await resp.json();
+                                    const newBatches = Array.isArray(_raw) ? _raw : [];
+                                    const newFlat = [];
+                                    newBatches.forEach(b => {
+                                        (b.transactions || []).forEach(t => {
+                                            newFlat.push({ ...t, batchId: t.batchId || b.batchId, receivingDate: (b.receivingDate||'').substring(0,10), purpose: b.purpose });
+                                        });
+                                    });
+                                    let changed = newFlat.length !== this.allTxnsFlat.length;
+                                    if (!changed) {
+                                        for (let i = 0; i < Math.min(newFlat.length, 1000); i++) {
+                                            const n = newFlat[i], o = this.allTxnsFlat[i];
+                                            if ((n.newCreditorAccount||'') !== (o.newCreditorAccount||'') || (n.sourceSystem||'') !== (o.sourceSystem||'')) { changed = true; break; }
+                                        }
+                                    }
+                                    if (changed) {
+                                        this.allBatches = newBatches;
+                                        this.allTxnsFlat = newFlat;
+                                        document.getElementById('fq-batchCount').textContent = newBatches.length.toLocaleString();
+                                        document.getElementById('fq-txnCount').textContent = newFlat.length.toLocaleString();
+                                        this.filterData();
+                                        const badge = document.getElementById('fq-auto-badge');
+                                        if (badge) { badge.style.background = 'rgba(16,185,129,0.5)'; badge.textContent = '✅ جديد!'; setTimeout(() => { badge.style.background=''; this._updateCountdownUI(); }, 3000); }
+                                    }
+                                } catch(e) {}
+                            },
+                            extractAllFlatTransactions(batches) {
+                                let list = [];
+                                batches.forEach(b => {
+                                    (b.transactions || []).forEach(t => {
+                                        list.push({ ...t, batchId: t.batchId || b.batchId, receivingDate: (b.receivingDate||'').substring(0, 10), purpose: b.purpose });
+                                    });
+                                });
+                                this.allTxnsFlat = list;
+                                document.getElementById('fq-batchCount').textContent = batches.length.toLocaleString();
+                                document.getElementById('fq-txnCount').textContent = list.length.toLocaleString();
+                            },
+                            renderLiveGrid(reset = true) {
+                                document.getElementById('fq-batchLoading').style.display = 'none';
+                                const body = document.getElementById('fq-liveBody');
+                                const wrap = document.getElementById('fq-liveTableWrap');
+
+                                if (this.filteredLiveTxns.length === 0) {
+                                    document.getElementById('fq-liveTable').style.display = 'none';
+                                    document.getElementById('fq-liveEmpty').style.display = 'block';
+                                    return;
+                                }
+
+                                document.getElementById('fq-liveTable').style.display = 'table';
+                                document.getElementById('fq-liveEmpty').style.display = 'none';
+
+                                if (reset) {
+                                    this.currentlyRenderedCount = 0;
+                                    body.innerHTML = '';
+                                    if (wrap) wrap.scrollTop = 0;
+                                }
+
+                                if (this.currentlyRenderedCount >= this.filteredLiveTxns.length) return;
+
+                                const nextCount = Math.min(this.currentlyRenderedCount + this.renderChunkSize, this.filteredLiveTxns.length);
+                                const slice = this.filteredLiveTxns.slice(this.currentlyRenderedCount, nextCount);
+
+                                const rowsHtml = slice.map((t, idx) => {
+                                    const i = this.currentlyRenderedCount + idx;
+                                    const isEdited = !!(t.newCreditorAccount && t.newCreditorAccount !== '--' && t.newCreditorAccount !== '0' && t.newCreditorAccount !== 'None');
+                                    const srcSysText = t.sourceSystem === 'OLD_SYSTEM' ? '🏛️ المنظومة القديمة (hiaapay)' : '💻 المنظومة الجديدة';
+                                    const syncStatusBadge = isEdited 
+                                        ? (t.portalSyncStatus === 'PENDING' 
+                                            ? '<span class="fq-sync-badge pending" title="جاري التسميع بالمنظومة القديمة">⏳ قيد المزامنة</span>' 
+                                            : '<span class="fq-sync-badge synced" title="تم التحديث والتسميع بالمنظومة القديمة بنجاح">✅ مُحدث بالبوابة القديمة</span>')
+                                        : '--';
+
+                                    let rawMod = t.modifiedBy || (t.sourceSystem === 'OLD_SYSTEM' ? 'المنظومة القديمة (hiaapay)' : 'يوزر الجهاز: esth633 | اسم المستخدم: أمين خالد عبدالحافظ');
+                                    let formattedMod = rawMod.replace(/ \| /g, '\n');
+                                    let modDate = t.modifiedAt ? `\n📅 تاريخ ووقت التعديل: ${t.modifiedAt}` : '';
+
+                                    const rowClass = isEdited ? 'fq-edited-row' : '';
+                                    const tooltipText = isEdited 
+                                        ? `تفاصيل التعديل:\n🌐 المنظومة: ${srcSysText}\n${formattedMod}${modDate}\n💳 الحساب الجديد: ${t.newCreditorAccount}` 
+                                        : '';
+                                    
+                                    const isSettled = (t.isSettlementChecked === true || t.isSettlementChecked === 1 || t.isSettlementChecked === '1');
+                                    const tasCheckedClass = isSettled ? 'checked' : '';
+                                    const tasLabelText = isSettled ? '✅ محدد كتسوية' : '☐ محدد كتسوية';
+
+                                    const stageBadge = (t.tasFlag == '1' || t.tasFlag === 1)
+                                        ? `<span class="badge-status warning" style="font-size:0.75em; padding:3px 8px;" title="موجودة لدى رئيس القسم (حسام السيد hossam-elsayed) جاهزة للتسوية والاعتماد">👔 رئيس قسم (حسام)</span>`
+                                        : ((t.tasFlag == '2' || t.tasFlag === 2) 
+                                            ? `<span class="badge-status success" style="font-size:0.75em; padding:3px 8px;" title="تم الاعتماد والتسوية بالكامل">✅ معتمدة ومسواة</span>`
+                                            : `<span class="badge-status info" style="font-size:0.75em; padding:3px 8px;" title="موجودة لدى المسوي (أمين خالد amin-khalid) بانتظار التسوية">👤 مسوي (أمين)</span>`);
+
+                                    const newAccCell = isEdited 
+                                        ? `<span class="fq-edited-badge" title="${tooltipText}">${t.newCreditorAccount} ✏️</span>` 
+                                        : (t.newCreditorAccount || '--');
+
+                                    return `
+                                        <tr class="${rowClass}" title="${tooltipText}">
+                                            <td style="text-align:center;"><input type="checkbox" class="fq-row-cb custom-cb" data-index="${i}" onchange="window.failqueryPage.updateSelectedCount()"></td>
+                                            <td class="fq-sticky-right-1">${i + 1}</td>
+                                            <td class="fq-sticky-right-2" title="${tooltipText}">${t.creditorName||'--'} ${isEdited ? '✏️' : ''}</td>
+                                            <td class="fq-sticky-right-3">${t.creditorNationalId||'--'}</td>
+                                            <td>${t.creditorAccount||'--'}</td><td>${t.creditorBic||'--'}</td><td>${t.creditorBranch||'--'}</td>
+                                            <td class="fq-amount">${(t.transactionAmount||0).toLocaleString()}</td>
+                                            <td><span class="fq-badge-returned">${t.transactionStatus||'--'}</span></td>
+                                            <td>${t.reason||'--'}</td><td>${t.batchId||'--'}</td><td>${t.receivingDate||'--'}</td>
+                                            <td>${newAccCell}</td><td>${t.newCreditorBic||'--'}</td><td>${t.newCreditorBranch||'--'}</td>
+                                            <td>${stageBadge}</td>
+                                            <td>${syncStatusBadge}</td>
+                                            <td class="fq-sticky-left-action" style="display:flex; gap:6px; align-items:center; justify-content:center;">
+                                                <button class="btn-action-edit" onclick="window.failqueryPage.openEditModalByIndex(${i})" title="تعديل بيانات الحساب والمعاملة">✏️</button>
+                                                <label class="tas-toggle-label ${tasCheckedClass}" title="${isSettled ? 'إلغاء محدد كتسوية' : 'تحديد المعاملة كمحدد كتسوية'}">
+                                                    <input type="checkbox" class="custom-cb" ${isSettled ? 'checked' : ''} onchange="window.failqueryPage.toggleSettlementCheckDirect(${i}, this.checked)">
+                                                    <span>${isSettled ? '✅' : '☐'}</span>
+                                                </label>
+                                                <button class="btn-action-send" onclick="window.failqueryPage.transferToHossamDirect(${i})" title="إرسال وتحويل المعاملة لرئيس القسم (حسام السيد)">📤</button>
+                                                ${(t.tasFlag == '1' || t.tasFlag === 1) ? '<button class="btn-action-retrieve" onclick="window.failqueryPage.retrieveFromHossamDirect('+i+')" title="استرجاع / سحب المعاملة من رئيس القسم إلى شاشة أمين">🔄</button>' : ''}
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('');
+
+                                body.insertAdjacentHTML('beforeend', rowsHtml);
+                                this.currentlyRenderedCount = nextCount;
+                            },
+                            toggleSelectAll(mainCb) {
+                                const checkboxes = document.querySelectorAll('.fq-row-cb');
+                                checkboxes.forEach(cb => cb.checked = mainCb.checked);
+                                this.updateSelectedCount();
+                            },
+                            updateSelectedCount() {
+                                const selected = document.querySelectorAll('.fq-row-cb:checked');
+                                const count = selected.length;
+                                const el = document.getElementById('fq-selectedCountText');
+                                if (el) el.textContent = `${count} معاملة محددة`;
+                                const bar = document.getElementById('fq-bulkActionBar');
+                                if (bar) {
+                                    bar.style.display = count > 0 ? 'flex' : 'none';
+                                }
+                            },
+                            async toggleSettlementCheckDirect(index, isChecked) {
+                                const txn = this.filteredLiveTxns[index];
+                                if (!txn) return;
+
+                                try {
+                                    const resp = await fetch('/api/failquery/toggle-settlement-check', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            id: txn.id || 0,
+                                            batchId: txn.batchId || '',
+                                            account: txn.creditorAccount || '',
+                                            nationalId: txn.creditorNationalId || '',
+                                            name: txn.creditorName || '',
+                                            isChecked: isChecked
+                                        })
+                                    });
+                                    const json = await resp.json();
+                                    if (json.success) {
+                                        txn.isSettlementChecked = isChecked;
+                                        this.renderLiveGrid(true);
+                                        if (window.app && typeof window.app.loadModifiedRecords === 'function') {
+                                            window.app.loadModifiedRecords();
+                                        }
+                                    } else {
+                                        alert('❌ خطأ: ' + (json.error || 'فشلت عملية تحديث التحديد'));
+                                    }
+                                } catch(e) {
+                                    alert('❌ خطأ في الاتصال بالخادم');
+                                }
+                            },
+                            async transferSelectedToHossam() {
+                                const selectedCbs = Array.from(document.querySelectorAll('.fq-row-cb:checked'));
+                                if (selectedCbs.length === 0) {
+                                    alert('⚠️ يرجى تحديد معاملة واحدة على الأقل من خانات الاختيار (Checkboxes) أولاً.');
+                                    return;
+                                }
+
+                                const payload = selectedCbs.map(cb => {
+                                    const idx = parseInt(cb.dataset.index, 10);
+                                    const txn = this.filteredLiveTxns[idx];
+                                    return {
+                                        id: txn.id || 0,
+                                        batchId: txn.batchId || '',
+                                        account: txn.creditorAccount || '',
+                                        nationalId: txn.creditorNationalId || '',
+                                        name: txn.creditorName || ''
+                                    };
+                                });
+
+                                if (!confirm(`هل أنت تأكد من إجراء "قبول وإرسال إلى رئيس القسم" لـ ${payload.length} معاملة محددة؟\nستختفي المعاملات فوراً من شاشة المسوي (أمين) وتنتقل إلى رئيس القسم (حسام السيد).`)) return;
+
+                                try {
+                                    const resp = await fetch('/api/failquery/bulk-transfer-to-hossam', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(payload)
+                                    });
+                                    const json = await resp.json();
+                                    if (json.success) {
+                                        // تحديث شارة الحالة فقط (tasFlag → 1) مع إبقاء السجل ظاهراً
+                                        payload.forEach(item => {
+                                            const txn = this.allTxnsFlat.find(t =>
+                                                (item.id && item.id > 0 && (t.id == item.id || t.id === item.id)) ||
+                                                (item.name && t.creditorName === item.name && t.batchId === item.batchId)
+                                            );
+                                            if (txn) txn.tasFlag = 1;
+                                        });
+                                        // إلغاء تحديد الـ Checkboxes وإخفاء شريط الأزرار
+                                        document.querySelectorAll('.fq-row-cb').forEach(cb => cb.checked = false);
+                                        const bar = document.getElementById('fq-bulkActionBar');
+                                        if (bar) bar.style.display = 'none';
+                                        this.filterData();
+                                        this.renderLiveGrid(true);
+                                        alert(`✅ تم إرسال ${payload.length} معاملة لرئيس القسم (حسام السيد) بنجاح. السجلات ظاهرة بحالة "رئيس قسم"`);
+                                    } else {
+                                        alert('❌ خطأ: ' + (json.error || 'فشلت عملية التحويل'));
+                                    }
+                                } catch(e) {
+                                    alert('❌ خطأ في الاتصال بالخادم');
+                                }
+                            },
+                            async rejectSelected() {
+                                const selectedCbs = Array.from(document.querySelectorAll('.fq-row-cb:checked'));
+                                if (selectedCbs.length === 0) {
+                                    alert('⚠️ يرجى تحديد معاملة واحدة على الأقل من خانات الاختيار (Checkboxes) أولاً.');
+                                    return;
+                                }
+
+                                const reason = prompt('أدخل سبب رفض المعاملات المحددة:', 'مرفوضة من قبل أمين القسم');
+                                if (reason === null) return;
+
+                                const payload = selectedCbs.map(cb => {
+                                    const idx = parseInt(cb.dataset.index, 10);
+                                    const txn = this.filteredLiveTxns[idx];
+                                    return {
+                                        id: txn.id || 0,
+                                        batchId: txn.batchId || '',
+                                        account: txn.creditorAccount || '',
+                                        nationalId: txn.creditorNationalId || '',
+                                        name: txn.creditorName || '',
+                                        reason: reason
+                                    };
+                                });
+
+                                if (!confirm(`هل أنت تأكد من إجراء "رفض المعاملات المحددة" لـ ${payload.length} معاملة؟`)) return;
+
+                                try {
+                                    const resp = await fetch('/api/failquery/bulk-reject', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(payload)
+                                    });
+                                    const json = await resp.json();
+                                    if (json.success) {
+                                        alert('✅ ' + json.message);
+                                        payload.forEach(item => {
+                                            const txn = this.filteredLiveTxns.find(t => (t.id > 0 && t.id === item.id) || (t.creditorAccount && t.creditorAccount === item.account));
+                                            if (txn) { txn.transactionStatus = 'Rejected'; txn.reason = reason; }
+                                        });
+                                        this.renderLiveGrid(true);
+                                    } else {
+                                        alert('❌ خطأ: ' + (json.error || 'فشلت عملية الرفض'));
+                                    }
+                                } catch(e) {
+                                    alert('❌ خطأ في الاتصال بالخادم');
+                                }
+                            },
+                            setupInfiniteScroll() {
+                                const wrap = document.getElementById('fq-liveTableWrap');
+                                if (!wrap || wrap.dataset.scrollSetup) return;
+                                wrap.dataset.scrollSetup = 'true';
+                                wrap.addEventListener('scroll', () => {
+                                    if (this.currentlyRenderedCount >= this.filteredLiveTxns.length) return;
+                                    if (wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 400) {
+                                        this.renderLiveGrid(false);
+                                    }
+                                });
+                            },
+                            openEditModalByIndex(index) {
+                                const txn = this.filteredLiveTxns[index];
+                                if (txn) this.openEditModal(txn);
+                            },
+                            async transferToHossamDirect(index) {
+                                const txn = this.filteredLiveTxns[index];
+                                if (!txn) return;
+                                if (!confirm(`هل أنت تأكد من إجراء "قبول وإرسال إلى رئيس القسم" للمعاملة "${txn.creditorName}"؟\nستختفي المعاملة فوراً من شاشة أمين بالمنظومة القديمة وتنتقل إلى شاشة رئيس القسم (حسام السيد).`)) return;
+
+                                try {
+                                    const resp = await fetch('/api/failquery/transfer-to-hossam', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            id: txn.id || 0,
+                                            batchId: txn.batchId || '',
+                                            account: txn.creditorAccount || '',
+                                            nationalId: txn.creditorNationalId || '',
+                                            name: txn.creditorName || ''
+                                        })
+                                    });
+                                    const json = await resp.json();
+                                    if (json.success) {
+                                        txn.tasFlag = '1';
+                                        this.renderLiveGrid(true);
+                                        alert('✅ ' + json.message);
+                                    } else {
+                                        alert('❌ خطأ: ' + (json.error || 'فشلت المزامنة'));
+                                    }
+                                } catch(e) {
+                                    alert('❌ خطأ في الاتصال بالسيرفر');
+                                }
+                            },
+                            async retrieveFromHossamDirect(index) {
+                                const txn = this.filteredLiveTxns[index];
+                                if (!txn) return;
+                                if (!confirm(`هل أنت تأكد من إجراء "استرجاع المعاملة من رئيس القسم" للمعاملة "${txn.creditorName}"؟\nستعاق المعاملة فوراً وتظهر مجدداً في شاشة أمين بالمنظومة القديمة.`)) return;
+
+                                try {
+                                    const resp = await fetch('/api/failquery/retrieve-from-hossam', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            id: txn.id || 0,
+                                            batchId: txn.batchId || '',
+                                            account: txn.creditorAccount || '',
+                                            nationalId: txn.creditorNationalId || '',
+                                            name: txn.creditorName || ''
+                                        })
+                                    });
+                                    const json = await resp.json();
+                                    if (json.success) {
+                                        txn.tasFlag = '0';
+                                        this.renderLiveGrid(true);
+                                        alert('✅ ' + json.message);
+                                    } else {
+                                        alert('❌ خطأ: ' + (json.error || 'فشلت المزامنة'));
+                                    }
+                                } catch(e) {
+                                    alert('❌ خطأ في الاتصال بالسيرفر');
+                                }
+                            },
+                            filterData() {
+                                const q = (document.getElementById('fq-searchInput')?.value || '').trim().toLowerCase();
+                                const year = document.getElementById('fq-yearFilter')?.value || 'all';
+                                const month = document.getElementById('fq-monthFilter')?.value || 'all';
+                                const purpose = document.getElementById('fq-purposeFilter')?.value || 'all';
+                                const bank = document.getElementById('fq-bankFilter')?.value || 'all';
+                                const reason = document.getElementById('fq-reasonFilter')?.value || 'all';
+
+                                let list = this.allTxnsFlat.filter(t => {
+                                    if (year !== 'all' && !(t.receivingDate || '').startsWith(year)) return false;
+                                    if (month !== 'all' && !(t.receivingDate || '').includes('-' + month + '-')) return false;
+                                    if (purpose !== 'all' && t.purpose !== purpose) return false;
+                                    if (bank !== 'all' && t.creditorBic !== bank) return false;
+                                    if (reason !== 'all' && t.reason !== reason) return false;
+                                    if (q) {
+                                        const matchQ = (t.batchId || '').toLowerCase().includes(q) ||
+                                            (t.creditorName || '').toLowerCase().includes(q) ||
+                                            (t.creditorAccount || '').toLowerCase().includes(q) ||
+                                            (t.creditorNationalId || '').toLowerCase().includes(q) ||
+                                            (t.reason || '').toLowerCase().includes(q);
+                                        if (!matchQ) return false;
+                                    }
+                                    return true;
+                                });
+
+                                this.filteredLiveTxns = list;
+                                this.renderLiveGrid(true);
+                            },
+                            openEditModal(txn) {
+                                document.getElementById('fqEdit-txnId').value = txn.id || '';
+                                document.getElementById('fqEdit-batchId').value = txn.batchId || '';
+                                document.getElementById('fqEdit-nationalId').value = txn.creditorNationalId || '';
+                                document.getElementById('fqEdit-account').value = txn.creditorAccount || '';
+                                document.getElementById('fqEdit-name').value = txn.creditorName || '--';
+                                document.getElementById('fqEdit-newAccount').value = txn.newCreditorAccount || '';
+                                document.getElementById('fqEdit-newBic').value = txn.newCreditorBic || '';
+                                document.getElementById('fqEdit-newBranch').value = txn.newCreditorBranch || '';
+                                document.getElementById('fqEdit-tasFlag').value = (txn.tasFlag !== undefined && txn.tasFlag !== null) ? txn.tasFlag : '0';
+
+                                const modal = document.getElementById('fq-editModal');
+                                modal.classList.remove('hidden');
+                                modal.style.display = 'flex';
+                            },
+                            closeEditModal() {
+                                const modal = document.getElementById('fq-editModal');
+                                modal.classList.add('hidden');
+                                modal.style.display = 'none';
+                            },
+                            async saveTransactionEdit(e) {
+                                e.preventDefault();
+                                const saveBtn = document.getElementById('fqEdit-saveBtn');
+                                saveBtn.disabled = true;
+                                saveBtn.textContent = '⏳ جاري الحفظ...';
+
+                                const txnId = document.getElementById('fqEdit-txnId').value;
+                                const batchId = document.getElementById('fqEdit-batchId').value;
+                                const creditorNationalId = document.getElementById('fqEdit-nationalId').value;
+                                const creditorAccount = document.getElementById('fqEdit-account').value;
+                                const creditorName = document.getElementById('fqEdit-name').value;
+                                const newCreditorAccount = document.getElementById('fqEdit-newAccount').value;
+                                const newCreditorBic = document.getElementById('fqEdit-newBic').value;
+                                const newCreditorBranch = document.getElementById('fqEdit-newBranch').value;
+                                const tasFlag = document.getElementById('fqEdit-tasFlag').value;
+
+                                const payload = {
+                                    id: txnId,
+                                    batchId,
+                                    creditorNationalId,
+                                    creditorAccount,
+                                    creditorName,
+                                    newCreditorAccount,
+                                    newCreditorBic,
+                                    newCreditorBranch,
+                                    tasFlag
+                                };
+
+                                try {
+                                    const resp = await fetch('/api/failquery/update-transaction', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(payload)
+                                    });
+                                    const res = await resp.json();
+                                    if (res.success) {
+                                        // تحديث الذاكرة فورياً لتظهر القيم المعدلة فوراً في الجدول
+                                        const updateObj = (item) => {
+                                            if (item) {
+                                                item.newCreditorAccount = newCreditorAccount;
+                                                item.newCreditorBic = newCreditorBic;
+                                                item.newCreditorBranch = newCreditorBranch;
+                                                item.tasFlag = tasFlag;
+                                            }
+                                        };
+
+                                        if (txnId) {
+                                            updateObj(this.allTxnsFlat.find(t => String(t.id) === String(txnId)));
+                                            updateObj(this.filteredLiveTxns.find(t => String(t.id) === String(txnId)));
+                                        } else {
+                                            updateObj(this.allTxnsFlat.find(t => t.batchId === batchId && (t.creditorNationalId === creditorNationalId || t.creditorAccount === creditorAccount)));
+                                            updateObj(this.filteredLiveTxns.find(t => t.batchId === batchId && (t.creditorNationalId === creditorNationalId || t.creditorAccount === creditorAccount)));
+                                        }
+
+                                         if (window.app && typeof window.app.loadModifiedRecords === 'function') {
+                                             window.app.loadModifiedRecords();
+                                         }
+                                         alert('✅ تم حفظ التعديلات بنجاح في قاعدة البيانات المحلية!');
+                                         this.closeEditModal();
+                                         this.renderLiveGrid(true);
+                                     } else {
+                                         alert('⚠️ خطأ في الحفظ: ' + (res.error || 'فشلت العملية'));
+                                     }
+                                 } catch (err) {
+                                     alert('⚠️ خطأ أثناء الاتصال بالخادم: ' + err.message);
+                                 } finally {
+                                     saveBtn.disabled = false;
+                                     saveBtn.textContent = '💾 حفظ التعديلات';
+                                 }
+                             }
+                         };
+                     </script>
+                 </section>
+
+                 <!-- Transaction Edit Modal (Global) -->
+                 <div id="fq-editModal" class="modal hidden" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.75); z-index:99999; display:none; align-items:center; justify-content:center; backdrop-filter:blur(6px);">
+                     <div style="background:#0f172a; border:1px solid rgba(0,240,255,0.4); border-radius:16px; width:90%; max-width:550px; padding:24px; color:#e2e8f0; direction:rtl;">
+                         <h3 style="margin:0 0 16px; color:#00f0ff;">✏️ تعديل بيانات المعاملة الفاشلة</h3>
+                         <form id="fq-editForm" onsubmit="window.failqueryPage.saveTransactionEdit(event)">
+                             <input type="hidden" id="fqEdit-txnId">
+                             <input type="hidden" id="fqEdit-batchId">
+                             <input type="hidden" id="fqEdit-nationalId">
+                             <input type="hidden" id="fqEdit-account">
+                             <div style="margin-bottom:12px;"><label style="font-size:0.8rem; color:#94a3b8;">اسم المستفيد:</label><input type="text" id="fqEdit-name" readonly style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:#94a3b8;"></div>
+                             <div style="margin-bottom:12px;"><label style="font-size:0.8rem; color:#94a3b8;">رقم الحساب الجديد:</label><input type="text" id="fqEdit-newAccount" style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(0,240,255,0.4); background:rgba(15,23,42,0.9); color:#fff;"></div>
+                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                                 <div style="margin-bottom:12px;"><label style="font-size:0.8rem; color:#94a3b8;">كود البنك الجديد (BIC):</label><input type="text" id="fqEdit-newBic" style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(0,240,255,0.4); background:rgba(15,23,42,0.9); color:#fff;"></div>
+                                 <div style="margin-bottom:12px;"><label style="font-size:0.8rem; color:#94a3b8;">الفرع الجديد:</label><input type="text" id="fqEdit-newBranch" style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(0,240,255,0.4); background:rgba(15,23,42,0.9); color:#fff;"></div>
+                             </div>
+                             <div style="margin-bottom:12px;">
+                                 <label style="font-size:0.8rem; color:#94a3b8;">إجراء المعاملة وموقعها بالمنظومة القديمة:</label>
+                                 <select id="fqEdit-tasFlag" style="width:100%; padding:8px; border-radius:8px; border:1px solid rgba(0,240,255,0.4); background:rgba(15,23,42,0.9); color:#fff;">
+                                     <option value="0">👤 شاشة المسوي (أمين خالد amin-khalid) - غير مسواة</option>
+                                     <option value="1">📤 1 - قبول وإرسال إلى رئيس القسم (تختفي من أمين وتنتقل إلى حسام السيد)</option>
+                                     <option value="2">✅ 2 - تسوية المعاملات والاعتماد النهائي (إجراء رئيس القسم حسام)</option>
+                                 </select>
+                             </div>
+                             <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px; flex-wrap:wrap;">
+                                 <button type="button" onclick="window.failqueryPage.closeEditModal()" style="padding:8px 16px; background:transparent; color:#fff; border:1px solid #475569; border-radius:8px; cursor:pointer;">إلغاء</button>
+                                 <button type="button" onclick="document.getElementById('fqEdit-tasFlag').value='1'; window.failqueryPage.saveTransactionEdit(event);" style="padding:8px 16px; background:#f59e0b; color:#000; font-weight:800; border:none; border-radius:8px; cursor:pointer;" title="قبول وإرسال المعاملة فوراً إلى شاشة رئيس القسم حسام السيد">📤 قبول وإرسال إلى رئيس القسم</button>
+                                 <button type="submit" id="fqEdit-saveBtn" style="padding:8px 16px; background:#00f0ff; color:#000; font-weight:800; border:none; border-radius:8px; cursor:pointer;">💾 حفظ التعديلات</button>
+                             </div>
+                         </form>
+                     </div>
+                 </div>
 
                 <!-- ========== Smart Payment Page ========== -->
                 <section id="page-smart-payment" class="page-content hidden">
@@ -2057,6 +3163,125 @@
                     </div>
                 </section>
 
+                <!-- ========== Modified Records Page ========== -->
+                <section id="page-modified-records" class="page-content hidden">
+                    <div class="welcome-banner" style="background: linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(15,23,42,0.8) 100%); border-bottom: 1px solid rgba(245,158,11,0.3);">
+                        <div class="banner-content">
+                            <h1>✏️ سجلات التعديلات</h1>
+                            <p>جميع السجلات التي تم التعديل على بيانات الحساب والبنك فيها — مرتدات الحوافز والمرتبات.</p>
+                        </div>
+                    </div>
+
+                    <!-- Stats Cards -->
+                    <div class="dashboard-stats-row-pro search-stats-summary" style="margin-top:20px;">
+                        <div class="stat-card-pro pro-total-summary">
+                            <div class="stat-details-pro">
+                                <span class="stat-label">إجمالي السجلات المعدّلة</span>
+                                <span class="stat-value" id="modrc-total-count">0</span>
+                            </div>
+                            <div class="stat-icon" style="background:rgba(245,158,11,0.1);color:#f59e0b;">
+                                <i class="fas fa-edit"></i>
+                            </div>
+                        </div>
+                        <div class="stat-card-pro pro-pending">
+                            <div class="stat-details-pro">
+                                <span class="stat-label">من مرتدات الحوافز</span>
+                                <span class="stat-value" id="modrc-incentive-count">0</span>
+                            </div>
+                            <div class="stat-icon" style="background:rgba(0,240,255,0.1);color:#00f0ff;">
+                                <i class="fas fa-chart-bar"></i>
+                            </div>
+                        </div>
+                        <div class="stat-card-pro pro-settled-new">
+                            <div class="stat-details-pro">
+                                <span class="stat-label">من مرتدات المرتبات</span>
+                                <span class="stat-value" id="modrc-salary-count">0</span>
+                            </div>
+                            <div class="stat-icon" style="background:rgba(16,185,129,0.1);color:#10b981;">
+                                <i class="fas fa-money-bill-wave"></i>
+                            </div>
+                        </div>
+                        <div class="stat-card-pro" style="border-color:rgba(139,92,246,0.3);">
+                            <div class="stat-details-pro">
+                                <span class="stat-label">إجمالي المبالغ المعدّلة</span>
+                                <span class="stat-value" id="modrc-total-amount" style="color:#a78bfa;">0.00</span>
+                            </div>
+                            <div class="stat-icon" style="background:rgba(139,92,246,0.1);color:#8b5cf6;">
+                                <i class="fas fa-coins"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filters Row -->
+                    <div style="display:flex; gap:12px; align-items:center; margin: 20px 0; flex-wrap:wrap;">
+                        <div class="pro-filter-item">
+                            <label>التاريخ</label>
+                            <input type="date" id="modrc-date-filter" class="form-input" onchange="app.loadModifiedRecords()" style="height:40px; padding:0 10px; border-radius:8px; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.1); color:#e2e8f0;">
+                        </div>
+                        <div class="pro-filter-item">
+                            <label>المصدر</label>
+                            <select id="modrc-source-filter" class="form-input" onchange="app.loadModifiedRecords()" style="height:40px; padding:0 10px; border-radius:8px; background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.1); color:#e2e8f0;">
+                                <option value="all">الكل</option>
+                                <option value="حوافز">مرتدات الحوافز</option>
+                                <option value="مرتبات">مرتدات المرتبات</option>
+                                <option value="بوابة">مرتدات البوابة</option>
+                            </select>
+                        </div>
+                        <div class="pro-search-container" style="flex:1; min-width:200px;">
+                            <i class="fas fa-search pro-search-icon"></i>
+                            <input type="text" id="modrc-search" placeholder="بحث بالاسم أو رقم الحساب أو كود الملف..." oninput="app.loadModifiedRecords()">
+                        </div>
+                        <button class="btn-pro-action btn-sync-pro" onclick="app.loadModifiedRecords()">
+                            <i class="fas fa-sync"></i> تحديث
+                        </button>
+                        <button class="btn-pro-action btn-export-pro" onclick="app.exportModifiedRecordsToExcel()">
+                            <i class="fas fa-file-excel"></i> تصدير Excel
+                        </button>
+                    </div>
+
+                    <!-- Bulk Action Bar -->
+                    <div id="modrc-bulkActionBar" class="pro-bulk-bar">
+                        <div class="pro-bulk-info">
+                            <i class="fas fa-tasks" style="font-size:1.1rem; color:#f59e0b;"></i>
+                            <span>تم تحديد</span>
+                            <span class="pro-count-badge" id="modrc-selectedCountText">0 معاملة</span>
+                            <span>كتسوية</span>
+                        </div>
+                        <button class="btn-pro-bulk" onclick="app.transferModrcSelectedToHossam()">
+                            <i class="fas fa-paper-plane"></i> قبول وإرسال العمليات المحددة إلى رئيس القسم
+                        </button>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="table-container pro-table-container">
+                        <div class="table-wrapper-scroll">
+                            <table class="data-table" id="modrc-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:40px; text-align:center;"><input type="checkbox" id="modrc-selectAll" onclick="app.toggleModrcSelectAll(this)" title="تحديد / إلغاء تحديد الكل"></th>
+                                        <th>#</th>
+                                        <th>المصدر</th>
+                                        <th>كود الملف</th>
+                                        <th>الاسم</th>
+                                        <th>المبلغ</th>
+                                        <th>رقم الحساب (قبل)</th>
+                                        <th>البنك (قبل)</th>
+                                        <th>رقم الحساب (بعد)</th>
+                                        <th>البنك (بعد)</th>
+                                        <th>تاريخ التعديل</th>
+                                        <th style="min-width:350px; text-align:center;">العمليات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modrc-tbody">
+                                    <tr><td colspan="12" style="text-align:center;padding:40px;color:#64748b;">جاري التحميل...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="modrc-pagination" class="pagination-controls" style="margin-top:15px;"></div>
+                    </div>
+                </section>
+
+
                 <!-- ========== Settings Page ========== -->
                 <section id="page-settings" class="page-content hidden">
 
@@ -2390,6 +3615,21 @@
                             </div>
                         </div>
                     </div>
+                </section>
+
+                <!-- ========== Incentives Page ========== -->
+                <section id="page-incentives-page" class="page-content hidden">
+                    <div id="incentives-page-container" class="container-fluid py-3"></div>
+                </section>
+
+                <!-- ========== Salaries Page ========== -->
+                <section id="page-salaries-page" class="page-content hidden">
+                    <div id="salaries-page-container" class="container-fluid py-3"></div>
+                </section>
+
+                <!-- ========== Live Data Page ========== -->
+                <section id="page-live-data" class="page-content hidden">
+                    <div id="live-data-page-container" class="container-fluid py-3"></div>
                 </section>
             </main>
         </div>
@@ -3346,7 +4586,11 @@
     <script src="js/database.js?v=9.27"></script>
     <script src="js/validation-service.js"></script>
     <script src="js/chat.js?v=1.1"></script>
-    <script src="js/app.js?v=9.33"></script>
+    <script src="js/realtime-sync.js"></script>
+    <script src="js/incentives-page.js"></script>
+    <script src="js/salaries-page.js"></script>
+    <script src="js/live-data-page.js"></script>
+    <script src="js/app.js?v=9.53&t=1785860000"></script>
 </body>
 
 </html>

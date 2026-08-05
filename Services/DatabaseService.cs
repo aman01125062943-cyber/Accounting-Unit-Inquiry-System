@@ -604,6 +604,8 @@ public class DatabaseService
             CREATE TABLE IF NOT EXISTS TableShares (Id INTEGER PRIMARY KEY AUTOINCREMENT, TableId INTEGER, TableType TEXT, SharedById INTEGER, SharedWithId INTEGER, Message TEXT, Status TEXT DEFAULT 'Pending', CreatedAt TEXT);
             CREATE TABLE IF NOT EXISTS UserTasks (Id INTEGER PRIMARY KEY AUTOINCREMENT, ManagerId INTEGER, TargetUserId INTEGER, Title TEXT, Description TEXT, Priority TEXT DEFAULT 'Medium', Status TEXT DEFAULT 'New', SourceTableId INTEGER, SourceType TEXT, DueDate TEXT, CompletedAt TEXT, ChatConversationId INTEGER, ChatMessageId INTEGER, CreatorUserId INTEGER, AssignedUserId INTEGER, CreatedAt TEXT);
             CREATE TABLE IF NOT EXISTS AuditLogs (Id INTEGER PRIMARY KEY AUTOINCREMENT, UserId INTEGER, Username TEXT, Action TEXT, Details TEXT, IPAddress TEXT, CreatedAt TEXT);
+            CREATE TABLE IF NOT EXISTS FailQueryBatches (BatchId TEXT PRIMARY KEY, ReceivingDate TEXT, Purpose TEXT, Total REAL, TxnCount INTEGER, SyncedAt TEXT);
+            CREATE TABLE IF NOT EXISTS FailQueryTransactions (Id INTEGER PRIMARY KEY AUTOINCREMENT, BatchId TEXT, CreditorName TEXT, CreditorNationalId TEXT, CreditorAccount TEXT, CreditorBic TEXT, CreditorBranch TEXT, TransactionAmount REAL, TransactionStatus TEXT, Reason TEXT, NewCreditorAccount TEXT, NewCreditorBic TEXT, NewCreditorBranch TEXT, TasFlag INTEGER, DetSerial TEXT, SyncedAt TEXT, FOREIGN KEY(BatchId) REFERENCES FailQueryBatches(BatchId) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS UserNotifications (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 TargetUserId INTEGER NOT NULL,
@@ -703,6 +705,11 @@ public class DatabaseService
         try { await conn.ExecuteAsync("ALTER TABLE Returns ADD COLUMN [رقم تسوية السداد] TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE SalaryReturns ADD COLUMN [رقم تسوية التعلية] TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE SalaryReturns ADD COLUMN [رقم تسوية السداد] TEXT;"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE FailQueryTransactions ADD COLUMN ModifiedBy TEXT;"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE FailQueryTransactions ADD COLUMN PortalSyncStatus TEXT DEFAULT 'SYNCED';"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE FailQueryTransactions ADD COLUMN SourceSystem TEXT DEFAULT 'NEW_SYSTEM';"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE FailQueryTransactions ADD COLUMN ModifiedAt TEXT;"); } catch {}
+        try { await conn.ExecuteAsync("ALTER TABLE FailQueryTransactions ADD COLUMN IsSettlementChecked INTEGER DEFAULT 0;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE ArchiveDetails ADD COLUMN SourceTable TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE ArchiveDetails ADD COLUMN ReturnCode TEXT;"); } catch {}
         try { await conn.ExecuteAsync("ALTER TABLE ArchiveDetails ADD COLUMN UploadDate TEXT;"); } catch {}

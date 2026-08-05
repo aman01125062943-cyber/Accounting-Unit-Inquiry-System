@@ -346,7 +346,7 @@ public static class SalaryReturnsEndpoints
         // ==========================================
         // GET /salary-returns — Paged data with search/filter
         // ==========================================
-        app.MapGet("/salary-returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo, string? settlementStatus, string? returnStatus, string? month, string? paymentDateFilter) => {
+        app.MapGet("/salary-returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? attachmentStatus, string? uploadDateFrom, string? uploadDateTo, string? settlementStatus, string? returnStatus, string? month, string? paymentDateFilter, string? year) => {
              using var conn = await db.GetOpenConnectionAsync();
              
              try {
@@ -425,7 +425,21 @@ public static class SalaryReturnsEndpoints
                       parameters.Add("RetStatus", $"%{returnStatus}%");
                   }
 
-                  // 3. Month Filter
+                  // 3. Year Filter (Supports 2024, 2025, 2026)
+                  if (!string.IsNullOrWhiteSpace(year) && year != "all") {
+                      sqlWhere += @" AND (
+                          json_extract(RawData, '$.""تاريخ المرتد / تاريخ التعلية""') LIKE @YearFilter
+                          OR json_extract(RawData, '$.""تاريخ الرفع""') LIKE @YearFilter
+                          OR json_extract(RawData, '$.""تاريخ المرتد""') LIKE @YearFilter
+                          OR json_extract(RawData, '$.""الشهر""') LIKE @YearFilter
+                          OR UploadDate LIKE @YearFilter
+                          OR ReturnCode LIKE @YearFilter
+                          OR RawData LIKE @YearFilter
+                      )";
+                      parameters.Add("YearFilter", $"%{year}%");
+                  }
+
+                  // 4. Month Filter
                   if (!string.IsNullOrWhiteSpace(month) && month != "all") {
                       if (month == "فارغ") {
                           sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '')";

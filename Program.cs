@@ -45,7 +45,7 @@ builder.Logging.AddDebug();
 
 // 1. Services
 var networkModeEnabled = SecurityHardening.ReadBool(builder.Configuration, "NetworkModeEnabled", defaultValue: false);
-var bindUrl = networkModeEnabled ? "http://*:5001" : "http://127.0.0.1:5001";
+var bindUrl = networkModeEnabled ? "http://0.0.0.0:5001" : "http://127.0.0.1:5001";
 var securityMode = networkModeEnabled ? "NetworkMode" : "LocalOnly";
 var allowedOrigins = GetAllowedOrigins(builder.Configuration);
 
@@ -123,7 +123,19 @@ app.Use(async (context, next) => {
 });
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var path = ctx.File.Name.ToLower();
+        if (path.EndsWith(".js") || path.EndsWith(".html") || path.EndsWith(".css"))
+        {
+            ctx.Context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+            ctx.Context.Response.Headers["Pragma"] = "no-cache";
+            ctx.Context.Response.Headers["Expires"] = "0";
+        }
+    }
+});
 
 app.MapGet("/api/ping", () => Results.Ok(new { success = true, status = "ok", timestamp = DateTime.UtcNow }));
 
@@ -259,7 +271,9 @@ app.MapAdabirEndpoints();
 app.MapSearchIndexEndpoints();
 app.MapHiaapayEndpoints();
 app.MapConnectorEndpoints();
+app.MapFailQueryEndpoints();
 app.MapDailyReportEndpoints();
+app.MapModifiedRecordsEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");

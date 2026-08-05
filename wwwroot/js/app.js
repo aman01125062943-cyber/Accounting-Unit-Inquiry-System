@@ -1359,6 +1359,11 @@ class App {
             return;
         }
 
+        // إيقاف auto-refresh عند مغادرة صفحة failquery
+        if (this.currentPage === 'failquery' && page !== 'failquery' && window.failqueryPage) {
+            window.failqueryPage.stopAutoRefresh();
+        }
+
         this.currentPage = page;
 
         // تحديث حالة الأزرار في القائمة
@@ -1378,13 +1383,18 @@ class App {
             dashboard: { icon: '🏠', text: 'لوحة التحكم' },
             returns: { icon: '📊', text: 'مرتدات الحوافز' },
             'salary-returns': { icon: '💰', text: 'مرتدات المرتبات' },
+            'incentives-page': { icon: '🎁', text: 'سجلات الحوافز اللحظية' },
+            'salaries-page': { icon: '💵', text: 'سجلات المرتبات اللحظية' },
+            'live-data': { icon: '⚡', text: 'البيانات المباشرة (Live Data)' },
             'full-returns': { icon: '📚', text: 'البحث الشامل' },
             'smart-payment': { icon: '💸', text: 'السداد الذكي' },
             tasks: { icon: '📝', text: 'مهام اليوم' },
             chat: { icon: '💬', text: 'المراسلة' },
+            failquery: { icon: '📋', text: 'استعلام عن مرتدات (البوابة)' },
             archive: { icon: '🗄️', text: 'الأرشيف' },
             adabir: { icon: '📁', text: 'نظام الإضابير' },
             'auto-import-reports': { icon: '📋', text: 'تقرير الاستيراد التلقائي' },
+            'modified-records': { icon: '✏️', text: 'سجلات التعديلات' },
             settings: { icon: '⚙️', text: 'الإعدادات' }
         };
 
@@ -1396,8 +1406,26 @@ class App {
             if (titleEl) titleEl.textContent = title.text;
         }
 
+        // تنظيف وحفظ الصفحات السابقة
+        if (this.currentActiveSubPage && typeof this.currentActiveSubPage.destroy === 'function') {
+            try { this.currentActiveSubPage.destroy(); } catch (e) {}
+            this.currentActiveSubPage = null;
+        }
+
         // تحميل بيانات الصفحة إذا لزم الأمر
         if (!preventLoad) {
+            if (page === 'incentives-page' && window.IncentivesPage) {
+                this.currentActiveSubPage = new window.IncentivesPage('incentives-page-container');
+                this.currentActiveSubPage.init();
+            }
+            if (page === 'salaries-page' && window.SalariesPage) {
+                this.currentActiveSubPage = new window.SalariesPage('salaries-page-container');
+                this.currentActiveSubPage.init();
+            }
+            if (page === 'live-data' && window.LiveDataPage) {
+                this.currentActiveSubPage = new window.LiveDataPage('live-data-page-container');
+                this.currentActiveSubPage.init();
+            }
             if (page === 'archive') this.loadArchive();
 
             if (page === 'settings') {
@@ -1424,7 +1452,13 @@ class App {
                 this.loadSalaryReturns();
             }
             if (page === 'smart-payment') this.refreshSearchFilterIndex();
+            if (page === 'failquery' && window.failqueryPage) {
+                window.failqueryPage.loadData('live');
+                window.failqueryPage.startAutoRefresh();
+            }
+
             if (page === 'auto-import-reports') this.loadAutoImportReports();
+            if (page === 'modified-records') this.loadModifiedRecords();
             if (page === 'tasks') this.loadTasksPage();
             if (page === 'chat' && window.chatModule) {
                 window.chatModule.loadConversations().then(() => {
@@ -16255,6 +16289,402 @@ App.prototype.deleteAutoImportReport = async function(reportId) {
     } catch(e) {
         console.error('[AutoImportReports] Error deleting report:', e);
         this.showToast('خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
+App.prototype.loadModifiedRecords = async function(page = 1) {
+    const tbody = document.getElementById('modrc-tbody');
+    const paginationEl = document.getElementById('modrc-pagination');
+    if (!tbody) return;
+
+    const dateInput = document.getElementById('modrc-date-filter');
+    if (dateInput && !dateInput.value) {
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        dateInput.value = `${year}-${month}-${day}`;
+    }
+
+    const dateVal = dateInput ? dateInput.value : '';
+    const sourceVal = document.getElementById('modrc-source-filter')?.value || 'all';
+    const searchVal = document.getElementById('modrc-search')?.value || '';
+
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:30px; color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> جاري تحميل بيانات التعديلات...</td></tr>';
+
+    try {
+        const url = `/api/modified-records?date=${encodeURIComponent(dateVal)}&source=${encodeURIComponent(sourceVal)}&search=${encodeURIComponent(searchVal)}&page=${page}&pageSize=50`;
+        const res = await fetch(url);
+        const json = await res.json();
+
+        if (!json.success || !json.data) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:30px; color:#ef4444;">❌ خطأ في تحميل البيانات</td></tr>';
+            return;
+        }
+
+        // Update stats
+        document.getElementById('modrc-total-count').textContent = (json.stats?.totalCount || 0).toLocaleString();
+        document.getElementById('modrc-total-amount').textContent = (json.stats?.totalAmount || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2 });
+
+        const incCount = json.data.filter(r => r.source === 'حوافز').length;
+        const salCount = json.data.filter(r => r.source === 'مرتبات').length;
+        document.getElementById('modrc-incentive-count').textContent = incCount;
+        document.getElementById('modrc-salary-count').textContent = salCount;
+
+        if (json.data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:#64748b;">📭 لا توجد سجلات تعديلات في هذا التاريخ</td></tr>';
+            if (paginationEl) paginationEl.innerHTML = '';
+            return;
+        }
+
+        tbody.innerHTML = '';
+        json.data.forEach((r, idx) => {
+            const tr = document.createElement('tr');
+            const rowNo = ((json.pagination.currentPage - 1) * json.pagination.pageSize) + idx + 1;
+            const badgeClass = r.source.includes('حوافز') ? 'badge-status warning' : (r.source.includes('مرتبات') ? 'badge-status success' : 'badge-status info');
+
+            const isOldSystem = r.sourceSystem === 'OLD_SYSTEM';
+            const sysBadge = isOldSystem 
+                ? `<div style="font-size:0.72em; padding:2px 6px; border-radius:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); color:#fbbf24; margin-top:3px; display:inline-block;">🏛️ المنظومة القديمة (hiaapay)</div>`
+                : `<div style="font-size:0.72em; padding:2px 6px; border-radius:4px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); color:#34d399; margin-top:3px; display:inline-block;">💻 المنظومة الجديدة</div>`;
+
+            const stageTitle = (r.tasFlag == '1' || r.tasFlag === 1)
+                ? "👔 شاشة رئيس القسم (حسام السيد hossam-elsayed) - جاهزة للتسوية والاعتماد"
+                : ((r.tasFlag == '2' || r.tasFlag === 2)
+                    ? "✅ معتمدة ومسواة بالكامل"
+                    : "👤 شاشة المسوي (أمين خالد amin-khalid) - غير مسواة");
+
+            const stageBadge = (r.tasFlag == '1' || r.tasFlag === 1)
+                ? `<div style="font-size:0.72em; padding:2px 6px; border-radius:4px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#f87171; margin-top:3px; display:inline-block; margin-right:4px;">👔 رئيس قسم (حسام)</div>`
+                : ((r.tasFlag == '2' || r.tasFlag === 2)
+                    ? `<div style="font-size:0.72em; padding:2px 6px; border-radius:4px; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); color:#34d399; margin-top:3px; display:inline-block; margin-right:4px;">✅ معتمدة ومسواة</div>`
+                    : `<div style="font-size:0.72em; padding:2px 6px; border-radius:4px; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; margin-top:3px; display:inline-block; margin-right:4px;">👤 مسوي (أمين)</div>`);
+
+            // Format DateTime to 12-hour format (ص / م)
+            let formattedDate = r.modificationDate || '-';
+            if (r.modificationDate) {
+                let str = r.modificationDate.toString().replace('T', ' ');
+                let parts = str.split(' ');
+                if (parts.length >= 2) {
+                    let dPart = parts[0];
+                    let tPart = parts[1].split('.')[0];
+                    let tComp = tPart.split(':');
+                    if (tComp.length >= 2) {
+                        let h = parseInt(tComp[0], 10);
+                        let m = tComp[1];
+                        let s = tComp[2] || '00';
+                        let ampm = h >= 12 ? 'م' : 'ص';
+                        h = h % 12;
+                        h = h ? h : 12;
+                        formattedDate = `${dPart} ${String(h).padStart(2, '0')}:${m}:${s} ${ampm}`;
+                    }
+                }
+            }
+
+            const hoverTooltip = `مصدر التعديل: ${isOldSystem ? 'المنظومة القديمة (hiaapay)' : 'المنظومة الجديدة'}\nالشاشة بالمنظومة القديمة: ${stageTitle}\nنوع المدفوعة: ${r.source}\nتاريخ التعديل: ${formattedDate}`;
+
+            const isSettled = (r.isSettlementChecked === true || r.isSettlementChecked === 1 || r.isSettlementChecked === '1');
+            const tasCheckedClass = isSettled ? 'checked' : '';
+            const tasLabelText = isSettled ? '✅ محدد كتسوية' : '☐ محدد كتسوية';
+
+            tr.innerHTML = `
+                <td style="text-align:center;"><input type="checkbox" class="modrc-row-cb custom-cb" data-index="${idx}" onchange="app.updateModrcSelectedCount()"></td>
+                <td style="text-align:center; font-weight:600; color:#94a3b8;">${rowNo}</td>
+                <td><span class="${badgeClass}">${r.source}</span></td>
+                <td style="direction:ltr; text-align:right; font-weight:600; color:#38bdf8;">${r.fileCode || '-'}</td>
+                <td style="font-weight:600; color:#e2e8f0;">${r.name || '-'}</td>
+                <td style="direction:ltr; text-align:right; font-weight:700; color:#10b981;">${Number(r.amount || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2 })}</td>
+                <td style="direction:ltr; text-align:right; color:#ef4444;">${r.accountBefore || '-'}</td>
+                <td>${r.bankBefore || '-'}</td>
+                <td style="direction:ltr; text-align:right; cursor:help;" title="${hoverTooltip}">
+                    <div style="font-weight:700; color:#10b981;">${r.accountAfter || '-'}</div>
+                    <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">${sysBadge} ${stageBadge}</div>
+                </td>
+                <td style="color:#38bdf8; font-weight:600;">${r.bankAfter || '-'}</td>
+                <td style="direction:ltr; text-align:right; font-size:0.85em; color:#94a3b8; font-weight:600;">${formattedDate}</td>
+                <td style="text-align:center; white-space:nowrap;">
+                    <div class="modrc-action-btn-group">
+                        <button class="btn-action-edit" onclick="app.openEditModalFromModrc(${idx})" title="تعديل بيانات الحساب والمعاملة">✏️</button>
+                        <label class="tas-toggle-label ${tasCheckedClass}" title="${isSettled ? 'إلغاء محدد كتسوية' : 'تحديد المعاملة كمحدد كتسوية'}">
+                            <input type="checkbox" class="custom-cb" ${isSettled ? 'checked' : ''} onchange="app.toggleSettlementCheckFromModrc(${idx}, this.checked)">
+                            <span>${isSettled ? '✅' : '☐'}</span>
+                        </label>
+                        ${(r.tasFlag == '1' || r.tasFlag === 1)
+                            ? `<button class="btn-action-retrieve" onclick="app.retrieveFromHossamFromModrc(${idx})" title="استرجاع / سحب المعاملة من رئيس القسم (حسام) وإعادتها لشاشة أمين">🔄</button>`
+                            : `<button class="btn-action-send" onclick="app.transferToHossamFromModrc(${idx})" title="تحويل / إرسال المعاملة من شاشة أمين إلى شاشة رئيس القسم (حسام)">📤</button>`
+                        }
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // Store active data list for quick actions
+        this._modrcActiveList = json.data;
+
+        // Render Pagination
+        if (paginationEl && json.pagination) {
+            const { currentPage, totalPages } = json.pagination;
+            let html = `<div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+                <span style="color:#94a3b8; font-size:0.9em;">صفحة ${currentPage} من ${totalPages} (إجمالي ${json.pagination.total} سجل)</span>
+                <div style="display:flex; gap:6px;">`;
+
+            if (currentPage > 1) {
+                html += `<button class="btn btn-sm btn-secondary" onclick="app.loadModifiedRecords(${currentPage - 1})">السابق</button>`;
+            }
+            if (currentPage < totalPages) {
+                html += `<button class="btn btn-sm btn-secondary" onclick="app.loadModifiedRecords(${currentPage + 1})">التالي</button>`;
+            }
+            html += `</div></div>`;
+            paginationEl.innerHTML = html;
+        }
+
+    } catch (e) {
+        console.error('[ModifiedRecords] Error:', e);
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center; padding:30px; color:#ef4444;">❌ خطأ في الاتصال بالخادم</td></tr>';
+    }
+};
+
+App.prototype.openEditModalFromModrc = function(idx) {
+    const item = (this._modrcActiveList || [])[idx];
+    if (!item) return;
+
+    const txnIdEl = document.getElementById('fqEdit-txnId');
+    const batchIdEl = document.getElementById('fqEdit-batchId');
+    const accountEl = document.getElementById('fqEdit-account');
+    const nameEl = document.getElementById('fqEdit-name');
+    const newAccountEl = document.getElementById('fqEdit-newAccount');
+    const newBicEl = document.getElementById('fqEdit-newBic');
+    const tasFlagEl = document.getElementById('fqEdit-tasFlag');
+
+    if (txnIdEl) txnIdEl.value = item.id || '';
+    if (batchIdEl) batchIdEl.value = item.fileCode || '';
+    if (accountEl) accountEl.value = item.accountBefore || '';
+    if (nameEl) nameEl.value = item.name || '--';
+    if (newAccountEl) newAccountEl.value = item.accountAfter || '';
+    if (newBicEl) newBicEl.value = item.bankAfter || '';
+    if (tasFlagEl) tasFlagEl.value = item.tasFlag || '0';
+
+    const modal = document.getElementById('fq-editModal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+    } else {
+        alert(`تعديل المعاملة: ${item.name}\nالحساب الحالي: ${item.accountBefore}\nالحساب الجديد: ${item.accountAfter}`);
+    }
+};
+
+App.prototype.transferToHossamFromModrc = async function(idx) {
+    const item = (this._modrcActiveList || [])[idx];
+    if (!item) return;
+    if (!confirm(`هل أنت متأكد من إجراء "تحويل وإرسال إلى رئيس القسم (حسام)" للمعاملة "${item.name}"؟\nستنقل المعاملة وتظهر في شاشة رئيس القسم (حسام السيد) بالمنظومة القديمة والجديدة.`)) return;
+
+    try {
+        const resp = await fetch('/api/failquery/transfer-to-hossam', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: item.id || 0,
+                batchId: item.fileCode || '',
+                account: item.accountBefore || '',
+                name: item.name || ''
+            })
+        });
+        const json = await resp.json();
+        if (json.success) {
+            this.showToast('✅ ' + json.message, 'success');
+            this.loadModifiedRecords();
+        } else {
+            this.showToast('❌ خطأ: ' + (json.error || 'فشلت عملية التحويل'), 'error');
+        }
+    } catch(e) {
+        this.showToast('❌ خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
+App.prototype.toggleSendToHossamFromModrc = async function(index, isChecked) {
+    const list = this._modrcActiveList || [];
+    const item = list[index];
+    if (!item) return;
+
+    const targetFlag = isChecked ? 1 : 0;
+    try {
+        const resp = await fetch('/api/failquery/transfer-to-hossam', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: item.id || 0,
+                batchId: item.fileCode || '',
+                account: item.accountBefore || '',
+                name: item.name || '',
+                tasFlag: targetFlag
+            })
+        });
+        const json = await resp.json();
+        if (json.success) {
+            this.showToast('✅ تم تغيير حالة الإرسال بنجاح', 'success');
+            this.loadModifiedRecords();
+        } else {
+            this.showToast('❌ خطأ: ' + (json.error || 'فشلت عملية التغيير'), 'error');
+        }
+    } catch(e) {
+        this.showToast('❌ خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
+App.prototype.toggleSettlementCheckFromModrc = async function(index, isChecked) {
+    const list = this._modrcActiveList || [];
+    const item = list[index];
+    if (!item) return;
+
+    try {
+        const resp = await fetch('/api/failquery/toggle-settlement-check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: item.id || 0,
+                batchId: item.fileCode || '',
+                account: item.accountBefore || '',
+                name: item.name || '',
+                isChecked: isChecked
+            })
+        });
+        const json = await resp.json();
+        if (json.success) {
+            this.showToast('✅ تم تحديث حالة "محدد كتسوية" بنجاح', 'success');
+            this.loadModifiedRecords();
+        } else {
+            this.showToast('❌ خطأ: ' + (json.error || 'فشلت عملية التغيير'), 'error');
+        }
+    } catch(e) {
+        this.showToast('❌ خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
+App.prototype.retrieveFromHossamFromModrc = async function(index) {
+    const list = this._modrcActiveList || [];
+    const item = list[index];
+    if (!item) return;
+
+    if (!confirm(`هل أنت متأكد من إجراء "استرجاع/سحب المعاملة" "${item.name}" من رئيس القسم وإعادتها لشاشة أمين؟\nستختفي المعاملة فوراً من شاشة رئيس القسم (حسام) وتستقر في شاشة أمين بالمنظومة القديمة والجديدة.`)) return;
+
+    try {
+        const resp = await fetch('/api/failquery/retrieve-from-hossam', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: item.id || 0,
+                batchId: item.fileCode || '',
+                account: item.accountBefore || '',
+                name: item.name || ''
+            })
+        });
+        const json = await resp.json();
+        if (json.success) {
+            this.showToast('✅ ' + json.message, 'success');
+            this.loadModifiedRecords();
+        } else {
+            this.showToast('❌ خطأ: ' + (json.error || 'فشلت عملية التراجع'), 'error');
+        }
+    } catch(e) {
+        this.showToast('❌ خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
+App.prototype.toggleModrcSelectAll = function(mainCb) {
+    const checkboxes = document.querySelectorAll('.modrc-row-cb');
+    checkboxes.forEach(cb => cb.checked = mainCb.checked);
+    this.updateModrcSelectedCount();
+};
+
+App.prototype.updateModrcSelectedCount = function() {
+    const selected = document.querySelectorAll('.modrc-row-cb:checked');
+    const el = document.getElementById('modrc-selectedCountText');
+    if (el) el.textContent = `تم تحديد ${selected.length} معاملة كتسوية`;
+};
+
+App.prototype.transferModrcSelectedToHossam = async function() {
+    const selectedCbs = Array.from(document.querySelectorAll('.modrc-row-cb:checked'));
+    if (selectedCbs.length === 0) {
+        alert('⚠️ يرجى تحديد معاملة واحدة على الأقل من خانات الاختيار (Checkboxes) أولاً.');
+        return;
+    }
+
+    const payload = selectedCbs.map(cb => {
+        const idx = parseInt(cb.dataset.index, 10);
+        const item = (this._modrcActiveList || [])[idx];
+        return {
+            id: item.id || 0,
+            batchId: item.fileCode || '',
+            account: item.accountBefore || '',
+            nationalId: item.nationalId || item.creditorNationalId || '',
+            name: item.name || ''
+        };
+    });
+
+    if (!confirm(`هل أنت تأكد من إجراء "قبول وإرسال إلى رئيس القسم" لـ ${payload.length} معاملة محددة؟\nستختفي المعاملات المعلمة فوراً من شاشة المسوي (أمين) وتنتقل إلى رئيس القسم (حسام السيد).`)) return;
+
+    try {
+        const resp = await fetch('/api/failquery/bulk-transfer-to-hossam', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const json = await resp.json();
+        if (json.success) {
+            this.showToast('✅ ' + json.message, 'success');
+            this.loadModifiedRecords();
+        } else {
+            this.showToast('❌ خطأ: ' + (json.error || 'فشلت عملية التحويل بالجملة'), 'error');
+        }
+    } catch(e) {
+        this.showToast('❌ خطأ في الاتصال بالخادم', 'error');
+    }
+};
+
+App.prototype.exportModifiedRecordsToExcel = async function() {
+    const dateVal = document.getElementById('modrc-date-filter')?.value || '';
+    const sourceVal = document.getElementById('modrc-source-filter')?.value || 'all';
+    const searchVal = document.getElementById('modrc-search')?.value || '';
+
+    this.showLoading();
+    try {
+        const url = `/api/modified-records?date=${encodeURIComponent(dateVal)}&source=${encodeURIComponent(sourceVal)}&search=${encodeURIComponent(searchVal)}&page=1&pageSize=100000`;
+        const res = await fetch(url);
+        const json = await res.json();
+
+        if (!json.success || !json.data || json.data.length === 0) {
+            this.hideLoading();
+            this.showToast('لا توجد بيانات للتصدير', 'warning');
+            return;
+        }
+
+        const excelData = json.data.map((r, i) => ({
+            'مسلسل': i + 1,
+            'المصدر': r.source,
+            'كود الملف': r.fileCode,
+            'الاسم': r.name,
+            'المبلغ': r.amount,
+            'رقم الحساب قبل التعديل': r.accountBefore,
+            'اسم البنك قبل التعديل': r.bankBefore,
+            'رقم الحساب بعد التعديل': r.accountAfter,
+            'اسم البنك بعد التعديل': r.bankAfter,
+            'تاريخ التعديل': r.modificationDate
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(excelData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'سجلات التعديلات');
+
+        const filename = `تعديلات_السجلات_${dateVal || 'الكل'}.xlsx`;
+        XLSX.writeFile(wb, filename);
+
+        this.hideLoading();
+        this.showToast('تم تصدير ملف Excel بنجاح', 'success');
+    } catch (e) {
+        this.hideLoading();
+        console.error('[ModifiedRecords] Export error:', e);
+        this.showToast('خطأ أثناء تصدير البيانات', 'error');
     }
 };
 

@@ -375,13 +375,16 @@ public static class ReturnsEndpoints
         // ==========================================
         // Month Filter Options
         // ==========================================
-        app.MapGet("/returns/months", async (DatabaseService db) => {
+        app.MapGet("/returns/months", async (DatabaseService db, string? year) => {
             using var conn = await db.GetOpenConnectionAsync();
             try {
-                var rows = await conn.QueryAsync<dynamic>(@"
-                    SELECT RawData, ReturnCode
-                    FROM Returns
-                    WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0");
+                string sql = "SELECT RawData, ReturnCode FROM Returns WHERE IsDeleted = 0 AND COALESCE(IsArchived, 0) = 0";
+                var parameters = new DynamicParameters();
+                if (!string.IsNullOrWhiteSpace(year) && year != "all") {
+                    sql += " AND (RawData LIKE @YearFilter OR ReturnCode LIKE @YearFilter OR UploadDate LIKE @YearFilter)";
+                    parameters.Add("YearFilter", $"%{year}%");
+                }
+                var rows = await conn.QueryAsync<dynamic>(sql, parameters);
 
                 var formattedMonths = rows
                     .Select(r => {
@@ -395,6 +398,10 @@ public static class ReturnsEndpoints
                     .OrderByDescending(m => m)
                     .ToList();
 
+                if (!string.IsNullOrWhiteSpace(year) && year != "all") {
+                    formattedMonths = formattedMonths.Where(m => m.Contains(year)).ToList();
+                }
+
                 return Results.Ok(formattedMonths);
             } catch (Exception ex) {
                 Console.WriteLine($"[ERROR] Fetching return months: {ex.Message}");
@@ -402,7 +409,7 @@ public static class ReturnsEndpoints
             }
         });
 
-        app.MapGet("/returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? filter, string? filterId, string? attachmentStatus, double? min, double? max, string? targetColumn, string? uploadDateFrom, string? uploadDateTo, string? settlementFilter, string? statusFilter, string? monthFilter, string? paymentDateFilter) => {
+        app.MapGet("/returns", async (DatabaseService db, int? page, int? pageSize, string? search, string? filter, string? filterId, string? attachmentStatus, double? min, double? max, string? targetColumn, string? uploadDateFrom, string? uploadDateTo, string? settlementFilter, string? statusFilter, string? monthFilter, string? paymentDateFilter, string? year, string? month) => {
              using var conn = await db.GetOpenConnectionAsync();
 
              // Ensure UploadDate column exists to prevent runtime errors if migration hasn't completed yet
@@ -477,33 +484,40 @@ public static class ReturnsEndpoints
                       parameters.Add(rsParam, $"%{statusFilter}%");
                   }
 
-                  // 3. Month Filter (Literal Match only as requested)
-                  if (!string.IsNullOrWhiteSpace(monthFilter) && monthFilter != "all") {
-                      if (monthFilter == "فارغ") {
+                  // 3. Year Filter (Supports 2024, 2025, 2026)
+                  if (!string.IsNullOrWhiteSpace(year) && year != "all") {
+                      sqlWhere += @" AND (
+                          json_extract(RawData, '$.""تاريخ المرتد / تاريخ التعلية""') LIKE @YearFilter
+                          OR json_extract(RawData, '$.""تاريخ الرفع""') LIKE @YearFilter
+                          OR json_extract(RawData, '$.""تاريخ المرتد""') LIKE @YearFilter
+                          OR json_extract(RawData, '$.""الشهر""') LIKE @YearFilter
+                          OR UploadDate LIKE @YearFilter
+                          OR ReturnCode LIKE @YearFilter
+                          OR RawData LIKE @YearFilter
+                      )";
+                      parameters.Add("YearFilter", $"%{year}%");
+                  }
+
+                  // 4. Month Filter (Supports Month 01 to 12 and month text)
+                  var activeMonthFilter = !string.IsNullOrWhiteSpace(month) && month != "all" ? month : monthFilter;
+                  if (!string.IsNullOrWhiteSpace(activeMonthFilter) && activeMonthFilter != "all") {
+                      if (activeMonthFilter == "فارغ") {
                           sqlWhere += " AND (json_extract(RawData, '$.\"الشهر\"') IS NULL OR json_extract(RawData, '$.\"الشهر\"') = '') AND (json_extract(RawData, '$.\"شهر\"') IS NULL OR json_extract(RawData, '$.\"شهر\"') = '')";
                       } else {
-                          var normalizedMonth = DatabaseService.NormalizeMonthText(monthFilter);
-                          var parts = normalizedMonth.Split('-', StringSplitOptions.RemoveEmptyEntries);
-                          var invertedMonth = parts.Length == 2 ? $"{parts[1]}-{parts[0]}" : normalizedMonth;
-                          var slashMonth = normalizedMonth.Replace('-', '/');
-                          var invertedSlashMonth = invertedMonth.Replace('-', '/');
+                          var monthStr = activeMonthFilter.PadLeft(2, '0');
+                          var mPattern = $"-{monthStr}-";
+                          var mPattern2 = $"{monthStr}-";
                           sqlWhere += @" AND (
-                              json_extract(RawData, '$.""الشهر""') = @MonthFilter
-                              OR json_extract(RawData, '$.""شهر""') = @MonthFilter
-                              OR ReturnCode LIKE @MonthFilterLike
-                              OR ReturnCode LIKE @MonthFilterInvertedLike
-                              OR ReturnCode LIKE @MonthFilterSlashLike
-                              OR ReturnCode LIKE @MonthFilterInvertedSlashLike
-                              OR RawData LIKE @MonthFilterLike
-                              OR RawData LIKE @MonthFilterInvertedLike
-                              OR RawData LIKE @MonthFilterSlashLike
-                              OR RawData LIKE @MonthFilterInvertedSlashLike
+                              json_extract(RawData, '$.""الشهر""') LIKE @MonthFilterLike
+                              OR json_extract(RawData, '$.""تاريخ المرتد / تاريخ التعلية""') LIKE @MonthPattern
+                              OR json_extract(RawData, '$.""تاريخ الرفع""') LIKE @MonthPattern
+                              OR UploadDate LIKE @MonthPattern
+                              OR ReturnCode LIKE @MonthPattern2
+                              OR RawData LIKE @MonthPattern
                           )";
-                          parameters.Add("MonthFilter", monthFilter);
-                          parameters.Add("MonthFilterLike", $"%{normalizedMonth}%");
-                          parameters.Add("MonthFilterInvertedLike", $"%{invertedMonth}%");
-                          parameters.Add("MonthFilterSlashLike", $"%{slashMonth}%");
-                          parameters.Add("MonthFilterInvertedSlashLike", $"%{invertedSlashMonth}%");
+                          parameters.Add("MonthFilterLike", $"%{monthStr}%");
+                          parameters.Add("MonthPattern", $"%{mPattern}%");
+                          parameters.Add("MonthPattern2", $"%{mPattern2}%");
                       }
                   }
 
@@ -690,8 +704,20 @@ var data = pagedRows.Select(r => {
                      obj["حالة التسوية"] = hasSettlement ? "تم التسوية" : "لم يتم التسوية";
 
                      var fileCode = DatabaseService.ExtractFileCodeDirect(r.RawData);
-                     if (string.IsNullOrWhiteSpace(fileCode)) fileCode = r.ReturnCode;
-                     obj["الشهر"] = DatabaseService.ExtractMonthFromFileCode(fileCode ?? "");
+                     if (string.IsNullOrWhiteSpace(fileCode)) fileCode = (string?)r.ReturnCode ?? "";
+                     obj["كود الملف"] = fileCode;
+
+                     var monthVal = DatabaseService.ExtractMonthFromFileCode(fileCode);
+                     if (monthVal == "فارغ" && obj.ContainsKey("الشهر") && obj["الشهر"] != null) {
+                         monthVal = DatabaseService.ExtractMonthFromFileCode(obj["الشهر"].ToString() ?? "");
+                     }
+                     if (monthVal == "فارغ" && obj.ContainsKey("تاريخ المرتد / تاريخ التعلية") && obj["تاريخ المرتد / تاريخ التعلية"] != null) {
+                         monthVal = DatabaseService.ExtractMonthFromFileCode(obj["تاريخ المرتد / تاريخ التعلية"].ToString() ?? "");
+                     }
+                     if (monthVal == "فارغ" && obj.ContainsKey("تاريخ الرفع") && obj["تاريخ الرفع"] != null) {
+                         monthVal = DatabaseService.ExtractMonthFromFileCode(obj["تاريخ الرفع"].ToString() ?? "");
+                     }
+                     obj["الشهر"] = monthVal;
 
                      long rIdVal = (long)r.Id;
                      obj["AttachmentCount"] = attachmentCounts.ContainsKey(rIdVal) ? attachmentCounts[rIdVal] : 0;
