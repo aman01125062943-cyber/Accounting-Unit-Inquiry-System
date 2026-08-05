@@ -1188,32 +1188,41 @@
                     </style>
 
                     <!-- Stats Bar (Live Data Premium Style) -->
-                    <div class="dashboard-stats-row-pro search-stats-summary" style="width: 100%; margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
-                        <div class="stat-card-pro pro-total-summary" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="dashboard-stats-row-pro search-stats-summary" style="width: 100%; margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+                        <div class="stat-card-pro" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 14px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
                             <div class="stat-details-pro">
-                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block;">إجمالي الدفعات التاريخية</span>
-                                <span class="stat-value" id="fq-batchCount" style="font-size: 1.4rem; font-weight: 800; color: #00f0ff;">--</span>
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block; font-weight:700;">💼 مرتدات المرتبات</span>
+                                <div class="stat-value" id="fq-salaryStat" style="font-size: 1.05rem; margin-top:4px;">--</div>
                             </div>
-                            <div class="stat-icon" style="background: rgba(0, 240, 255, 0.1); color: #00f0ff; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-                                📦
+                            <div class="stat-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                💵
                             </div>
                         </div>
-                        <div class="stat-card-pro pro-pending" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="stat-card-pro" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 14px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
                             <div class="stat-details-pro">
-                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block;">إجمالي معاملات المرتدات</span>
-                                <span class="stat-value" id="fq-txnCount" style="font-size: 1.4rem; font-weight: 800; color: #fbbf24;">--</span>
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block; font-weight:700;">🎁 مرتدات الحوافز</span>
+                                <div class="stat-value" id="fq-incStat" style="font-size: 1.05rem; margin-top:4px;">--</div>
                             </div>
-                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-                                ⚡
+                            <div class="stat-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                🎁
                             </div>
                         </div>
-                        <div class="stat-card-pro" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 14px; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="stat-card-pro" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 14px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
                             <div class="stat-details-pro">
-                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block;">النطاق الزمني للسجل</span>
-                                <span class="stat-value" id="fq-dateRange" style="font-size: 0.95rem; font-weight: 700; color: #a5b4fc;">--</span>
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block; font-weight:700;">⚡ إجمالي المرتدات</span>
+                                <div class="stat-value" id="fq-txnStat" style="font-size: 1.05rem; margin-top:4px;">--</div>
                             </div>
-                            <div class="stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-                                📅
+                            <div class="stat-icon" style="background: rgba(74, 222, 128, 0.15); color: #4ade80; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                📊
+                            </div>
+                        </div>
+                        <div class="stat-card-pro" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 14px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
+                            <div class="stat-details-pro">
+                                <span class="stat-label" style="font-size: 0.8rem; color: #94a3b8; display: block; font-weight:700;">📦 الدفعات التاريخية</span>
+                                <span class="stat-value" id="fq-batchCount" style="font-size: 1.2rem; font-weight: 800; color: #00f0ff;">--</span>
+                            </div>
+                            <div class="stat-icon" style="background: rgba(0, 240, 255, 0.15); color: #00f0ff; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                📁
                             </div>
                         </div>
                     </div>
@@ -1296,6 +1305,7 @@
                                     <th class="fq-sticky-right-1">#</th>
                                     <th class="fq-sticky-right-2">اسم المستفيد</th>
                                     <th class="fq-sticky-right-3">الرقم القومي</th>
+                                    <th>نوع المدفوعة</th>
                                     <th>رقم الحساب الأصلي</th><th>كود البنك</th><th>فرع البنك</th><th>المبلغ</th><th>الحالة</th><th>السبب</th><th>رقم الدفعة</th><th>التاريخ</th><th>الحساب الجديد</th><th>البنك الجديد</th><th>الفرع الجديد</th><th>التسوية</th><th>المسلسل</th>
                                     <th class="fq-sticky-left-action">العمليات</th>
                                 </tr></thead>
@@ -1451,6 +1461,11 @@
                                     const tasCheckedClass = isSettled ? 'checked' : '';
                                     const tasLabelText = isSettled ? '✅ محدد كتسوية' : '☐ محدد كتسوية';
 
+                                    const isInc = (t.purpose === 'Incentive' || (t.purpose||'').toLowerCase().includes('inc') || (t.batchId||'').toLowerCase().includes('inc'));
+                                    const purposeBadge = isInc 
+                                        ? `<span class="badge-status warning" style="font-size:0.75em; padding:3px 8px;" title="دفعة حوافز">🎁 حوافز</span>`
+                                        : `<span class="badge-status info" style="font-size:0.75em; padding:3px 8px;" title="دفعة مرتبات">💵 مرتبات</span>`;
+
                                     const stageBadge = (t.tasFlag == '1' || t.tasFlag === 1)
                                         ? `<span class="badge-status warning" style="font-size:0.75em; padding:3px 8px;" title="موجودة لدى رئيس القسم (حسام السيد hossam-elsayed) جاهزة للتسوية والاعتماد">👔 رئيس قسم (حسام)</span>`
                                         : ((t.tasFlag == '2' || t.tasFlag === 2) 
@@ -1467,6 +1482,7 @@
                                             <td class="fq-sticky-right-1">${i + 1}</td>
                                             <td class="fq-sticky-right-2" title="${tooltipText}">${t.creditorName||'--'} ${isEdited ? '✏️' : ''}</td>
                                             <td class="fq-sticky-right-3">${t.creditorNationalId||'--'}</td>
+                                            <td>${purposeBadge}</td>
                                             <td>${t.creditorAccount||'--'}</td><td>${t.creditorBic||'--'}</td><td>${t.creditorBranch||'--'}</td>
                                             <td class="fq-amount">${(t.transactionAmount||0).toLocaleString()}</td>
                                             <td><span class="fq-badge-returned">${t.transactionStatus||'--'}</span></td>
@@ -1796,6 +1812,35 @@
                                 }
                             },
 
+                            updateStatsCards(list) {
+                                let salaryCount = 0, salaryAmt = 0;
+                                let incCount = 0, incAmt = 0;
+                                let totalAmt = 0;
+
+                                const data = list || this.filteredLiveTxns || this.allTxnsFlat || [];
+                                data.forEach(t => {
+                                    const amt = parseFloat(t.transactionAmount) || 0;
+                                    totalAmt += amt;
+                                    const isInc = (t.purpose === 'Incentive' || (t.purpose||'').toLowerCase().includes('inc') || (t.batchId||'').toLowerCase().includes('inc'));
+                                    if (isInc) {
+                                        incCount++;
+                                        incAmt += amt;
+                                    } else {
+                                        salaryCount++;
+                                        salaryAmt += amt;
+                                    }
+                                });
+
+                                const elSal = document.getElementById('fq-salaryStat');
+                                if (elSal) elSal.innerHTML = `<b style="color:#38bdf8; font-size:1.1rem;">${salaryCount.toLocaleString()} معاملة</b> <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-top:2px;">(${salaryAmt.toLocaleString()} ج.م)</span>`;
+
+                                const elInc = document.getElementById('fq-incStat');
+                                if (elInc) elInc.innerHTML = `<b style="color:#fbbf24; font-size:1.1rem;">${incCount.toLocaleString()} معاملة</b> <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-top:2px;">(${incAmt.toLocaleString()} ج.م)</span>`;
+
+                                const elTxn = document.getElementById('fq-txnStat');
+                                if (elTxn) elTxn.innerHTML = `<b style="color:#4ade80; font-size:1.1rem;">${data.length.toLocaleString()} معاملة</b> <span style="font-size:0.75rem; color:#94a3b8; display:block; margin-top:2px;">(${totalAmt.toLocaleString()} ج.م)</span>`;
+                            },
+
                             filterData() {
                                 const q = (document.getElementById('fq-searchInput')?.value || '').trim().toLowerCase();
                                 const year = document.getElementById('fq-yearFilter')?.value || 'all';
@@ -1827,6 +1872,7 @@
                                 });
 
                                 this.filteredLiveTxns = list;
+                                this.updateStatsCards(list);
                                 this.renderLiveGrid(true);
                             },
                             openEditModal(txn) {
