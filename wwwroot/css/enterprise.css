@@ -768,7 +768,8 @@ th.sticky-col {
 }
 
 /* ============================================================ 
-   Smart Payment Large Card Expansion (Fixed Width & Styling)
+   Smart Payment Large Card Expansion (Fixed Width & Styling) */
+#smart-payment-upload-card {
     max-width: none !important;
     margin: 0 auto 30px !important;
     border-right: 5px solid #00f0ff !important; /* Thick Cyan Border like large match cards */
@@ -839,28 +840,9 @@ th.sticky-col {
 
 /* Animations */
 @keyframes pulseDashed {
-
-/* ============================================================ 
-   Smart Payment Large Card Expansion (Fixed Width & Styling)
-    max-width: none !important;
-    margin: 0 auto 30px !important;
-    border-right: 5px solid #00f0ff !important; /* Thick Cyan Border like large match cards */
-    padding: 30px 40px !important;
-    background: rgba(13, 22, 35, 0.9) !important;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6) !important;
-    border-radius: 24px !important;
-}
-
-#smart-payment-upload-card .u-v2-info {
-    width: 100%;
-}
-
-/* Enhancing Drop Zone for Large Card */
-#smart-payment-drop-zone {
-    padding: 25px !important;
-    border-width: 2px !important;
-    background: rgba(0, 240, 255, 0.08) !important;
-    min-height: 100px;
+    0% { border-color: rgba(0, 240, 255, 0.4); }
+    50% { border-color: rgba(0, 240, 255, 0.9); }
+    100% { border-color: rgba(0, 240, 255, 0.4); }
 }
 
 /* Ensures results container also uses the full space */
@@ -1047,4 +1029,102 @@ th.sticky-col-1, th.sticky-col-2, th.sticky-col-3, th.sticky-col-4 {
     color: #00f0ff !important;
     font-weight: 800 !important;
     border-bottom: 2px solid #00f0ff !important;
+}
+
+/* Responsive Container & Scrollbars for Unified Search Page (#page-full-returns) */
+#page-full-returns:not(.hidden) {
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    width: 100% !important;
+}
+
+#page-full-returns .unified-premium-container {
+    flex-shrink: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 15px !important;
+    margin-bottom: 15px !important;
+}
+
+#unified-results {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    margin-top: 10px !important;
+}
+
+#section-single-table {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 16px !important;
+    width: 100% !important;
+}
+
+#content-single-table {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 12px !important;
+    width: 100% !important;
+}
+
+#content-single-table .pro-table-container {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+}
+
+#content-single-table .table-wrapper-scroll {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: scroll !important;
+    overflow-y: auto !important;
+    max-height: calc(100vh - 430px) !important;
+    min-height: 250px !important;
+    display: block !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(0, 240, 255, 0.35) !important;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6) !important;
+    scrollbar-width: auto !important;
+    scrollbar-color: #00f0ff #0f172a !important;
+    margin-bottom: 12px !important;
+}
+
+#content-single-table .table-wrapper-scroll::-webkit-scrollbar {
+    height: 14px !important;
+    width: 12px !important;
+    display: block !important;
+}
+
+#content-single-table .table-wrapper-scroll::-webkit-scrollbar-track {
+    background: #0f172a !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+}
+
+#content-single-table .table-wrapper-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(90deg, #00f0ff 0%, #3b82f6 100%) !important;
+    border-radius: 8px !important;
+    border: 2px solid #0f172a !important;
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.8) !important;
+}
+
+#unified-single-table {
+    min-width: 1950px !important;
+    width: max-content !important;
+    border-collapse: collapse !important;
+}
+
+#unified-single-table th, #unified-single-table td {
+    white-space: nowrap !important;
+    padding: 10px 14px !important;
+    font-size: 0.9rem !important;
 }

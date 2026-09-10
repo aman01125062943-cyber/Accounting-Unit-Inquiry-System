@@ -11,7 +11,7 @@
     </script>
     <title>قسم البنوك — نظام إدارة المرتدات</title>
     <link rel="stylesheet" href="css/modern.css?v=3.7">
-    <link rel="stylesheet" href="css/enterprise.css">
+    <link rel="stylesheet" href="css/enterprise.css?v=10.0">
     <link rel="stylesheet" href="css/fonts.css">
     <link rel="stylesheet" href="css/chat.css?v=1.0">
     <link rel="stylesheet" href="css/advanced.css?v=1.1">
@@ -389,14 +389,6 @@
                         <span class="nav-item-icon">📚</span>
                         <span class="nav-item-text">البحث الشامل</span>
                     </div>
-                    <div class="nav-item active" data-page="returns" onclick="app.navigateTo('returns')">
-                        <span class="nav-item-icon">📊</span>
-                        <span class="nav-item-text">مرتدات الحوافز</span>
-                    </div>
-                    <div class="nav-item" data-page="salary-returns" onclick="app.navigateTo('salary-returns')">
-                        <span class="nav-item-icon">💰</span>
-                        <span class="nav-item-text">مرتادات المرتبات</span>
-                    </div>
                     <div class="nav-item hidden" data-page="incentives-page" onclick="app.navigateTo('incentives-page')" style="display: none !important;">
                         <span class="nav-item-icon">🎁</span>
                         <span class="nav-item-text">جدول الحوافز اللحظي</span>
@@ -427,19 +419,15 @@
                         <span class="nav-item-icon">📋</span>
                         <span class="nav-item-text">استعلام عن مرتدات (البوابة)</span>
                     </div>
+                    <div class="nav-item" data-page="standalone-outgoing" onclick="app.navigateTo('standalone-outgoing')">
+                        <span class="nav-item-icon">🚀</span>
+                        <span class="nav-item-text">الصادر بدون وارد</span>
+                    </div>
                 </div>
 
 
                 <div class="nav-section">
                     <div class="nav-section-title">الإدارة والأرشيف</div>
-                    <div class="nav-item" data-page="archive" onclick="app.navigateTo('archive')">
-                        <span class="nav-item-icon">🗄️</span>
-                        <span class="nav-item-text">الأرشيف الشامل الموحد</span>
-                    </div>
-                    <div class="nav-item" data-page="auto-import-reports" onclick="app.navigateTo('auto-import-reports')">
-                        <span class="nav-item-icon">📋</span>
-                        <span class="nav-item-text">تقرير الاستيراد التلقائي</span>
-                    </div>
                     <div class="nav-item" data-page="modified-records" onclick="app.navigateTo('modified-records')">
                         <span class="nav-item-icon">✏️</span>
                         <span class="nav-item-text">سجلات التعديلات</span>
@@ -812,69 +800,171 @@
 
                     </div>
 
-                    <!-- Results Container -->
-                    <div id="unified-results" style="display: none;">
-                        <!-- Incentive Section -->
-                        <div class="unified-section-wrapper" id="section-incentive">
-                            <div class="unified-section-header" onclick="app.toggleUnifiedSection('incentive')">
-                                <div class="u-header-left">
-                                    <span class="u-dot dot-incentive"></span>
-                                    <h3>نتائج مرتدات الحوافز</h3>
+                    <!-- Results Container (Single Flat Table Grid) -->
+                    <div id="unified-results" style="display: none; margin-top: 25px;">
+                        <div class="unified-section-wrapper" id="section-single-table">
+                            <div class="unified-section-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); padding: 14px 20px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="u-header-left" style="display: flex; align-items: center; gap: 10px;">
+                                    <span class="u-dot" style="background: #00f0ff; width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
+                                    <h3 style="margin: 0; color: #fff; font-size: 1.1rem; font-weight: 700;">جدول البحث الشامل الموحد (كافة السجلات)</h3>
                                 </div>
-                                <div class="u-header-right">
-                                    <span id="unified-incentive-badge" class="u-count-badge">0</span>
-                                    <span class="toggle-icon">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-                                    </span>
+                                <div class="u-header-right" style="display: flex; align-items: center; gap: 15px;">
+                                    <span id="unified-single-badge" class="u-count-badge" style="background: rgba(0, 240, 255, 0.2); color: #00f0ff; padding: 4px 12px; border-radius: 20px; font-weight: 700;">0 سجل</span>
+                                    <span style="font-size: 0.85rem; color: #10b981; font-weight: 600;">🔄 تحديث تلقائي مباشر</span>
                                 </div>
                             </div>
-                            <div class="unified-section-content" id="content-incentive">
+                            <div class="unified-section-content" id="content-single-table">
                                 <div class="table-container pro-table-container">
-                                    <div class="table-wrapper-scroll">
-                                        <table class="data-table" id="unified-incentive-table">
+                                    <div class="table-wrapper-scroll" style="overflow-x: auto; overflow-y: auto; width: 100%; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;">
+                                        <table class="data-table" id="unified-single-table" style="min-width: 1750px; width: 100%; border-collapse: collapse;">
                                             <thead>
-                                                <tr id="unified-incentive-head"></tr>
+                                                <tr id="unified-single-head" style="background: #1e293b; position: sticky; top: 0; z-index: 10;">
+                                                    <th style="width: 45px; text-align: center;"><input type="checkbox" id="unified-select-all" onclick="app.toggleSelectAllUnified(this.checked)" title="تحديد الكل" style="cursor:pointer;"></th>
+                                                    <th style="width: 45px; text-align: center;">#</th>
+                                                    <th style="width: 95px; text-align: center;">المصدر</th>
+                                                    <th style="width: 140px; text-align: center;">كود أمر الدفع / الملف</th>
+                                                    <th style="width: 220px; text-align: right;">اسم المستفيد</th>
+                                                    <th style="width: 130px; text-align: center;">الرقم القومي</th>
+                                                    <th style="width: 150px; text-align: center;">رقم الحساب الأصلي</th>
+                                                    <th style="width: 110px; text-align: center;">كود البنك</th>
+                                                    <th style="width: 130px; text-align: left;">قيمة العملية</th>
+                                                    <th style="width: 100px; text-align: center;">الحالة</th>
+                                                    <th style="width: 180px; text-align: right;">سبب الارتداد</th>
+                                                    <th style="width: 110px; text-align: center;">حالة التسوية</th>
+                                                    <th style="width: 150px; text-align: center;">رقم الحساب بعد التعديل</th>
+                                                    <th style="width: 120px; text-align: center;">البنك بعد التعديل</th>
+                                                    <th style="width: 110px; text-align: center;">تاريخ المرتد</th>
+                                                    <th style="width: 110px; text-align: center;">المرفقات (PDF)</th>
+                                                    <th style="width: 100px; text-align: center;">الإجراءات</th>
+                                                </tr>
                                             </thead>
-                                            <tbody id="unified-incentive-body"></tbody>
+                                            <tbody id="unified-single-body"></tbody>
                                         </table>
                                     </div>
-                                    <div id="unified-incentive-empty" class="unified-table-empty hidden">
-                                        <span>📭</span> لا توجد نتائج في مرتدات الحوافز
+                                    <div id="unified-single-empty" class="unified-table-empty hidden" style="padding: 40px; text-align: center; color: #94a3b8;">
+                                        <span>📭</span> لا توجد نتائج مطابقة للبحث الشامل
                                     </div>
-                                    <div class="pagination-controls" id="unified-incentive-pagination"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Salary Section -->
-                        <div class="unified-section-wrapper" id="section-salary" style="margin-top: 40px;">
-                            <div class="unified-section-header" onclick="app.toggleUnifiedSection('salary')">
-                                <div class="u-header-left">
-                                    <span class="u-dot dot-salary"></span>
-                                    <span class="toggle-icon">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="unified-section-content" id="content-salary">
-                                <div class="table-container pro-table-container">
-                                    <div class="table-wrapper-scroll">
-                                        <table class="data-table" id="unified-salary-table">
-                                            <thead>
-                                                <tr id="unified-salary-head"></tr>
-                                            </thead>
-                                            <tbody id="unified-salary-body"></tbody>
-                                        </table>
-                                    </div>
-                                    <div id="unified-salary-empty" class="unified-table-empty hidden">
-                                        <span>📭</span> لا توجد نتائج في مرتدات المرتبات
-                                    </div>
-                                    <div class="pagination-controls" id="unified-salary-pagination"></div>
+                                    <div class="pagination-controls" id="unified-single-pagination" style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;"></div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
+                </section>
+
+                <!-- ========== Standalone Outgoing Page (الصادر بدون وارد) ========== -->
+                <section id="page-standalone-outgoing" class="page-content hidden">
+                    <!-- Page Header & Banner -->
+                    <div style="background: linear-gradient(135deg, #0b1329 0%, #152238 100%); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 14px; padding: 20px 25px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px;">
+                                <span style="font-size: 2rem;">🚀</span>
+                                <h1 style="font-size: 1.6rem; font-weight: 800; color: #ffffff; margin: 0;">الصادر بدون وارد</h1>
+                            </div>
+                            <p style="color: #94a3b8; margin: 0; font-size: 0.95rem;">إدارة وتوثيق المكاتبات والمراسلات الصادرة المستقلة والأرشفة الإلكترونية</p>
+                        </div>
+                        <button class="btn btn-primary btn-lg" onclick="app.showAddStandaloneOutgoingModal()" style="background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%); border: none; font-weight: 700; gap: 8px; border-radius: 10px; padding: 12px 24px; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);">
+                            <span>➕</span>
+                            <span>إضافة صادر بدون وارد</span>
+                        </button>
+                    </div>
+
+                    <!-- 4 Statistics Cards (Matches Screenshot) -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                        <!-- Card 1: Total Outgoing -->
+                        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+                            <div>
+                                <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 700; display: block; margin-bottom: 6px;">إجمالي الصادر المستقل</span>
+                                <h2 id="so-stat-total" style="color: #38bdf8; font-size: 1.8rem; font-weight: 900; margin: 0;">0</h2>
+                            </div>
+                            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">🚀</div>
+                        </div>
+
+                        <!-- Card 2: Attachments -->
+                        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+                            <div>
+                                <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 700; display: block; margin-bottom: 6px;">المرفقات</span>
+                                <h2 id="so-stat-attachments" style="color: #10b981; font-size: 1.8rem; font-weight: 900; margin: 0;">0</h2>
+                            </div>
+                            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(16, 185, 129, 0.15); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">📎</div>
+                        </div>
+
+                        <!-- Card 3: Destinations -->
+                        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+                            <div>
+                                <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 700; display: block; margin-bottom: 6px;">الجهات الموجه إليها</span>
+                                <h2 id="so-stat-destinations" style="color: #c084fc; font-size: 1.8rem; font-weight: 900; margin: 0;">0</h2>
+                            </div>
+                            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(168, 85, 247, 0.15); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">🏢</div>
+                        </div>
+
+                        <!-- Card 4: This Month -->
+                        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 20px rgba(0,0,0,0.2);">
+                            <div>
+                                <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 700; display: block; margin-bottom: 6px;">هذا الشهر</span>
+                                <h2 id="so-stat-month" style="color: #f59e0b; font-size: 1.8rem; font-weight: 900; margin: 0;">0</h2>
+                            </div>
+                            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(245, 158, 11, 0.15); display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">🗓️</div>
+                        </div>
+                    </div>
+
+                    <!-- Search & Filter Controls Bar -->
+                    <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 15px 20px; margin-bottom: 20px; display: flex; gap: 15px; flex-wrap: wrap; align-items: center;">
+                        <div style="flex: 1; min-width: 280px; position: relative;">
+                            <input type="text" id="so-search-input" onkeyup="app.filterStandaloneOutgoings()" placeholder="بحث فوري (رقم الصادر، الموضوع، الدولاب، الحافظة...)" style="width: 100%; padding: 10px 16px 10px 40px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0f172a; color: #ffffff; font-size: 0.9rem; outline: none;">
+                            <span style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8;">🔍</span>
+                        </div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <select id="so-filter-status" onchange="app.filterStandaloneOutgoings()" style="padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0f172a; color: #ffffff; font-size: 0.88rem;">
+                                <option value="all">كل حالات الإجراء</option>
+                                <option value="حفظ في الأرشيف">حفظ في الأرشيف</option>
+                                <option value="تم اتخاذ إجراء">تم اتخاذ إجراء</option>
+                                <option value="جارِ العمل">جارِ العمل</option>
+                            </select>
+                            <select id="so-filter-service" onchange="app.filterStandaloneOutgoings()" style="padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0f172a; color: #ffffff; font-size: 0.88rem;">
+                                <option value="all">كل أنواع الخدمة</option>
+                                <option value="استحقاقات ومكاتبات">استحقاقات ومكاتبات</option>
+                            </select>
+                            <select id="so-filter-destination" onchange="app.filterStandaloneOutgoings()" style="padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: #0f172a; color: #ffffff; font-size: 0.88rem;">
+                                <option value="all">كل الجهات الصادر إليها</option>
+                                <option value="فرع الإدارة والأفراد">فرع الإدارة والأفراد</option>
+                                <option value="فرع المراجعة الفنية">فرع المراجعة الفنية</option>
+                                <option value="هيئة التنظيم والإدارة">هيئة التنظيم والإدارة</option>
+                                <option value="إدارة المستشفيات العسكرية">إدارة المستشفيات العسكرية</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Main Data Table Container -->
+                    <div class="table-container pro-table-container">
+                        <div style="background: linear-gradient(135deg, #1e293b, #0f172a); padding: 14px 20px; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <h3 style="margin: 0; color: #ffffff; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                                <span>🚀</span>
+                                <span>جدول الصادر بدون وارد</span>
+                            </h3>
+                            <span id="so-table-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 0.85rem;">0 سجل</span>
+                        </div>
+                        <div class="table-wrapper-scroll" style="overflow-x: auto; width: 100%;">
+                            <table class="data-table" id="so-table" style="width: 100%; border-collapse: collapse; min-width: 1400px;">
+                                <thead>
+                                    <tr style="background: #0f172a;">
+                                        <th style="width: 50px; text-align: center;">#</th>
+                                        <th style="width: 120px; text-align: center;">رقم الصادر</th>
+                                        <th style="width: 130px; text-align: center;">تاريخ الصادر / الاتجاه</th>
+                                        <th style="width: 150px; text-align: center;">نوع الخدمة / الاستحقاق</th>
+                                        <th style="width: 180px; text-align: center;">الجهة الصادر إليها / المقر</th>
+                                        <th style="text-align: right; min-width: 300px;">الموضوع والملخص</th>
+                                        <th style="width: 130px; text-align: center;">حالة الإجراء</th>
+                                        <th style="width: 110px; text-align: center;">المرفقات</th>
+                                        <th style="width: 220px; text-align: center;">مكان الحفظ (الأرشفة)</th>
+                                        <th style="width: 120px; text-align: center;">حالة الأرشفة</th>
+                                        <th style="width: 110px; text-align: center;">الإجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="so-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- ========== FailQuery Page (استعلام عن مرتدات - البوابة الخارجية) ========== -->
@@ -4750,7 +4840,7 @@
     <script src="js/incentives-page.js"></script>
     <script src="js/salaries-page.js"></script>
     <script src="js/live-data-page.js"></script>
-    <script src="js/app.js?v=9.53&t=1785860000"></script>
+    <script src="js/app.js?v=10.1"></script>
 </body>
 
 </html>

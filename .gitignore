@@ -60,3 +60,29 @@ archive/
 *.csv
 
 testsprite_tests\tmp\config.json
+# Binaries and libraries
+*.dll
+*.exe
+*.pdb
+*.lscache
+*.deps.json
+*.runtimeconfig.json
+publish_portable_latest/
+runtimes/
+scratch/
+__pycache__/
+ÇáÃÑÔíİ/
+ÇáÊØÈíŞ/
+scratch*
+find_khairi*
+get_all_live*
+hiaapay_connector.py
+auth_payload.json
+failquery_block.txt
+InspectDbTypes.ps1
+web.config
+ÇáÃÑÔíİ/
+ÇáÊØÈíŞ/
+*Ø§Ù„Ø£Ø±Ø´ÙŠÙ*
+*Ø§Ù„ØªØ·Ø¨ÙŠÙ‚*
+*[!a-zA-Z0-9_.]*

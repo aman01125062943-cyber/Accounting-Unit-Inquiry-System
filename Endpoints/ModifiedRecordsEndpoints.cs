@@ -142,7 +142,10 @@ public static class ModifiedRecordsEndpoints
                 var sqlFailQuery = @"
                     SELECT 
                         Id, BatchId, CreditorName, CreditorAccount, CreditorBic, 
-                        NewCreditorAccount, NewCreditorBic, TransactionAmount, ModifiedAt, SourceSystem, TasFlag
+                        NewCreditorAccount, NewCreditorBic, TransactionAmount,
+                        COALESCE(TasFlag, 0) as TasFlag,
+                        '' as SourceSystem,
+                        '' as ModifiedAt
                     FROM FailQueryTransactions
                     WHERE NewCreditorAccount IS NOT NULL 
                     AND TRIM(NewCreditorAccount) != '' 

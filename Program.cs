@@ -274,6 +274,7 @@ app.MapConnectorEndpoints();
 app.MapFailQueryEndpoints();
 app.MapDailyReportEndpoints();
 app.MapModifiedRecordsEndpoints();
+app.MapStandaloneOutgoingEndpoints();
 
 app.MapSettingsEndpoints();
 app.MapHub<NotificationHub>("/notificationHub");

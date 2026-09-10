@@ -666,10 +666,43 @@ public class DatabaseService
                 IsStale INTEGER NOT NULL DEFAULT 1,
                 LastError TEXT
             );
+            CREATE TABLE IF NOT EXISTS StandaloneOutgoings (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                OutgoingNumber TEXT,
+                OutgoingDate TEXT,
+                ServiceType TEXT,
+                Destination TEXT,
+                Subject TEXT,
+                ActionStatus TEXT,
+                AttachmentsCount INTEGER DEFAULT 0,
+                SalonLocation TEXT,
+                CabinetLocation TEXT,
+                ShelfLocation TEXT,
+                FolderLocation TEXT,
+                SerialLocation TEXT,
+                ArchiveStatus TEXT DEFAULT 'أرشفة مكتملة',
+                CreatedAt TEXT,
+                UpdatedAt TEXT
+            );
             INSERT OR IGNORE INTO SearchFilterIndexState (Id, IsStale, IndexedCount) VALUES (1, 1, 0);
             INSERT OR IGNORE INTO FullReturnsSyncState (Id, LastChangedAt, LastResetAt) VALUES (1, '', '');
         ";
         await conn.ExecuteAsync(sql);
+
+        var outgoingCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM StandaloneOutgoings");
+        if (outgoingCount == 0)
+        {
+            await conn.ExecuteAsync(@"INSERT INTO StandaloneOutgoings 
+                (OutgoingNumber, OutgoingDate, ServiceType, Destination, Subject, ActionStatus, AttachmentsCount, SalonLocation, CabinetLocation, ShelfLocation, FolderLocation, SerialLocation, ArchiveStatus, CreatedAt, UpdatedAt)
+                VALUES 
+                ('ص-2025/1', '2025-05-10', 'استحقاقات ومكاتبات', 'فرع الإدارة والأفراد', 'مكاتبة صادرة رسمية بشأن: تقرير المتابعة الدورية للقرارات المالية الصادرة من هذه التنظيم والعمليات', 'حفظ في الأرشيف', 2, '10', 'C-1', 'S-1', 'F-15', '1', 'أرشفة مكتملة', datetime('now'), datetime('now')),
+                ('ص-2025/2', '2025-05-12', 'استحقاقات ومكاتبات', 'فرع المراجعة الفنية', 'مكاتبة صادرة رسمية بشأن: تسوية فروق استحقاقات العلاوات الترقية لجميع الفئات وتحديث ساعات أجهزة الصرف الآلي', 'تم اتخاذ إجراء', 4, '12', 'C-2', 'S-4', 'F-18', '2', 'أرشفة مكتملة', datetime('now'), datetime('now')),
+                ('ص-2025/3', '2025-05-15', 'استحقاقات ومكاتبات', 'فرع المراجعة الفنية', 'مكاتبة صادرة رسمية بشأن: إفادة بشأن طلب صرف التكلفة الإضافية للبدلات والمكافآت المشجعة لعام 2026', 'تم اتخاذ إجراء', 7, '14', 'C-4', 'S-4', 'F-14', '3', 'أرشفة مكتملة', datetime('now'), datetime('now')),
+                ('ص-2025/4', '2025-05-18', 'استحقاقات ومكاتبات', 'فرع المراجعة الفنية', 'مكاتبة صادرة رسمية بشأن: مذكرة للعرض بشأن إعادة هيكلة إجراءات المصرف المالي وحفظ الملفات بجدول الأرشيف الإلكتروني', 'تم اتخاذ إجراء', 0, '1', 'C-1', 'S-1', 'F-14', '4', 'أرشفة مكتملة', datetime('now'), datetime('now')),
+                ('ص-2025/5', '2025-05-20', 'استحقاقات ومكاتبات', 'فرع المراجعة الفنية', 'مكاتبة صادرة رسمية بشأن: إفادة بشأن طلب صرف التكلفة الإضافية للبدلات والمكافآت المشجعة لعام 2026', 'حفظ في الأرشيف', 2, '18', 'C-18', 'S-1', 'F-7', '5', 'جارِ الأرشفة', datetime('now'), datetime('now')),
+                ('ص-2025/6', '2025-05-22', 'استحقاقات ومكاتبات', 'هيئة التنظيم والإدارة', 'مكاتبة صادرة رسمية بشأن: تسوية فروق استحقاقات العلاوات الترقية لجميع الفئات وتحديث بيانات أجهزة الصرف الآلي', 'حفظ في الأرشيف', 4, '5', 'C-1', 'S-1', 'F-20', '6', 'جارِ الأرشفة', datetime('now'), datetime('now')),
+                ('ص-2025/7', '2025-05-25', 'استحقاقات ومكاتبات', 'إدارة المستشفيات العسكرية', 'مكاتبة صادرة رسمية بشأن: إفادة بشأن طلب صرف التكلفة الإضافية للبدلات والمكافآت المشجعة لعام 2026', 'جارِ العمل', 1, '9', 'C-5', 'S-4', 'F-11', '7', 'جارِ الأرشفة', datetime('now'), datetime('now'));");
+        }
         
         var userCount = await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM Users");
         if (userCount == 0)
@@ -1293,6 +1326,7 @@ public class DatabaseService
             var count = 0;
             count += await RebuildSearchFilterIndexForSourceAsync("returns", "Returns", "ReturnsImages", BATCH_SIZE);
             count += await RebuildSearchFilterIndexForSourceAsync("salary", "SalaryReturns", "SalaryReturnsImages", BATCH_SIZE);
+            count += await RebuildSearchFilterIndexForFailQueryAsync(BATCH_SIZE);
 
             using (var conn = await GetOpenConnectionAsync())
             {
@@ -1359,8 +1393,8 @@ public class DatabaseService
                 SourceType = sourceType,
                 Name = FirstText(data, "الاسم", "اسم", "Name", "BeneficiaryName", "الاسم بالكامل"),
                 NationalId = FirstText(data, "الرقم القومي", "رقم قومي", "NationalId", "NID"),
-                AccountNumber = FirstText(data, "رقم الحساب", "رقم الحساب القديم", "AccountNumber", "IBAN"),
-                Bank = FirstText(data, "البنك", "Bank", "اسم البنك"),
+                AccountNumber = FirstText(data, "رقم الحساب بعد التعديل", "newCreditorAccount", "NewCreditorAccount", "رقم الحساب", "رقم الحساب القديم", "AccountNumber", "IBAN"),
+                Bank = FirstText(data, "البنك بعد التعديل", "newCreditorBic", "NewCreditorBic", "البنك", "Bank", "اسم البنك"),
                 FileCode = fileCode,
                 ExtractedMonth = NormalizeMonthText(FirstText(data, "الشهر", "شهر", "Month", "month", "ExtractedMonth", "Extracted Month") is var m && !string.IsNullOrWhiteSpace(m) && m.Trim() != "فارغ" ? m : fileCode),
                 PaymentDate = NormalizeDateOnly(FirstText(data, "تاريخ اعتماد التعديل / تاريخ السداد", "تاريخ السداد", "تاريخ التسوية", "تاريخ السداد الفعلي", "SettlementDate")),
@@ -1376,6 +1410,76 @@ public class DatabaseService
         }).ToList();
 
         // Insert in batches — each batch is a short transaction to avoid long locks
+        foreach (var batch in indexRows.Chunk(batchSize))
+        {
+            using var conn = await GetOpenConnectionAsync();
+            using var tx = conn.BeginTransaction();
+            foreach (var indexRow in batch)
+            {
+                await conn.ExecuteAsync(@"
+                    INSERT OR REPLACE INTO SearchFilterIndex
+                        (RecordId, SourceType, Name, NationalId, AccountNumber, Bank, FileCode, ExtractedMonth, PaymentDate, UploadDate, Status, ReturnedRejected, HasAttachments, IsArchived, IsDeleted, SearchText, UpdatedAt)
+                    VALUES
+                        (@RecordId, @SourceType, @Name, @NationalId, @AccountNumber, @Bank, @FileCode, @ExtractedMonth, @PaymentDate, @UploadDate, @Status, @ReturnedRejected, @HasAttachments, @IsArchived, @IsDeleted, @SearchText, @UpdatedAt);",
+                    indexRow, tx);
+                try { await conn.ExecuteAsync("INSERT OR REPLACE INTO SearchFilterIndexFts (SourceType, RecordId, SearchText) VALUES (@SourceType, @RecordId, @SearchText);", indexRow, tx); } catch {}
+                count++;
+            }
+            tx.Commit();
+        }
+        return count;
+    }
+
+    private async Task<int> RebuildSearchFilterIndexForFailQueryAsync(int batchSize)
+    {
+        List<dynamic> rows;
+        using (var conn = await GetOpenConnectionAsync())
+        {
+            rows = (await conn.QueryAsync<dynamic>(@"
+                SELECT t.Id, t.BatchId, t.CreditorName, t.CreditorNationalId, t.CreditorAccount,
+                       t.CreditorBic, t.CreditorBranch, t.TransactionAmount, t.TransactionStatus,
+                       t.Reason, t.NewCreditorAccount, t.NewCreditorBic, t.NewCreditorBranch,
+                       t.TasFlag, t.SyncedAt, t.ModifiedAt, b.ReceivingDate
+                FROM FailQueryTransactions t
+                LEFT JOIN FailQueryBatches b ON t.BatchId = b.BatchId;")).ToList();
+        }
+
+        var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        var count = 0;
+
+        var indexRows = rows.Select(row =>
+        {
+            var batchId = (string?)row.BatchId ?? "";
+            var name = (string?)row.CreditorName ?? "";
+            var nid = (string?)row.CreditorNationalId ?? "";
+            var acc = (string?)row.NewCreditorAccount ?? (string?)row.CreditorAccount ?? "";
+            var bic = (string?)row.NewCreditorBic ?? (string?)row.CreditorBic ?? "";
+            var status = (string?)row.TransactionStatus ?? "Returned";
+            var upload = NormalizeDateOnly((string?)row.ReceivingDate ?? (string?)row.SyncedAt);
+            var searchText = $"{name} {nid} {acc} {bic} {batchId} {status} failquery مرتدات البوابة".ToLowerInvariant();
+
+            return new
+            {
+                RecordId = (long)row.Id,
+                SourceType = "failquery",
+                Name = name,
+                NationalId = nid,
+                AccountNumber = acc,
+                Bank = bic,
+                FileCode = batchId,
+                ExtractedMonth = NormalizeMonthText(batchId),
+                PaymentDate = "",
+                UploadDate = upload,
+                Status = status,
+                ReturnedRejected = NormalizeReturnedRejected(status),
+                HasAttachments = 0,
+                IsArchived = 0,
+                IsDeleted = 0,
+                SearchText = searchText,
+                UpdatedAt = now
+            };
+        }).ToList();
+
         foreach (var batch in indexRows.Chunk(batchSize))
         {
             using var conn = await GetOpenConnectionAsync();

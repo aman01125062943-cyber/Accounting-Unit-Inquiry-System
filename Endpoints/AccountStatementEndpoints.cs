@@ -46,6 +46,10 @@ public static class AccountStatementEndpoints
             var parameters = new DynamicParameters();
             if (!string.IsNullOrWhiteSpace(query))
             {
+                var cleanQuery = query.Trim()
+                    .Replace("أ", "ا").Replace("إ", "ا").Replace("آ", "ا")
+                    .Replace("ة", "ه").Replace("ى", "ي").Replace("ـ", "");
+
                 where += @" AND (
                     SearchFilterIndex.SearchText LIKE @Query
                     OR SearchFilterIndex.Name LIKE @Query
@@ -53,12 +57,36 @@ public static class AccountStatementEndpoints
                     OR SearchFilterIndex.AccountNumber LIKE @Query
                     OR SearchFilterIndex.Bank LIKE @Query
                     OR SearchFilterIndex.FileCode LIKE @Query
+                    OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(SearchFilterIndex.SearchText, 'أ', 'ا'), 'إ', 'ا'), 'آ', 'ا'), 'ة', 'ه'), 'ى', 'ي') LIKE @CleanQuery
+                    OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(SearchFilterIndex.Name, 'أ', 'ا'), 'إ', 'ا'), 'آ', 'ا'), 'ة', 'ه'), 'ى', 'ي') LIKE @CleanQuery
                 )";
                 parameters.Add("Query", $"%{query}%");
+                parameters.Add("CleanQuery", $"%{cleanQuery}%");
             }
 
             static string SettlementClause(string settlementStatus, string sourceType)
             {
+                if (sourceType == "failquery")
+                {
+                    if (settlementStatus == "settled")
+                    {
+                        return @" AND EXISTS (
+                            SELECT 1 FROM FailQueryTransactions fq
+                            WHERE fq.Id = SearchFilterIndex.RecordId
+                              AND (fq.TasFlag = '2' OR fq.TasFlag = 2)
+                        )";
+                    }
+                    if (settlementStatus == "not_settled")
+                    {
+                        return @" AND EXISTS (
+                            SELECT 1 FROM FailQueryTransactions fq
+                            WHERE fq.Id = SearchFilterIndex.RecordId
+                              AND (fq.TasFlag != '2' AND fq.TasFlag != 2)
+                        )";
+                    }
+                    return "";
+                }
+
                 var tableName = sourceType == "salary" ? "SalaryReturns" : "Returns";
                 if (settlementStatus == "settled")
                 {
@@ -85,10 +113,12 @@ public static class AccountStatementEndpoints
 
             var incentiveWhere = $"{where} AND SearchFilterIndex.SourceType = 'returns'{SettlementClause(settlementStatus, "returns")}";
             var salaryWhere = $"{where} AND SearchFilterIndex.SourceType = 'salary'{SettlementClause(settlementStatus, "salary")}";
+            var failqueryWhere = $"{where} AND SearchFilterIndex.SourceType = 'failquery'{SettlementClause(settlementStatus, "failquery")}";
 
             var incentiveTotal = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM SearchFilterIndex {incentiveWhere}", parameters);
             var salaryTotal = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM SearchFilterIndex {salaryWhere}", parameters);
-            var total = incentiveTotal + salaryTotal;
+            var failqueryTotal = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM SearchFilterIndex {failqueryWhere}", parameters);
+            var total = incentiveTotal + salaryTotal + failqueryTotal;
 
             async Task<List<dynamic>> LoadSourceRows(string sourceType)
             {
@@ -96,6 +126,23 @@ public static class AccountStatementEndpoints
                 sourceParams.Add("SourceType", sourceType);
                 sourceParams.Add("Limit", pageSize);
                 sourceParams.Add("Offset", offset);
+
+                if (sourceType == "failquery")
+                {
+                    return (await conn.QueryAsync<dynamic>($@"
+                    SELECT SearchFilterIndex.RecordId, SearchFilterIndex.SourceType, SearchFilterIndex.Name,
+                           SearchFilterIndex.NationalId, SearchFilterIndex.AccountNumber, SearchFilterIndex.Bank,
+                           SearchFilterIndex.FileCode, SearchFilterIndex.ExtractedMonth, SearchFilterIndex.PaymentDate,
+                           SearchFilterIndex.UploadDate, SearchFilterIndex.Status, SearchFilterIndex.ReturnedRejected,
+                           SearchFilterIndex.HasAttachments, fq.TransactionAmount AS OperationAmount,
+                           0 AS AttachmentCount, fq.NewCreditorAccount, fq.NewCreditorBic, fq.TasFlag, 0 AS IsSettlementChecked, fq.DetSerial
+                    FROM SearchFilterIndex
+                    INNER JOIN FailQueryTransactions fq ON fq.Id = SearchFilterIndex.RecordId
+                    {failqueryWhere}
+                    ORDER BY SearchFilterIndex.UpdatedAt DESC, SearchFilterIndex.RecordId DESC
+                    LIMIT @Limit OFFSET @Offset", sourceParams)).ToList();
+                }
+
                 var sourceWhere = sourceType == "salary" ? salaryWhere : incentiveWhere;
                 var tableName = sourceType == "salary" ? "SalaryReturns" : "Returns";
                 var imagesTable = sourceType == "salary" ? "SalaryReturnsImages" : "ReturnsImages";
@@ -130,6 +177,15 @@ public static class AccountStatementEndpoints
 
             async Task<double> LoadSourceAmount(string sourceType)
             {
+                if (sourceType == "failquery")
+                {
+                    return await conn.ExecuteScalarAsync<double>($@"
+                    SELECT COALESCE(SUM(fq.TransactionAmount), 0)
+                    FROM SearchFilterIndex
+                    INNER JOIN FailQueryTransactions fq ON fq.Id = SearchFilterIndex.RecordId
+                    {failqueryWhere}", parameters);
+                }
+
                 var sourceWhere = sourceType == "salary" ? salaryWhere : incentiveWhere;
                 var tableName = sourceType == "salary" ? "SalaryReturns" : "Returns";
                 var rawRows = await conn.QueryAsync<string>($@"
@@ -151,29 +207,49 @@ public static class AccountStatementEndpoints
 
             var incentiveRows = await LoadSourceRows("returns");
             var salaryRows = await LoadSourceRows("salary");
+            var failqueryRows = await LoadSourceRows("failquery");
             var incentiveAmount = await LoadSourceAmount("returns");
             var salaryAmount = await LoadSourceAmount("salary");
-
-            object Map(dynamic r) => new Dictionary<string, object?>
-            {
-                ["id"] = Convert.ToInt64(r.RecordId),
-                ["المصدر"] = Convert.ToString(r.SourceType) == "salary" ? "المرتبات" : "الحوافز",
-                ["الاسم"] = Convert.ToString(r.Name) ?? "",
-                ["الرقم القومي"] = Convert.ToString(r.NationalId) ?? "",
-                ["رقم الحساب"] = Convert.ToString(r.AccountNumber) ?? "",
-                ["البنك"] = Convert.ToString(r.Bank) ?? "",
-                ["كود الملف"] = Convert.ToString(r.FileCode) ?? "",
-                ["الشهر"] = Convert.ToString(r.ExtractedMonth) ?? "",
-                ["تاريخ الرفع"] = Convert.ToString(r.UploadDate) ?? "",
-                ["تاريخ السداد"] = Convert.ToString(r.PaymentDate) ?? "",
-                ["الحالة"] = Convert.ToString(r.Status) ?? "",
-                ["Returned/Rejected"] = Convert.ToString(r.ReturnedRejected) ?? "",
-                ["AttachmentCount"] = Convert.ToInt32(r.HasAttachments),
-                ["_src"] = Convert.ToString(r.SourceType) == "salary" ? "salary" : "incentive"
-            };
+            var failqueryAmount = await LoadSourceAmount("failquery");
 
             object MapFull(dynamic r)
             {
+                var st = Convert.ToString(r.SourceType);
+                if (st == "failquery")
+                {
+                    var fqRow = new Dictionary<string, object?>();
+                    var fqId = Convert.ToInt64(r.RecordId);
+                    var fqTasFlag = Convert.ToString(r.TasFlag) ?? "0";
+                    var fqIsChecked = Convert.ToInt32(r.IsSettlementChecked);
+                    var isSettledFq = fqTasFlag == "2" || fqIsChecked == 1;
+
+                    fqRow["id"] = fqId;
+                    fqRow["Id"] = fqId;
+                    fqRow["كود الملف"] = Convert.ToString(r.FileCode) ?? "";
+                    fqRow["الشهر"] = Convert.ToString(r.ExtractedMonth) ?? "";
+                    fqRow["الاسم"] = Convert.ToString(r.Name) ?? "";
+                    fqRow["الرقم القومي"] = Convert.ToString(r.NationalId) ?? "";
+                    fqRow["رقم الحساب"] = Convert.ToString(r.AccountNumber) ?? "";
+                    fqRow["البنك"] = Convert.ToString(r.Bank) ?? "";
+                    fqRow["تاريخ الرفع"] = Convert.ToString(r.UploadDate) ?? "";
+                    fqRow["الحالة"] = Convert.ToString(r.Status) ?? "Returned";
+                    fqRow["Returned/Rejected"] = Convert.ToString(r.ReturnedRejected) ?? "";
+                    fqRow["قيمة العملية"] = Convert.ToString(r.OperationAmount) ?? "0";
+                    fqRow["OperationAmount"] = Convert.ToString(r.OperationAmount) ?? "0";
+                    fqRow["Amount"] = Convert.ToString(r.OperationAmount) ?? "0";
+                    fqRow["رقم الحساب بعد التعديل"] = Convert.ToString(r.NewCreditorAccount) ?? "";
+                    fqRow["البنك بعد التعديل"] = Convert.ToString(r.NewCreditorBic) ?? "";
+                    fqRow["tasFlag"] = fqTasFlag;
+                    fqRow["isSettlementChecked"] = fqIsChecked;
+                    fqRow["حالة التسوية"] = isSettledFq ? "تم التسوية" : "لم يتم التسوية";
+                    fqRow["DetSerial"] = Convert.ToString(r.DetSerial) ?? "";
+                    fqRow["detSerial"] = Convert.ToString(r.DetSerial) ?? "";
+                    fqRow["المسلسل"] = Convert.ToString(r.DetSerial) ?? "";
+                    fqRow["AttachmentCount"] = 0;
+                    fqRow["_src"] = "failquery";
+                    return fqRow;
+                }
+
                 var raw = Convert.ToString(r.RawData) ?? "{}";
                 Dictionary<string, object?> parsed = ParseRaw(raw);
                 var row = new Dictionary<string, object?>(parsed);
@@ -211,7 +287,8 @@ public static class AccountStatementEndpoints
 
             var incentiveMapped = incentiveRows.Select(MapFull).Cast<Dictionary<string, object?>>().ToList();
             var salaryMapped = salaryRows.Select(MapFull).Cast<Dictionary<string, object?>>().ToList();
-            var mapped = incentiveMapped.Concat(salaryMapped).ToList();
+            var failqueryMapped = failqueryRows.Select(MapFull).Cast<Dictionary<string, object?>>().ToList();
+            var mapped = incentiveMapped.Concat(salaryMapped).Concat(failqueryMapped).ToList();
             return Results.Ok(new
             {
                 success = true,

@@ -39,13 +39,15 @@ public static class FailQueryEndpoints
             return res;
         });
 
-        // 3. جلب سجل المرتدات (استجابة فورية من SQLite مع مزامنة خلفية تلقائية)
+        // 3. جلب سجل المرتدات (استعلام مباشر للبوابة على نفس نمط شاشتها الأصلية)
         app.MapGet("/api/failquery/history", async (DatabaseService db) =>
         {
-            _ = Task.Run(async () => {
-                try { await SyncRemotePortalToLocalDbAsync(db); } catch {}
-            });
-            return await GetLocalFailQueryDataAsync(db);
+            var res = await ProxyGet($"FailedTransaction/history?gehaCode={_gehaCode}", timeoutSeconds: 30);
+            if (res is Microsoft.AspNetCore.Http.IResult r && r.GetType().Name.Contains("Json"))
+            {
+                return await GetLocalFailQueryDataAsync(db);
+            }
+            return res;
         });
 
         // 4. مزامنة فورية صريحة عند زر تحديث البيانات
@@ -64,6 +66,584 @@ public static class FailQueryEndpoints
             var lastSynced = await conn.ExecuteScalarAsync<string>("SELECT MAX(SyncedAt) FROM FailQueryBatches");
             return Results.Ok(new { isSyncing = _isSyncingHistory, totalBatches = count, lastSynced });
         });
+
+        // 5.5 اقتراحات ذكية لأسماء الجهات والمحول إليهم والحسابات المتاحة
+        app.MapGet("/api/failquery/suggestions", async (string? q, DatabaseService db) =>
+        {
+            var query = q?.Trim() ?? "";
+            if (string.IsNullOrEmpty(query) || query.Length < 2)
+            {
+                return Results.Ok(new string[] { });
+            }
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                using var conn = await db.GetOpenConnectionAsync();
+                var dbNames = await conn.QueryAsync<string>(
+                    "SELECT DISTINCT CreditorName FROM FailQueryTransactions WHERE CreditorName LIKE @q AND CreditorName IS NOT NULL LIMIT 20",
+                    new { q = $"%{query}%" });
+                foreach (var n in dbNames)
+                {
+                    if (!string.IsNullOrWhiteSpace(n)) names.Add(n.Trim());
+                }
+
+                var retNames = await conn.QueryAsync<string>(
+                    "SELECT DISTINCT CreditorName FROM Returns WHERE CreditorName LIKE @q AND CreditorName IS NOT NULL LIMIT 20",
+                    new { q = $"%{query}%" });
+                foreach (var n in retNames)
+                {
+                    if (!string.IsNullOrWhiteSpace(n)) names.Add(n.Trim());
+                }
+            }
+            catch { }
+
+            var knownEntities = new[] {
+                "دار امداد و التموين",
+                "دار الامداد والتموين",
+                "حساب الحوافز - هيئة الامداد والتموين للقوات المسلحة",
+                "إدارة المركبات للقوات المسلحة",
+                "إدارة الإشارة للقوات المسلحة",
+                "إدارة الأسلحة والذخيرة",
+                "إدارة الحرب الكيميائية",
+                "إدارة الحرب الإلكترونية",
+                "هيئة التنظيم والإدارة للقوات المسلحة",
+                "هيئة الشئون المالية للقوات المسلحة",
+                "هيئة العمليات للقوات المسلحة",
+                "صندوق التكافل الاجتماعي",
+                "جهاز مشروعات الخدمة الوطنية",
+                "مستشفى المعادي العسكري",
+                "مجمع الجلاء الطبي للقوات المسلحة"
+            };
+
+            foreach (var k in knownEntities)
+            {
+                if (k.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    names.Add(k);
+                }
+            }
+
+            return Results.Ok(names.Take(15));
+        });
+
+        // 5.6 اقتراحات أكواد الملفات والحافظات المتاحة في البوابة
+        app.MapGet("/api/failquery/file-suggestions", async () =>
+        {
+            try
+            {
+                var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
+                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+                client.DefaultRequestHeaders.Add("X-Request-From", "https://hiaapay.faa.local");
+                var authBody = new StringContent(
+                    JsonSerializer.Serialize(new { userName = "m.foad", password = "P@ssw0rdP@ssw0rd" }),
+                    Encoding.UTF8, "application/json");
+                var authResp = await client.PostAsync($"{_baseUrl}/Auth", authBody);
+                if (!authResp.IsSuccessStatusCode) return Results.Ok(new object[] { });
+
+                var authJson = await authResp.Content.ReadAsStringAsync();
+                using var authDoc = JsonDocument.Parse(authJson);
+                string token = authDoc.RootElement.TryGetProperty("token", out var tp) ? tp.GetString()! : authJson.Trim('"');
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+                var batchesResp = await client.GetAsync($"{_baseUrl}/batch");
+                if (batchesResp.IsSuccessStatusCode)
+                {
+                    var bJson = await batchesResp.Content.ReadAsStringAsync();
+                    using var bDoc = JsonDocument.Parse(bJson);
+                    if (bDoc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var list = bDoc.RootElement.EnumerateArray().Take(80).Select(b => new {
+                            fileId = b.TryGetProperty("fileId", out var fip) ? fip.GetString() ?? fip.GetRawText() : "",
+                            transCount = b.TryGetProperty("transCount", out var tcp) && tcp.ValueKind == JsonValueKind.Number ? tcp.GetInt64() : 0,
+                            total = b.TryGetProperty("total", out var top) && top.ValueKind == JsonValueKind.Number ? top.GetDouble() : 0,
+                            fileDate = b.TryGetProperty("fileDate", out var fdp) ? (fdp.GetString() ?? "").Split('T')[0] : "",
+                            unMatched = b.TryGetProperty("unMatched", out var unp) && unp.ValueKind == JsonValueKind.Number ? unp.GetInt64() : 0
+                        }).Where(x => !string.IsNullOrEmpty(x.fileId)).ToList();
+
+                        return Results.Ok(list);
+                    }
+                }
+            }
+            catch { }
+            return Results.Ok(new object[] { });
+        });
+
+        // 6. الاستعلام المركزي المباشر والشامل (شاشة الحافظات والمطابقات + كشف الحساب)
+        app.MapGet("/api/failquery/central-inquiry", async (string? account, double? amount, string? name, string? senderAccount, string? senderName, string? fileId, string? dateFrom, string? dateTo, DatabaseService db) =>
+        {
+            try
+            {
+                var queryAcc = account?.Trim() ?? "";
+                var querySenderAcc = senderAccount?.Trim() ?? "";
+                var queryName = name?.Trim() ?? "";
+                var querySenderName = senderName?.Trim() ?? "";
+                var queryFileId = fileId?.Trim() ?? "";
+
+                if (string.IsNullOrEmpty(queryAcc) && string.IsNullOrEmpty(querySenderAcc) && string.IsNullOrEmpty(queryName) && string.IsNullOrEmpty(querySenderName) && string.IsNullOrEmpty(queryFileId) && !amount.HasValue)
+                {
+                    return Results.Json(new { success = false, error = "يرجى إدخال كود الملف أو اسم الجهة أو اسم المودع أو رقم الحساب أو المبلغ" }, statusCode: 400);
+                }
+
+                var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
+                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+                client.DefaultRequestHeaders.Add("X-Request-From", "https://hiaapay.faa.local");
+
+                // تسجيل دخول باليوزر المعتمد (m.foad)
+                var authBody = new StringContent(
+                    JsonSerializer.Serialize(new { userName = "m.foad", password = "P@ssw0rdP@ssw0rd" }),
+                    Encoding.UTF8, "application/json");
+                var authResp = await client.PostAsync($"{_baseUrl}/Auth", authBody);
+                if (!authResp.IsSuccessStatusCode)
+                {
+                    return Results.Json(new { success = false, error = "تعذر تسجيل الدخول للبوابة المركزية" }, statusCode: 502);
+                }
+
+                var authJson = await authResp.Content.ReadAsStringAsync();
+                using var authDoc = JsonDocument.Parse(authJson);
+                string token = authDoc.RootElement.TryGetProperty("token", out var tp) ? tp.GetString()! : authJson.Trim('"');
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+
+                var unifiedResults = new System.Collections.Concurrent.ConcurrentBag<object>();
+                var batchResults = new System.Collections.Concurrent.ConcurrentBag<object>();
+                var matchResults = new System.Collections.Concurrent.ConcurrentBag<object>();
+
+                // 1. إذا تم تحديد كود ملف محدد، فحص الملف مباشرة وفورياً
+                if (!string.IsNullOrEmpty(queryFileId))
+                {
+                    try
+                    {
+                        var detResp = await client.GetAsync($"{_baseUrl}/batch/batchDet?fileId={Uri.EscapeDataString(queryFileId)}");
+                        if (detResp.IsSuccessStatusCode)
+                        {
+                            var detJson = await detResp.Content.ReadAsStringAsync();
+                            using var detDoc = JsonDocument.Parse(detJson);
+                            var txElements = new List<JsonElement>();
+                            if (detDoc.RootElement.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var item in detDoc.RootElement.EnumerateArray())
+                                {
+                                    if (item.TryGetProperty("content", out var cont) && cont.ValueKind == JsonValueKind.Array)
+                                    {
+                                        foreach (var c in cont.EnumerateArray()) txElements.Add(c);
+                                    }
+                                    else
+                                    {
+                                        txElements.Add(item);
+                                    }
+                                }
+                            }
+
+                            foreach (var tx in txElements)
+                            {
+                                string cAcc = tx.TryGetProperty("creditorAccountNumber", out var cap) ? cap.GetString() ?? "" : "";
+                                string dAcc = tx.TryGetProperty("debtorAccountNumber", out var dap) ? dap.GetString() ?? "" : "";
+                                string cName = tx.TryGetProperty("creditorName", out var cnp) ? cnp.GetString() ?? "" : "";
+                                string dName = tx.TryGetProperty("debtorName", out var dnp) ? dnp.GetString() ?? "" : "";
+                                double amt = tx.TryGetProperty("amount", out var ap) && ap.ValueKind == JsonValueKind.Number ? ap.GetDouble() : 0;
+                                string bId = tx.TryGetProperty("batchId", out var bip) ? bip.GetString() ?? queryFileId : queryFileId;
+                                string tId = tx.TryGetProperty("transactionId", out var tip) ? tip.GetString() ?? "" : "";
+                                string rDate = tx.TryGetProperty("recievingDate", out var rdp) ? rdp.GetString() ?? "" : "";
+
+                                bool accMatch = string.IsNullOrEmpty(queryAcc) || cAcc.Contains(queryAcc, StringComparison.OrdinalIgnoreCase) || (string.IsNullOrEmpty(querySenderAcc) && dAcc.Contains(queryAcc, StringComparison.OrdinalIgnoreCase));
+                                bool senderAccMatch = string.IsNullOrEmpty(querySenderAcc) || dAcc.Contains(querySenderAcc, StringComparison.OrdinalIgnoreCase);
+                                bool nameMatch = string.IsNullOrEmpty(queryName) || cName.Contains(queryName, StringComparison.OrdinalIgnoreCase) || (string.IsNullOrEmpty(querySenderName) && dName.Contains(queryName, StringComparison.OrdinalIgnoreCase));
+                                bool senderNameMatch = string.IsNullOrEmpty(querySenderName) || dName.Contains(querySenderName, StringComparison.OrdinalIgnoreCase);
+                                bool amtMatch = !amount.HasValue || amount.Value <= 0 || Math.Abs(amt - amount.Value) < 0.05;
+
+                                if (accMatch && senderAccMatch && nameMatch && senderNameMatch && amtMatch)
+                                {
+                                    string matchTransId = "—";
+                                    string matchAcc = "—";
+                                    string matchRef = "—";
+                                    string matchSnd = "—";
+                                    double? matchAmt = null;
+
+                                    if (!string.IsNullOrEmpty(tId))
+                                    {
+                                        try
+                                        {
+                                            var mResp = await client.GetAsync($"{_baseUrl}/batch/matchs?transactionId={Uri.EscapeDataString(tId)}");
+                                            if (mResp.IsSuccessStatusCode)
+                                            {
+                                                var mJson = await mResp.Content.ReadAsStringAsync();
+                                                using var mDoc = JsonDocument.Parse(mJson);
+                                                if (mDoc.RootElement.ValueKind == JsonValueKind.Array)
+                                                {
+                                                    foreach (var m in mDoc.RootElement.EnumerateArray())
+                                                    {
+                                                        long serial = m.TryGetProperty("serial", out var sp) && sp.ValueKind == JsonValueKind.Number ? sp.GetInt64() : 0;
+                                                        string accName = m.TryGetProperty("fAccountOwnerName", out var aop) ? aop.GetString() ?? "" : "";
+                                                        string refNum = m.TryGetProperty("refrenceNum", out var rnp) ? rnp.GetString() ?? "" : "";
+                                                        string sName = m.TryGetProperty("sAccountOwnerName", out var snp) ? snp.GetString() ?? "" : "";
+                                                        double tVal = m.TryGetProperty("transVal", out var tvp) && tvp.ValueKind == JsonValueKind.Number ? tvp.GetDouble() : 0;
+
+                                                        if (matchTransId == "—")
+                                                        {
+                                                            matchTransId = serial > 0 ? serial.ToString() : tId;
+                                                            matchAcc = accName;
+                                                            matchRef = refNum;
+                                                            matchSnd = sName;
+                                                            matchAmt = tVal;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        catch { }
+                                    }
+
+                                    unifiedResults.Add(new {
+                                        fileId = queryFileId,
+                                        batchId = bId,
+                                        transId = tId,
+                                        receiverName = cName,
+                                        receiverAccount = cAcc,
+                                        amount = amt,
+                                        senderName = dName,
+                                        senderAccount = dAcc,
+                                        transDate = !string.IsNullOrEmpty(rDate) ? rDate.Split('T')[0] : "—",
+                                        matchTransId = matchTransId,
+                                        matchAccount = matchAcc,
+                                        matchRefNum = matchRef,
+                                        matchSender = matchSnd,
+                                        matchAmount = matchAmt.HasValue ? matchAmt.Value : amt
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // 2. البحث في شاشة الحافظات العامة إذا لم يتم تحديد كود ملف بعينه
+                if (string.IsNullOrEmpty(queryFileId))
+                {
+                    try
+                    {
+                        var batchesResp = await client.GetAsync($"{_baseUrl}/batch");
+                        if (batchesResp.IsSuccessStatusCode)
+                        {
+                            var bJson = await batchesResp.Content.ReadAsStringAsync();
+                            using var bDoc = JsonDocument.Parse(bJson);
+                            if (bDoc.RootElement.ValueKind == JsonValueKind.Array)
+                            {
+                                var topBatches = bDoc.RootElement.EnumerateArray().Take(120).ToList();
+                                await Parallel.ForEachAsync(topBatches, new ParallelOptions { MaxDegreeOfParallelism = 15 }, async (b, ct) =>
+                                {
+                                    string fileId = b.TryGetProperty("fileId", out var fip) ? fip.GetString() ?? fip.GetRawText() : "";
+                                    string fileDate = b.TryGetProperty("fileDate", out var fdp) ? fdp.GetString() ?? "" : "";
+                                    if (string.IsNullOrEmpty(fileId)) return;
+
+                                try
+                                {
+                                    var detResp = await client.GetAsync($"{_baseUrl}/batch/batchDet?fileId={Uri.EscapeDataString(fileId)}", ct);
+                                    if (!detResp.IsSuccessStatusCode) return;
+                                    var detJson = await detResp.Content.ReadAsStringAsync(ct);
+                                    using var detDoc = JsonDocument.Parse(detJson);
+
+                                    var txElements = new List<JsonElement>();
+                                    if (detDoc.RootElement.ValueKind == JsonValueKind.Array)
+                                    {
+                                        foreach (var item in detDoc.RootElement.EnumerateArray())
+                                        {
+                                            if (item.TryGetProperty("content", out var cont) && cont.ValueKind == JsonValueKind.Array)
+                                            {
+                                                foreach (var c in cont.EnumerateArray()) txElements.Add(c);
+                                            }
+                                            else
+                                            {
+                                                txElements.Add(item);
+                                            }
+                                        }
+                                    }
+
+                                    foreach (var tx in txElements)
+                                    {
+                                        string cAcc = tx.TryGetProperty("creditorAccountNumber", out var cap) ? cap.GetString() ?? "" : "";
+                                        string dAcc = tx.TryGetProperty("debtorAccountNumber", out var dap) ? dap.GetString() ?? "" : "";
+                                        string cName = tx.TryGetProperty("creditorName", out var cnp) ? cnp.GetString() ?? "" : "";
+                                        string dName = tx.TryGetProperty("debtorName", out var dnp) ? dnp.GetString() ?? "" : "";
+                                        double amt = tx.TryGetProperty("amount", out var ap) && ap.ValueKind == JsonValueKind.Number ? ap.GetDouble() : 0;
+
+                                        bool accMatch = string.IsNullOrEmpty(queryAcc) || cAcc.Contains(queryAcc, StringComparison.OrdinalIgnoreCase) || (string.IsNullOrEmpty(querySenderAcc) && dAcc.Contains(queryAcc, StringComparison.OrdinalIgnoreCase));
+                                        bool senderAccMatch = string.IsNullOrEmpty(querySenderAcc) || dAcc.Contains(querySenderAcc, StringComparison.OrdinalIgnoreCase);
+                                        bool nameMatch = string.IsNullOrEmpty(queryName) || cName.Contains(queryName, StringComparison.OrdinalIgnoreCase) || (string.IsNullOrEmpty(querySenderName) && dName.Contains(queryName, StringComparison.OrdinalIgnoreCase));
+                                        bool senderNameMatch = string.IsNullOrEmpty(querySenderName) || dName.Contains(querySenderName, StringComparison.OrdinalIgnoreCase);
+                                        bool amtMatch = !amount.HasValue || amount.Value <= 0 || Math.Abs(amt - amount.Value) < 0.05;
+
+                                        if (accMatch && senderAccMatch && nameMatch && senderNameMatch && amtMatch)
+                                        {
+                                            string bId = tx.TryGetProperty("batchId", out var bip) ? bip.GetString() ?? fileId : fileId;
+                                            string tId = tx.TryGetProperty("transactionId", out var tip) ? tip.GetString() ?? "" : "";
+                                            string rDate = tx.TryGetProperty("recievingDate", out var rdp) ? rdp.GetString() ?? fileDate : fileDate;
+
+                                            string matchTransId = "—";
+                                            string matchAcc = "—";
+                                            string matchRef = "—";
+                                            string matchSnd = "—";
+                                            double? matchAmt = null;
+
+                                            // جلب تفاصيل المطابقة
+                                            if (!string.IsNullOrEmpty(tId))
+                                            {
+                                                try
+                                                {
+                                                    var mResp = await client.GetAsync($"{_baseUrl}/batch/matchs?transactionId={Uri.EscapeDataString(tId)}", ct);
+                                                    if (mResp.IsSuccessStatusCode)
+                                                    {
+                                                        var mJson = await mResp.Content.ReadAsStringAsync(ct);
+                                                        using var mDoc = JsonDocument.Parse(mJson);
+                                                        if (mDoc.RootElement.ValueKind == JsonValueKind.Array)
+                                                        {
+                                                            foreach (var m in mDoc.RootElement.EnumerateArray())
+                                                            {
+                                                                long serial = m.TryGetProperty("serial", out var sp) && sp.ValueKind == JsonValueKind.Number ? sp.GetInt64() : 0;
+                                                                string accName = m.TryGetProperty("fAccountOwnerName", out var aop) ? aop.GetString() ?? "" : "";
+                                                                string refNum = m.TryGetProperty("refrenceNum", out var rnp) ? rnp.GetString() ?? "" : "";
+                                                                string sName = m.TryGetProperty("sAccountOwnerName", out var snp) ? snp.GetString() ?? "" : "";
+                                                                double tVal = m.TryGetProperty("transVal", out var tvp) && tvp.ValueKind == JsonValueKind.Number ? tvp.GetDouble() : 0;
+
+                                                                if (matchTransId == "—")
+                                                                {
+                                                                    matchTransId = serial > 0 ? serial.ToString() : tId;
+                                                                    matchAcc = accName;
+                                                                    matchRef = refNum;
+                                                                    matchSnd = sName;
+                                                                    matchAmt = tVal;
+                                                                }
+
+                                                                matchResults.Add(new {
+                                                                    transId = serial > 0 ? serial.ToString() : tId,
+                                                                    accountName = accName,
+                                                                    refNum = refNum,
+                                                                    senderName = sName,
+                                                                    amount = tVal
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                catch { }
+                                            }
+
+                                            batchResults.Add(new {
+                                                fileId = fileId,
+                                                batchId = bId,
+                                                transId = tId,
+                                                receiverName = cName,
+                                                receiverAccount = cAcc,
+                                                amount = amt,
+                                                senderName = dName,
+                                                senderAccount = dAcc,
+                                                transDate = !string.IsNullOrEmpty(rDate) ? rDate.Split('T')[0] : "—"
+                                            });
+
+                                            unifiedResults.Add(new {
+                                                fileId = fileId,
+                                                batchId = bId,
+                                                transId = tId,
+                                                receiverName = cName,
+                                                receiverAccount = cAcc,
+                                                amount = amt,
+                                                senderName = dName,
+                                                senderAccount = dAcc,
+                                                transDate = !string.IsNullOrEmpty(rDate) ? rDate.Split('T')[0] : "—",
+                                                matchTransId = matchTransId,
+                                                matchAccount = matchAcc,
+                                                matchRefNum = matchRef,
+                                                matchSender = matchSnd,
+                                                matchAmount = matchAmt.HasValue ? matchAmt.Value : amt
+                                            });
+                                        }
+                                    }
+                                }
+                                catch { }
+                            });
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[BatchSearch Error]: {ex.Message}");
+                }
+            }
+
+                // 2. إذا لم توجد نتائج في شاشة الحافظات، فحص CompAcc/trans
+                var accToQuery = !string.IsNullOrEmpty(queryAcc) ? queryAcc : querySenderAcc;
+                if (unifiedResults.IsEmpty && !string.IsNullOrEmpty(accToQuery))
+                {
+                    try
+                    {
+                        var compResp = await client.GetAsync($"{_baseUrl}/CompAcc/trans?iban={Uri.EscapeDataString(accToQuery)}");
+                        if (compResp.IsSuccessStatusCode)
+                        {
+                            var compJson = await compResp.Content.ReadAsStringAsync();
+                            using var compDoc = JsonDocument.Parse(compJson);
+                            if (compDoc.RootElement.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var el in compDoc.RootElement.EnumerateArray())
+                                {
+                                    double val = el.TryGetProperty("transVal", out var vp) && vp.ValueKind == JsonValueKind.Number ? vp.GetDouble() : 0;
+                                    if (amount.HasValue && amount.Value > 0 && Math.Abs(val - amount.Value) > 0.05) continue;
+
+                                    string sIban = el.TryGetProperty("sIban", out var sib) ? sib.GetString() ?? "" : "";
+                                    string sName = el.TryGetProperty("sAccountOwnerName", out var so) ? so.GetString() ?? "" : "";
+                                    string fName = el.TryGetProperty("fAccountOwnerName", out var fo) ? fo.GetString() ?? "" : "";
+                                    string fIban = el.TryGetProperty("accountIban", out var fib) ? fib.GetString() ?? "" : "";
+
+                                    bool accMatch = string.IsNullOrEmpty(queryAcc) || sIban.Contains(queryAcc, StringComparison.OrdinalIgnoreCase) || (string.IsNullOrEmpty(querySenderAcc) && fIban.Contains(queryAcc, StringComparison.OrdinalIgnoreCase));
+                                    bool senderAccMatch = string.IsNullOrEmpty(querySenderAcc) || fIban.Contains(querySenderAcc, StringComparison.OrdinalIgnoreCase);
+                                    bool nameMatch = string.IsNullOrEmpty(queryName) || sName.Contains(queryName, StringComparison.OrdinalIgnoreCase) || fName.Contains(queryName, StringComparison.OrdinalIgnoreCase);
+                                    bool senderNameMatch = string.IsNullOrEmpty(querySenderName) || fName.Contains(querySenderName, StringComparison.OrdinalIgnoreCase) || sName.Contains(querySenderName, StringComparison.OrdinalIgnoreCase);
+
+                                    if (!accMatch || !senderAccMatch || !nameMatch || !senderNameMatch) continue;
+                                    string dateStr = el.TryGetProperty("transDate", out var td) ? td.GetString() ?? "" : "";
+                                    string refNum = el.TryGetProperty("refrenceNum", out var rf) ? rf.GetString() ?? "" : "";
+                                    long serial = el.TryGetProperty("serial", out var ser) && ser.ValueKind == JsonValueKind.Number ? ser.GetInt64() : 0;
+                                    long estId = el.TryGetProperty("estmaraId", out var es) && es.ValueKind == JsonValueKind.Number ? es.GetInt64() : 0;
+
+                                    string fCode = estId > 0 ? estId.ToString() : "—";
+                                    string bId = estId > 0 ? $"استمارة-{estId}" : "—";
+                                    string tId = serial > 0 ? serial.ToString() : "—";
+
+                                    batchResults.Add(new {
+                                        fileId = fCode,
+                                        batchId = bId,
+                                        transId = tId,
+                                        receiverName = sName,
+                                        receiverAccount = sIban,
+                                        amount = val,
+                                        senderName = fName,
+                                        senderAccount = fIban,
+                                        transDate = !string.IsNullOrEmpty(dateStr) ? dateStr.Split('T')[0] : "—"
+                                    });
+
+                                    matchResults.Add(new {
+                                        transId = tId,
+                                        accountName = fName,
+                                        refNum = !string.IsNullOrEmpty(refNum) ? refNum : sIban,
+                                        senderName = sName,
+                                        amount = val
+                                    });
+
+                                    unifiedResults.Add(new {
+                                        fileId = fCode,
+                                        batchId = bId,
+                                        transId = tId,
+                                        receiverName = sName,
+                                        receiverAccount = sIban,
+                                        amount = val,
+                                        senderName = fName,
+                                        senderAccount = fIban,
+                                        transDate = !string.IsNullOrEmpty(dateStr) ? dateStr.Split('T')[0] : "—",
+                                        matchTransId = tId,
+                                        matchAccount = fName,
+                                        matchRefNum = !string.IsNullOrEmpty(refNum) ? refNum : sIban,
+                                        matchSender = sName,
+                                        matchAmount = val
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                // 3. البحث التكميلي في قاعدة البيانات المحلية (FailQueryTransactions) لضمان شمولية جميع الحركات لجميع الحسابات
+                if (!string.IsNullOrEmpty(queryName) || !string.IsNullOrEmpty(queryAcc) || !string.IsNullOrEmpty(querySenderName))
+                {
+                    try
+                    {
+                        using var conn = await db.GetOpenConnectionAsync();
+                        var sql = @"
+                            SELECT Id, BatchId, CreditorName, CreditorAccount, NewCreditorAccount, TransactionAmount, Reason, DetSerial, SyncedAt
+                            FROM FailQueryTransactions
+                            WHERE (@name != '' AND CreditorName LIKE @namePattern)
+                               OR (@acc != '' AND (CreditorAccount LIKE @accPattern OR NewCreditorAccount LIKE @accPattern))
+                               OR (@senderName != '' AND 'الوحدة الحسابية' LIKE @senderNamePattern)
+                            LIMIT 50";
+                        var rows = await conn.QueryAsync(sql, new {
+                            name = queryName,
+                            namePattern = $"%{queryName}%",
+                            acc = queryAcc,
+                            accPattern = $"%{queryAcc}%",
+                            senderName = querySenderName,
+                            senderNamePattern = $"%{querySenderName}%"
+                        });
+
+                        foreach (var r in rows)
+                        {
+                            if (!string.IsNullOrEmpty(querySenderName) && !"الوحدة الحسابية".Contains(querySenderName, StringComparison.OrdinalIgnoreCase)) continue;
+                            string bId = r.BatchId ?? "—";
+                            string recAcc = !string.IsNullOrEmpty((string)r.NewCreditorAccount) ? (string)r.NewCreditorAccount : (string)r.CreditorAccount ?? "—";
+                            double lAmt = Convert.ToDouble(r.TransactionAmount ?? 0);
+                            if (amount.HasValue && amount.Value > 0 && Math.Abs(lAmt - amount.Value) > 0.05) continue;
+                            string rDate = r.SyncedAt != null ? ((string)r.SyncedAt).Split(' ')[0] : "—";
+                            string tId = r.DetSerial ?? r.Id?.ToString() ?? "—";
+
+                            unifiedResults.Add(new {
+                                fileId = bId,
+                                batchId = bId,
+                                transId = tId,
+                                receiverName = (string)r.CreditorName ?? "—",
+                                receiverAccount = recAcc,
+                                amount = lAmt,
+                                senderName = "الوحدة الحسابية",
+                                senderAccount = (string)r.CreditorAccount ?? "—",
+                                transDate = rDate,
+                                matchTransId = tId,
+                                matchAccount = (string)r.CreditorName ?? "—",
+                                matchRefNum = (string)r.CreditorAccount ?? "—",
+                                matchSender = "الوحدة الحسابية",
+                                matchAmount = lAmt
+                            });
+                        }
+                    }
+                    catch { }
+                }
+
+                var allList = unifiedResults.ToList();
+
+                double totalAmt = 0;
+                var accounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in allList)
+                {
+                    var d = (dynamic)item;
+                    try { totalAmt += Convert.ToDouble(d.amount); } catch {}
+                    try {
+                        string acc = (string)d.receiverAccount;
+                        if (!string.IsNullOrEmpty(acc) && acc != "—") accounts.Add(acc);
+                    } catch {}
+                    try {
+                        string f = (string)d.fileId;
+                        if (!string.IsNullOrEmpty(f) && f != "—") files.Add(f);
+                    } catch {}
+                }
+
+                return Results.Ok(new {
+                    success = true,
+                    records = allList,
+                    summary = new {
+                        totalCount = allList.Count,
+                        totalAmount = totalAmt,
+                        distinctAccounts = accounts.Count,
+                        distinctFiles = files.Count
+                    },
+                    batches = batchResults.ToList(),
+                    matches = matchResults.ToList()
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { success = false, error = ex.Message }, statusCode: 500);
+            }
+        });
+
+
 
         // 5.1 تحويل مباشر لرئيس القسم (حسام) بنقرة واحدة
         app.MapPost("/api/failquery/transfer-to-hossam", async (DatabaseService db, HttpContext ctx) =>
@@ -496,6 +1076,7 @@ public static class FailQueryEndpoints
             var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(180) };
             client.DefaultRequestHeaders.Add("X-Request-From", "https://hiaapay.faa.local");
+            client.DefaultRequestHeaders.Host = "hiaapay.faa.local";
 
             // 1. Authenticate
             var authBody = new StringContent(
@@ -631,6 +1212,7 @@ public static class FailQueryEndpoints
             var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
             client.DefaultRequestHeaders.Add("X-Request-From", "https://hiaapay.faa.local");
+            client.DefaultRequestHeaders.Host = "hiaapay.faa.local";
 
             // 1. المصادقة
             var authBody = new StringContent(
@@ -747,7 +1329,7 @@ public static class FailQueryEndpoints
             if (batches.Count > 0)
             {
                 var txns = (await conn.QueryAsync<dynamic>(
-                    "SELECT Id, BatchId, CreditorName, CreditorNationalId, CreditorAccount, CreditorBic, CreditorBranch, TransactionAmount, TransactionStatus, Reason, NewCreditorAccount, NewCreditorBic, NewCreditorBranch, TasFlag, IsSettlementChecked, DetSerial, ModifiedBy, PortalSyncStatus, SourceSystem, ModifiedAt FROM FailQueryTransactions"
+                    "SELECT Id, BatchId, CreditorName, CreditorNationalId, CreditorAccount, CreditorBic, CreditorBranch, TransactionAmount, TransactionStatus, Reason, NewCreditorAccount, NewCreditorBic, NewCreditorBranch, TasFlag FROM FailQueryTransactions"
                 )).ToList();
 
                 var txnsGrouped = txns.GroupBy(t => (string)t.BatchId).ToDictionary(
@@ -766,13 +1348,7 @@ public static class FailQueryEndpoints
                         newCreditorAccount = t.NewCreditorAccount,
                         newCreditorBic = t.NewCreditorBic,
                         newCreditorBranch = t.NewCreditorBranch,
-                        tasFlag = t.TasFlag,
-                        isSettlementChecked = (t.IsSettlementChecked == 1),
-                        detSerial = t.DetSerial,
-                        modifiedBy = t.ModifiedBy,
-                        portalSyncStatus = (string)(t.PortalSyncStatus ?? "SYNCED"),
-                        sourceSystem = (string)(t.SourceSystem ?? "NEW_SYSTEM"),
-                        modifiedAt = (string)(t.ModifiedAt ?? "")
+                        tasFlag = t.TasFlag
                     }).ToList()
                 );
 
@@ -808,8 +1384,9 @@ public static class FailQueryEndpoints
             var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true };
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(120) };
             client.DefaultRequestHeaders.Add("X-Request-From", "https://hiaapay.faa.local");
+            client.DefaultRequestHeaders.Host = "hiaapay.faa.local";
 
-            var authBody = new StringContent(JsonSerializer.Serialize(new { userName = "amin-khalid", password = "P@ssw0rdP@ssw0rd" }), Encoding.UTF8, "application/json");
+            var authBody = new StringContent(JsonSerializer.Serialize(new { userName = "m.foad", password = "P@ssw0rdP@ssw0rd" }), Encoding.UTF8, "application/json");
             var authResp = await client.PostAsync($"{_baseUrl}/Auth", authBody);
             if (!authResp.IsSuccessStatusCode) return;
 
@@ -819,18 +1396,21 @@ public static class FailQueryEndpoints
 
             client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
 
-            // فحص sendFlag = 2 أولاً (لأنه يحوي المعاملات المعدلة في البوابة القديمة)
-            foreach (int sendFlag in new[] { 2, 0, 1 })
+            // فحص كافة sendFlags (0, 2, 4) لضمان جلب وتحديث كافة المعاملات الـ 9,981 المتاحة على البوابة
+            foreach (int sendFlag in new[] { 0, 2, 4 })
             {
                 var resp = await client.GetAsync($"{_baseUrl}/FailedTransaction?gehaCode={_gehaCode}&sendFlag={sendFlag}");
+                Console.WriteLine($"[SyncRemotePortal] sendFlag={sendFlag} -> Status Code: {resp.StatusCode}");
                 if (!resp.IsSuccessStatusCode) continue;
                 var json = await resp.Content.ReadAsStringAsync();
                 using var batchDoc = JsonDocument.Parse(json);
 
                 using var conn = await db.GetOpenConnectionAsync();
+                int batchIdx = 0;
 
                 foreach (var batch in batchDoc.RootElement.EnumerateArray())
                 {
+                    batchIdx++;
                     string batchId = batch.TryGetProperty("batchId", out var bId) ? bId.GetString() ?? "" : "";
                     string receivingDate = batch.TryGetProperty("receivingDate", out var rDate) ? rDate.GetString() ?? "" : "";
                     string purpose = batch.TryGetProperty("purpose", out var purp) ? purp.GetString() ?? "" : "";
@@ -866,8 +1446,12 @@ public static class FailQueryEndpoints
                         if (string.IsNullOrEmpty(cAcc) && string.IsNullOrEmpty(cNid) && string.IsNullOrEmpty(cName)) continue;
 
                         var existing = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
-                            SELECT Id, NewCreditorAccount, ModifiedBy FROM FailQueryTransactions 
-                            WHERE BatchId = @batchId AND (CreditorAccount = @cAcc OR CreditorNationalId = @cNid OR CreditorName = @cName)",
+                            SELECT Id, NewCreditorAccount, TasFlag FROM FailQueryTransactions 
+                            WHERE BatchId = @batchId AND (
+                                (@cAcc != '' AND CreditorAccount = @cAcc) OR 
+                                (@cNid != '' AND CreditorNationalId = @cNid) OR 
+                                (@cName != '' AND CreditorName = @cName)
+                            )",
                             new { batchId, cAcc, cNid, cName });
 
                         if (existing != null)
@@ -893,24 +1477,17 @@ public static class FailQueryEndpoints
                                     SET NewCreditorAccount = @newAcc,
                                         NewCreditorBic = @newBic,
                                         NewCreditorBranch = @newBranch,
-                                        TasFlag = @tasFlag,
-                                        ModifiedBy = @modBy,
-                                        PortalSyncStatus = 'SYNCED',
-                                        SourceSystem = 'OLD_SYSTEM',
-                                        ModifiedAt = @modAt
+                                        TasFlag = @tasFlag
                                     WHERE Id = @id",
-                                    new { newAcc, newBic, newBranch, tasFlag, modBy, modAt, id = (long)existing.Id });
+                                    new { newAcc, newBic, newBranch, tasFlag, id = (long)existing.Id });
                             }
                         }
                         else
                         {
-                            string modBy = !string.IsNullOrEmpty(newAcc) ? "تم التعديل في المنظومة القديمة (hiaapay)" : "";
-                            string srcSys = !string.IsNullOrEmpty(newAcc) ? "OLD_SYSTEM" : "NEW_SYSTEM";
-                            string modAt = !string.IsNullOrEmpty(newAcc) ? DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") : "";
                             await conn.ExecuteAsync(@"
-                                INSERT INTO FailQueryTransactions (BatchId, CreditorName, CreditorNationalId, CreditorAccount, CreditorBic, CreditorBranch, TransactionAmount, TransactionStatus, Reason, NewCreditorAccount, NewCreditorBic, NewCreditorBranch, TasFlag, ModifiedBy, PortalSyncStatus, SourceSystem, ModifiedAt)
-                                VALUES (@batchId, @cName, @cNid, @cAcc, @cBic, @cBranch, @amt, @status, @reason, @newAcc, @newBic, @newBranch, @tasFlag, @modBy, 'SYNCED', @srcSys, @modAt)",
-                                new { batchId, cName, cNid, cAcc, cBic, cBranch, amt, status, reason, newAcc, newBic, newBranch, tasFlag, modBy, srcSys, modAt });
+                                INSERT INTO FailQueryTransactions (BatchId, CreditorName, CreditorNationalId, CreditorAccount, CreditorBic, CreditorBranch, TransactionAmount, TransactionStatus, Reason, NewCreditorAccount, NewCreditorBic, NewCreditorBranch, TasFlag)
+                                VALUES (@batchId, @cName, @cNid, @cAcc, @cBic, @cBranch, @amt, @status, @reason, @newAcc, @newBic, @newBranch, @tasFlag)",
+                                new { batchId, cName, cNid, cAcc, cBic, cBranch, amt, status, reason, newAcc, newBic, newBranch, tasFlag });
                         }
                     }
                 }
@@ -918,7 +1495,7 @@ public static class FailQueryEndpoints
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SyncRemotePortal] Info: {ex.Message}");
+            Console.WriteLine($"[SyncRemotePortal ERROR] {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -965,9 +1542,10 @@ public static class FailQueryEndpoints
             using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
 
             var authBody = new StringContent(
-                JsonSerializer.Serialize(new { userName = "amin-khalid", password = "P@ssw0rdP@ssw0rd" }),
+                JsonSerializer.Serialize(new { userName = "m.foad", password = "P@ssw0rdP@ssw0rd" }),
                 Encoding.UTF8, "application/json");
             client.DefaultRequestHeaders.Add("X-Request-From", "https://hiaapay.faa.local");
+            client.DefaultRequestHeaders.Host = "hiaapay.faa.local";
 
             var authResp = await client.PostAsync($"{_baseUrl}/Auth", authBody);
             if (!authResp.IsSuccessStatusCode)
@@ -1010,8 +1588,19 @@ public static class FailQueryEndpoints
         {
             if (el.TryGetProperty(n, out var prop) && prop.ValueKind != JsonValueKind.Null)
             {
-                var str = prop.GetString();
-                if (str != null) return str;
+                if (prop.ValueKind == JsonValueKind.String)
+                {
+                    var str = prop.GetString();
+                    if (str != null) return str;
+                }
+                else if (prop.ValueKind == JsonValueKind.Number)
+                {
+                    return prop.GetRawText();
+                }
+                else
+                {
+                    return prop.ToString() ?? "";
+                }
             }
         }
         return "";

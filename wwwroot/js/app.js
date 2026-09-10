@@ -493,26 +493,22 @@ class App {
     }
 
     /**
-     * تطبيع النصوص العربية للبحث (توحيد الهمزات والتاء المربوطة)
+     * تطبيع النصوص العربية للبحث التقريبي (تأطير الهمزات والتاء المربوطة والألف اللينة)
      */
     normalizeArabic(text) {
         if (text === null || text === undefined) return "";
-        let str = String(text);
+        let str = String(text).trim().toLowerCase();
 
-        // 1. Basic cleaning and lowercase
-        str = str.trim().toLowerCase();
+        // 1. Remove Tashkeel (diacritics) & Tatweel (كشيدة ـ)
+        str = str.replace(/[\u064B-\u065F\u0640]/g, "");
 
-        // 2. Remove Special Characters that might break search
-        str = str.replace(/[.,\/#!$%\^&*;:{}=\-_`~()]/g, " ");
-
-        // 3. Arabic Normalization (Comprehensive)
-        // IMPORTANT: We keep Alef Maksura (ى) as is, because it's a distinct character in names
+        // 2. Comprehensive Arabic Normalization
         return str
-            .replace(/[\u064B-\u065F]/g, "") // Remove Tashkeel (diacritics)
-            .replace(/[أإآ]/g, "ا")          // Unified Alef
-            .replace(/ة/g, "ه")             // Heh/Teh Marbuta
-            // .replace(/ى/g, "ي")             // Alef Maksura/Yeh - DISABLED for better name matching
-            .replace(/[ؤئ]/g, "ء")           // Unified Hamza variants
+            .replace(/[أإآٱ]/g, "ا")          // Unified Alef (أ إ آ -> ا)
+            .replace(/ة/g, "ه")             // Teh Marbuta (ة -> ه)
+            .replace(/ى/g, "ي")             // Alef Maksura (ى -> ي)
+            .replace(/[ؤئ]/g, "ء")           // Unified Hamza
+            .replace(/[.,\/#!$%\^&*;:{}=\-_`~()]/g, " ") // Special characters to spaces
             .replace(/\s+/g, " ")           // Collapse multiple spaces
             .trim();
     }
@@ -948,13 +944,13 @@ class App {
         }
 
         // تسجيل الدخول
-        document.getElementById('login-form').addEventListener('submit', (e) => {
+        document.getElementById('login-form')?.addEventListener('submit', (e) => {
             e.preventDefault();
             this.handleLogin();
         });
 
         // تسجيل الخروج
-        document.getElementById('logout-btn').addEventListener('click', () => {
+        document.getElementById('logout-btn')?.addEventListener('click', () => {
             auth.logout();
             this.showLogin();
             this.showToast('تم تسجيل الخروج بنجاح', 'success');
@@ -1359,9 +1355,12 @@ class App {
             return;
         }
 
-        // إيقاف auto-refresh عند مغادرة صفحة failquery
+        // إيقاف auto-refresh عند مغادرة صفحة failquery أو full-returns
         if (this.currentPage === 'failquery' && page !== 'failquery' && window.failqueryPage) {
             window.failqueryPage.stopAutoRefresh();
+        }
+        if (this.currentPage === 'full-returns' && page !== 'full-returns') {
+            this.stopFullReturnsAutoRefresh();
         }
 
         this.currentPage = page;
@@ -1391,6 +1390,7 @@ class App {
             tasks: { icon: '📝', text: 'مهام اليوم' },
             chat: { icon: '💬', text: 'المراسلة' },
             failquery: { icon: '📋', text: 'استعلام عن مرتدات (البوابة)' },
+            'standalone-outgoing': { icon: '🚀', text: 'الصادر بدون وارد' },
             archive: { icon: '🗄️', text: 'الأرشيف' },
             adabir: { icon: '📁', text: 'نظام الإضابير' },
             'auto-import-reports': { icon: '📋', text: 'تقرير الاستيراد التلقائي' },
@@ -1446,16 +1446,20 @@ class App {
             }
             if (page === 'dashboard') this.loadDashboard();
             if (page === 'adabir') this.loadAdabir();
-            if (page === 'full-returns') this.loadFullReturns();
+            if (page === 'full-returns') {
+                this.loadFullReturns();
+                this.startFullReturnsAutoRefresh();
+            }
             if (page === 'salary-returns') {
                 this.refreshSearchFilterIndex();
                 this.loadSalaryReturns();
             }
             if (page === 'smart-payment') this.refreshSearchFilterIndex();
             if (page === 'failquery' && window.failqueryPage) {
-                window.failqueryPage.loadData('live');
+                window.failqueryPage.loadData('history');
                 window.failqueryPage.startAutoRefresh();
             }
+            if (page === 'standalone-outgoing') this.loadStandaloneOutgoings();
 
             if (page === 'auto-import-reports') this.loadAutoImportReports();
             if (page === 'modified-records') this.loadModifiedRecords();
@@ -9607,6 +9611,11 @@ renderTable(dataToRender = null, append = false) {
     // البحث الموحد (Unified Search Logic)
     // ========================================
 
+    toggleSelectAllUnified(checked) {
+        const checkboxes = document.querySelectorAll('#unified-single-body .unified-row-checkbox');
+        checkboxes.forEach(cb => cb.checked = !!checked);
+    }
+
     runUnifiedSearch() {
         const input = document.getElementById('unified-search-input');
         const query = input ? input.value : '';
@@ -9646,7 +9655,7 @@ renderTable(dataToRender = null, append = false) {
     }
 
     // ========================================
-    async loadFullReturns(page = 1, pageSize = 50, query = '', isSearch = false) {
+    async loadFullReturns(page = 1, pageSize = 50, query = '', isSearch = false, isAppend = false) {
         try {
             db.fetchApi('/config', { __skipLoadingWrapper: true }).then(config => {
                 const autoImportToggle = document.getElementById('auto-import-toggle-input');
@@ -9666,7 +9675,7 @@ renderTable(dataToRender = null, append = false) {
         const resultsEl = document.getElementById('unified-results');
         const statsRow = document.getElementById('unified-stats-row');
 
-        if (loadingEl) loadingEl.classList.add('hidden');
+        if (!isAppend && loadingEl) loadingEl.classList.add('hidden');
         this.showUnifiedLightProgress(28);
         this.showUnifiedSearchState('');
         this.updateUnifiedAccountStatementButton(false);
@@ -9680,12 +9689,24 @@ renderTable(dataToRender = null, append = false) {
             if (query && query.trim()) params.set('q', query.trim());
             const response = await db.fetchApi(`/api/search/comprehensive?${params.toString()}`, { __skipLoadingWrapper: true });
             this.showUnifiedLightProgress(72);
+            
+            const fetchedRows = response.data || [];
             const incentiveRows = response.incentiveRecords || [];
-            const salaryRows = await this.ensureUnifiedSalaryRowsFromSalaryEndpoint(response.salaryRecords || []);
-            const totalRows = (response.data || []).length;
+            const salaryRows = response.salaryRecords || [];
+
+            if (!isAppend || !this.unifiedAllRows) {
+                this.unifiedAllRows = fetchedRows;
+            } else {
+                this.unifiedAllRows = this.unifiedAllRows.concat(fetchedRows);
+            }
 
             this.unifiedIncentiveData = incentiveRows;
             this.unifiedSalaryData = salaryRows;
+            this.currentFullReturnsPage = page;
+            this.currentFullReturnsQuery = query;
+            this.unifiedCurrentPage = response.pagination?.currentPage || page;
+            this.unifiedTotalPages = response.pagination?.totalPages || 1;
+            this.unifiedTotalCount = response.pagination?.total || response.stats?.totalCount || this.unifiedAllRows.length;
 
             this.updateUnifiedStats(
                 {
@@ -9698,15 +9719,15 @@ renderTable(dataToRender = null, append = false) {
                 }
             );
 
-            this.renderUnifiedTable('incentive', incentiveRows);
-            this.renderUnifiedTable('salary', salaryRows);
+            // Render Single Flat Unified Table with Infinite Scroll / Load More
+            this.renderUnifiedSingleTable(this.unifiedAllRows, response.pagination, isAppend, fetchedRows);
 
             if (loadingEl) loadingEl.classList.add('hidden');
             this.hideUnifiedLightProgress();
             if (resultsEl) resultsEl.style.display = 'block';
             if (statsRow) statsRow.style.display = 'grid';
 
-            if (totalRows === 0) {
+            if (this.unifiedAllRows.length === 0) {
                 const message = query && query.trim()
                     ? 'لا توجد نتائج مطابقة للبحث'
                     : 'اكتب اسم أو رقم قومي أو رقم حساب للبحث، أو راجع أحدث السجلات المعروضة عند توفرها';
@@ -9715,8 +9736,8 @@ renderTable(dataToRender = null, append = false) {
                 this.showUnifiedSearchState('', '');
             }
 
-            if (totalRows === 1) {
-                const only = (response.data || [])[0];
+            if (this.unifiedAllRows.length === 1) {
+                const only = this.unifiedAllRows[0];
                 this.selectedUnifiedStatementRow = only;
                 this.selectedUnifiedStatementQuery = this.buildUnifiedStatementQuery(only);
                 this.updateUnifiedAccountStatementButton(true);
@@ -9728,6 +9749,22 @@ renderTable(dataToRender = null, append = false) {
             this.showUnifiedSearchState('حدث خطأ أثناء تحميل نتائج البحث الشامل', 'error');
             if (loadingEl) loadingEl.classList.add('hidden');
             this.hideUnifiedLightProgress();
+        }
+    }
+
+    startFullReturnsAutoRefresh() {
+        if (this.fullReturnsAutoRefreshTimer) return;
+        this.fullReturnsAutoRefreshTimer = setInterval(() => {
+            if (this.currentPage === 'full-returns' || this.currentPage === 'page-full-returns') {
+                this.loadFullReturns(this.currentFullReturnsPage || 1, 50, this.currentFullReturnsQuery || '', true);
+            }
+        }, 5000);
+    }
+
+    stopFullReturnsAutoRefresh() {
+        if (this.fullReturnsAutoRefreshTimer) {
+            clearInterval(this.fullReturnsAutoRefreshTimer);
+            this.fullReturnsAutoRefreshTimer = null;
         }
     }
 
@@ -10269,6 +10306,311 @@ renderTable(dataToRender = null, append = false) {
         });
     }
 
+    renderUnifiedSingleTable(rows, pagination, isAppend = false, newlyFetchedRows = []) {
+        const tbody = document.getElementById('unified-single-body');
+        const emptyEl = document.getElementById('unified-single-empty');
+        const badgeEl = document.getElementById('unified-single-badge');
+        const pagEl = document.getElementById('unified-single-pagination');
+
+        if (!tbody) return;
+
+        if (!isAppend) {
+            tbody.innerHTML = '';
+        }
+
+        if (!rows || rows.length === 0) {
+            if (emptyEl) emptyEl.classList.remove('hidden');
+            if (badgeEl) badgeEl.textContent = '0 سجل';
+            if (pagEl) pagEl.innerHTML = '';
+            return;
+        }
+
+        if (emptyEl) emptyEl.classList.add('hidden');
+        const totalCount = pagination?.totalCount ?? pagination?.total ?? this.unifiedTotalCount ?? rows.length;
+        const loadedCount = rows.length;
+
+        if (badgeEl) {
+            badgeEl.textContent = `${loadedCount.toLocaleString('ar-EG')} من أصل ${totalCount.toLocaleString('ar-EG')} سجل`;
+        }
+
+        const escape = (val) => this.escapeHtml ? this.escapeHtml(val ?? '') : String(val ?? '');
+        const floatVal = (v) => { const f = parseFloat(v); return isNaN(f) ? 0.0 : f; };
+
+        const rowsToRender = isAppend ? newlyFetchedRows : rows;
+        const startIndex = isAppend ? (rows.length - newlyFetchedRows.length) : 0;
+
+        const html = rowsToRender.map((r, i) => {
+            const seq = startIndex + i + 1;
+            const isSalary = r._src === 'salary' || (r.purpose && r.purpose.toLowerCase().includes('salary')) || (r.gehaCode === 463);
+            const isFailQuery = r._src === 'failquery' || r._src === 'portal';
+            let srcBadge = '<span class="badge" style="background:#8b5cf6; color:#fff; font-weight:700; padding:3px 8px; border-radius:6px;">حوافز</span>';
+            if (isFailQuery) {
+                srcBadge = '<span class="badge" style="background:#d946ef; color:#fff; font-weight:700; padding:3px 8px; border-radius:6px;">مرتدات البوابة</span>';
+            } else if (isSalary) {
+                srcBadge = '<span class="badge" style="background:#0ea5e9; color:#fff; font-weight:700; padding:3px 8px; border-radius:6px;">مرتبات</span>';
+            }
+
+            const batchId = escape(r.batchId || r['كود الملف'] || r['كود الدفعة'] || r.BatchId || '-');
+            const name = escape(r.creditorName || r['اسم المستفيد'] || r['الاسم'] || r.CreditorName || '-');
+            const nid = escape(r.creditorNationalId || r['الرقم القومي'] || r.CreditorNationalId || '-');
+            const acc = escape(r.creditorAccount || r['رقم الحساب'] || r.CreditorAccount || '-');
+            const bic = escape(r.creditorBic || r['السويفت كود'] || r['كود البنك'] || r.CreditorBic || '-');
+            const amtVal = floatVal(r.transactionAmount ?? r.Amount ?? r['قيمة العملية'] ?? r.TransactionAmount ?? 0);
+            const amtStr = amtVal.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const status = escape(r.transactionStatus || r['حالة المدفوعة'] || r['الحالة'] || r.TransactionStatus || 'Returned');
+            const reason = escape(r.reason || r['سبب الارتداد'] || r.Reason || '-');
+            
+            const isSettled = r.settlementStatus === 'تم التسوية' || r.tasFlag === 2 || r.isSettled || r.TasFlag === 2;
+            const setBadge = isSettled 
+                ? '<span class="badge badge-success" style="background:#10b981; color:#fff; padding:3px 8px; border-radius:6px;">تم التسوية</span>'
+                : '<span class="badge badge-warning" style="background:#f59e0b; color:#000; padding:3px 8px; border-radius:6px; font-weight:700;">لم يتم التسوية</span>';
+
+            const detSerial = escape(r.detSerial || r.DetSerial || r['المسلسل'] || '-');
+            const newAcc = escape(r.newCreditorAccount || r['رقم الحساب الصحيح'] || r.NewCreditorAccount || '-');
+            const newBic = escape(r.newCreditorBic || r['السويفت كود الصحيح'] || r.NewCreditorBic || '-');
+            const rawDate = r.returnDate || r.uploadDate || r['تاريخ المرتد'] || r.ReturnDate || '-';
+            const dateStr = (rawDate && rawDate !== '-') ? new Date(rawDate).toLocaleDateString('ar-EG') : '-';
+            const recId = r.id || r.Id || r.ID || i;
+
+            const attCount = Number(r.attachmentCount || r.AttachmentCount || r.HasAttachments || 0);
+            const attBtn = attCount > 0 
+                ? `<button class="btn btn-sm" onclick="app.openAttachmentsModal('${recId}', '${r._src || 'returns'}')" title="عرض ${attCount} مرفقات" style="padding:3px 8px; font-size:0.8rem; background:rgba(0,240,255,0.15); border:1px solid #00f0ff; color:#00f0ff; font-weight:700; border-radius:6px; cursor:pointer;">📎 PDF (${attCount})</button>`
+                : `<button class="btn btn-sm" onclick="app.openAttachmentsModal('${recId}', '${r._src || 'returns'}')" title="إضافة مرفق" style="padding:3px 8px; font-size:0.8rem; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.2); color:#94a3b8; border-radius:6px; cursor:pointer;">📄 لا يوجد</button>`;
+
+            const editBtn = isFailQuery
+                ? `<button class="btn btn-sm btn-secondary" onclick="window.failqueryPage ? window.failqueryPage.openEditModalByIndex('${recId}') : app.openEditUnifiedRecord('${recId}', 'failquery')" title="تعديل بيانات البوابة" style="padding:4px 10px; font-size:0.85rem; background:rgba(217,70,239,0.2); border:1px solid #d946ef; color:#f0abfc; font-weight:700; border-radius:6px; cursor:pointer;">✏️ تعديل البوابة</button>`
+                : `<button class="btn btn-sm btn-secondary" onclick="app.openEditUnifiedRecord('${recId}', '${r._src || 'incentive'}')" title="تعديل البيانات" style="padding:4px 10px; font-size:0.85rem; background:rgba(14,165,233,0.2); border:1px solid #0ea5e9; color:#38bdf8; font-weight:700; border-radius:6px; cursor:pointer;">✏️ تعديل</button>`;
+
+            return `
+            <tr class="unified-result-row" style="transition: background 0.2s; border-bottom:1px solid rgba(255,255,255,0.05);" onmouseover="this.style.background='rgba(56,189,248,0.08)'" onmouseout="this.style.background='transparent'">
+                <td style="text-align:center;"><input type="checkbox" class="unified-row-checkbox" value="${recId}" data-src="${r._src || 'returns'}" style="cursor:pointer;"></td>
+                <td style="text-align:center; font-weight:bold; color:#64748b;">${seq}</td>
+                <td style="text-align:center;">${srcBadge}</td>
+                <td style="text-align:center; font-weight:700; color:#38bdf8; font-family:monospace;">${batchId}</td>
+                <td style="text-align:right; font-weight:700; color:#f8fafc; font-size:0.95rem;">${name}</td>
+                <td style="text-align:center; font-family:monospace; color:#cbd5e1;">${nid}</td>
+                <td style="text-align:center; font-family:monospace; color:#cbd5e1;">${acc}</td>
+                <td style="text-align:center; color:#cbd5e1;">${bic}</td>
+                <td style="text-align:left; font-weight:800; color:#10b981;">${amtStr} ج.م</td>
+                <td style="text-align:center;"><span class="badge badge-error" style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:6px;">${status}</span></td>
+                <td style="text-align:right; color:#cbd5e1;">${reason}</td>
+                <td style="text-align:center; font-family:monospace; color:#38bdf8;">${detSerial}</td>
+                <td style="text-align:center;">${setBadge}</td>
+                <td style="text-align:center; font-family:monospace; color:#f59e0b; font-weight:600;">${newAcc}</td>
+                <td style="text-align:center; color:#cbd5e1;">${newBic}</td>
+                <td style="text-align:center; color:#94a3b8; font-size:0.85em;">${dateStr}</td>
+                <td style="text-align:center;">${attBtn}</td>
+                <td style="text-align:center;">${editBtn}</td>
+            </tr>`;
+        }).join('');
+
+        if (isAppend) {
+            tbody.insertAdjacentHTML('beforeend', html);
+        } else {
+            tbody.innerHTML = html;
+        }
+
+        // Render Infinite Scroll Status Bar (NO page numbers)
+        if (pagEl) {
+            const currentPage = pagination?.currentPage || this.unifiedCurrentPage || 1;
+            const totalPages = pagination?.totalPages || this.unifiedTotalPages || 1;
+            const remaining = totalCount - loadedCount;
+
+            let footerHtml = `
+            <div class="unified-infinite-footer" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:18px 0; gap:12px; width:100%; border-top:1px solid rgba(255,255,255,0.08); margin-top:15px;">
+                <span style="font-weight:700; color:#38bdf8; font-size:0.95rem;">
+                    تم عرض ${loadedCount.toLocaleString('ar-EG')} من أصل ${totalCount.toLocaleString('ar-EG')} نتيجة
+                </span>`;
+
+            if (currentPage < totalPages && remaining > 0) {
+                footerHtml += `
+                <button id="btn-unified-load-more" onclick="app.loadMoreUnifiedResults()" class="btn-pro-action" style="padding:10px 28px; background:linear-gradient(135deg, rgba(0,240,255,0.2), rgba(59,130,246,0.2)); border:1px solid #00f0ff; color:#fff; font-weight:800; border-radius:12px; cursor:pointer; font-size:0.95rem; display:inline-flex; align-items:center; gap:8px;">
+                    <i class="fas fa-arrow-down"></i> تحميل المزيد من النتائج (${remaining.toLocaleString('ar-EG')} متبقي)
+                </button>`;
+            } else {
+                footerHtml += `
+                <span style="color:#10b981; font-weight:700; font-size:0.9rem; background:rgba(16,185,129,0.1); padding:6px 18px; border-radius:20px; border:1px solid rgba(16,185,129,0.3);">
+                    ✨ تم عرض جميع النتائج بالكامل
+                </span>`;
+            }
+
+            footerHtml += `</div>`;
+            pagEl.innerHTML = footerHtml;
+        }
+
+        // Attach infinite scroll listener to main container
+        this.setupUnifiedInfiniteScrollListener();
+    }
+
+    loadMoreUnifiedResults() {
+        if (this.unifiedIsLoadingMore) return;
+        if (this.unifiedCurrentPage >= this.unifiedTotalPages) return;
+
+        this.unifiedIsLoadingMore = true;
+        const btn = document.getElementById('btn-unified-load-more');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-left:8px;"></i> جاري تحميل المزيد...';
+        }
+
+        const nextPage = (this.unifiedCurrentPage || 1) + 1;
+        this.loadFullReturns(nextPage, 50, this.currentFullReturnsQuery || '', false, true).finally(() => {
+            this.unifiedIsLoadingMore = false;
+        });
+    }
+
+    setupUnifiedInfiniteScrollListener() {
+        const tableWrapper = document.querySelector('#content-single-table .table-wrapper-scroll');
+        if (!tableWrapper || tableWrapper._infiniteBound) return;
+        tableWrapper._infiniteBound = true;
+
+        const onScroll = () => {
+            if (this.currentPage !== 'full-returns' && this.currentPage !== 'page-full-returns') return;
+            if (this.unifiedIsLoadingMore) return;
+            if (this.unifiedCurrentPage >= this.unifiedTotalPages) return;
+
+            const scrollBottom = tableWrapper.scrollHeight - tableWrapper.scrollTop - tableWrapper.clientHeight;
+            if (scrollBottom < 150) {
+                this.loadMoreUnifiedResults();
+            }
+        };
+
+        tableWrapper.addEventListener('scroll', onScroll, { passive: true });
+    }
+
+    async openEditUnifiedRecord(recId, src) {
+        if (!recId) return;
+
+        let record = null;
+        const isSalary = src === 'salary' || src === 'salary-returns';
+        const cache = isSalary ? this.salaryReturnsCache : this.returnsCache;
+
+        if (Array.isArray(cache)) {
+            record = cache.find(r => (r.id || r.Id || r.ID) == recId);
+        }
+
+        if (!record) {
+            try {
+                const endpoint = isSalary ? `/api/salary-returns/${recId}` : `/returns/${recId}`;
+                const res = await db.fetchApi(endpoint);
+                record = res.data || res.record || res;
+            } catch (e) {
+                console.warn('Could not fetch record details:', e);
+            }
+        }
+
+        const name = record ? (record.creditorName || record['اسم المستفيد'] || record['الاسم'] || record.Name || 'سجل رقم ' + recId) : ('سجل رقم ' + recId);
+        const nid = record ? (record.creditorNationalId || record['الرقم القومي'] || record.NationalId || '') : '';
+        const curAcc = record ? (record.creditorAccount || record['رقم الحساب'] || record.AccountNumber || '') : '';
+        const curBic = record ? (record.creditorBic || record['السويفت كود'] || record['كود البنك'] || record.Bank || '') : '';
+        const newAcc = record ? (record.newCreditorAccount || record['رقم الحساب الصحيح'] || record['رقم الحساب بعد التعديل'] || '') : '';
+        const newBic = record ? (record.newCreditorBic || record['السويفت كود الصحيح'] || record['البنك بعد التعديل'] || '') : '';
+        const batchId = record ? (record.batchId || record['كود الملف'] || record.FileCode || '') : '';
+
+        const escape = (str) => this.escapeHtml ? this.escapeHtml(str) : String(str || '');
+
+        const modalHtml = `
+            <div id="unifiedEditModal" class="modal-overlay" style="position: fixed; inset: 0; background: rgba(0,0,0,0.82); z-index: 1000000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);" dir="rtl">
+                <div class="modal-content" style="max-width: 650px; width: 92%; background: #0f172a; border: 1px solid #38bdf8; border-radius: 16px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+                    <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                        <h4 style="margin: 0; color: #38bdf8; font-weight: 800; font-size: 1.15rem; display:flex; align-items:center; gap:8px;">
+                            <span>✏️</span> تعديل بيانات السجل بالبحث الشامل (${isSalary ? 'مرتبات' : 'حوافز'})
+                        </h4>
+                        <button type="button" id="uEdit-close-btn" style="background: none; border: none; color: #94a3b8; font-size: 22px; cursor: pointer;">✕</button>
+                    </div>
+                    <div class="modal-body" style="color: #e2e8f0; font-size: 0.95rem;">
+                        <div id="uEdit-alert" style="margin-bottom:15px;"></div>
+                        
+                        <div style="background: rgba(30, 41, 59, 0.6); padding: 12px 16px; border-radius: 10px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08);">
+                            <div style="font-weight:700; color:#00f0ff; margin-bottom:4px;">${escape(name)}</div>
+                            <div style="font-size:0.85rem; color:#94a3b8; display:flex; gap:15px; flex-wrap:wrap;">
+                                <span>الرقم القومي: <b>${escape(nid || '-')}</b></span>
+                                <span>كود الملف: <b>${escape(batchId || '-')}</b></span>
+                                <span>الحساب الأصلي: <b>${escape(curAcc || '-')}</b></span>
+                            </div>
+                        </div>
+
+                        <form id="uEdit-form">
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; font-weight: 700; color: #38bdf8; margin-bottom: 6px;">رقم الحساب الجديد / المعدل</label>
+                                <input type="text" id="uEdit-newAcc" value="${escape(newAcc || curAcc)}" placeholder="أدخل رقم الحساب المعدل..." style="width: 100%; background: #1e293b; border: 1px solid #38bdf8; color: #fff; padding: 10px 14px; border-radius: 8px; font-family: monospace; font-size: 1rem;">
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; font-weight: 700; color: #38bdf8; margin-bottom: 6px;">رمز / اسم البنك الجديد</label>
+                                <input type="text" id="uEdit-newBic" value="${escape(newBic || curBic)}" placeholder="أدخل كود أو اسم البنك..." style="width: 100%; background: #1e293b; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 0.95rem;">
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 20px;">
+                        <button type="button" id="uEdit-cancel-btn" style="padding: 9px 20px; border-radius: 8px; background: rgba(255,255,255,0.1); color: #ccc; border: none; font-weight: 600; cursor: pointer;">إلغاء</button>
+                        <button type="button" id="uEdit-save-btn" style="padding: 9px 24px; border-radius: 8px; background: linear-gradient(135deg, #0ea5e9, #0284c7); color: #fff; border: none; font-weight: 700; cursor: pointer;">
+                            💾 حفظ ومزامنة بالبوابة
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        let container = document.getElementById('unified-edit-modal-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'unified-edit-modal-container';
+            document.body.appendChild(container);
+        }
+        container.innerHTML = modalHtml;
+
+        const closeModal = () => { container.innerHTML = ''; };
+
+        document.getElementById('uEdit-close-btn')?.addEventListener('click', closeModal);
+        document.getElementById('uEdit-cancel-btn')?.addEventListener('click', closeModal);
+
+        document.getElementById('uEdit-save-btn')?.addEventListener('click', async () => {
+            const saveBtn = document.getElementById('uEdit-save-btn');
+            const alertEl = document.getElementById('uEdit-alert');
+            const updatedAcc = document.getElementById('uEdit-newAcc')?.value?.trim() || '';
+            const updatedBic = document.getElementById('uEdit-newBic')?.value?.trim() || '';
+
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '⏳ جاري الحفظ والمزامنة...';
+
+            try {
+                const payload = {
+                    id: recId,
+                    batchId: batchId,
+                    creditorAccount: curAcc,
+                    creditorNationalId: nid,
+                    creditorName: name,
+                    newCreditorAccount: updatedAcc,
+                    newCreditorBic: updatedBic,
+                    user: (window.activeUsername || 'أمين خالد')
+                };
+
+                const res = await db.fetchApi('/api/failquery/update-transaction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.success) {
+                    this.showToast?.('تم حفظ التعديل ومزامنتها في البوابة وقواعد البيانات بنجاح', 'success');
+                    closeModal();
+
+                    await db.fetchApi('/api/search-index/rebuild', { method: 'POST' }).catch(() => {});
+                    this.loadFullReturns(this.unifiedCurrentPage || 1, 50, this.searchQuery || '', false);
+                } else {
+                    throw new Error(res.error || res.message || 'فشل حفظ التعديلات');
+                }
+            } catch (err) {
+                if (alertEl) {
+                    alertEl.innerHTML = `<div style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5; padding: 10px; border-radius: 8px;"><i class="fas fa-exclamation-circle me-1"></i> ${escape(err.message)}</div>`;
+                }
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '💾 حفظ ومزامنة بالبوابة';
+            }
+        });
+    }
+
     exportUnifiedTable(type) {
         const data = type === 'incentive' ? this.unifiedIncentiveData : this.unifiedSalaryData;
         if (!data || data.length === 0) {
@@ -10743,19 +11085,15 @@ renderTable(dataToRender = null, append = false) {
         const resultsEl = document.getElementById('unified-results');
         const statsRow = document.getElementById('unified-stats-row');
 
-        // Always render tables and show results (even if query is empty)
-        this.renderUnifiedTable('incentive', incentiveResults);
-        this.renderUnifiedTable('salary', salaryResults);
+        // Always render single flat table grid and show results
+        const allLocalRows = [
+            ...incentiveResults.map(r => ({ ...r, _src: 'incentive' })),
+            ...salaryResults.map(r => ({ ...r, _src: 'salary' }))
+        ];
 
-        if (resultsEl) {
-            resultsEl.style.display = 'block';
-            // Only force expand if there is search query, else keep as is
-            if (query && query.trim() !== '') {
-                document.getElementById('section-incentive')?.classList.remove('collapsed');
-                document.getElementById('section-salary')?.classList.remove('collapsed');
-            }
-        }
+        this.renderUnifiedSingleTable(allLocalRows.slice(0, 50), { currentPage: 1, pageSize: 50, totalCount: allLocalRows.length });
 
+        if (resultsEl) resultsEl.style.display = 'block';
         if (statsRow) statsRow.style.display = 'grid';
     }
 
@@ -15278,7 +15616,6 @@ App.prototype.playNotificationSound = function () {
         // Chime sequence (E5 -> A5)
         playTone(659.25, now, 1.0);     // E5
         playTone(880.00, now + 0.1, 1.2); // A5
-
     } catch (e) {
         console.warn('[Audio] Failed to play notification sound:', e);
     }
@@ -16062,25 +16399,6 @@ App.prototype.viewAdabirDetails = async function(id) {
         if (query === null || query === undefined) {
             query = document.getElementById('unified-search-input')?.value || this.searchQuery || '';
         }
-
-        const hasReturnsCache = Array.isArray(this.returnsCache) && this.returnsCache.length > 0;
-        const hasSalaryCache = Array.isArray(this.salaryReturnsCache) && this.salaryReturnsCache.length > 0;
-        if (!hasReturnsCache) await this._loadCachedDataset?.('returns');
-        if (!hasSalaryCache) await this._loadCachedDataset?.('salary');
-
-        if ((this.returnsCache && this.returnsCache.length) || (this.salaryReturnsCache && this.salaryReturnsCache.length)) {
-            console.log('[SYNC][unified] Loaded from cache');
-            if (isSearch) this.selectedUnifiedStatementQuery = '';
-            this.searchQuery = query || '';
-            this.unifiedSettlementStatus = document.getElementById('unified-settlement-status')?.value || this.unifiedSettlementStatus || 'not_settled';
-            this.showUnifiedSearchState?.('');
-            this.updateUnifiedAccountStatementButton?.(false);
-            await this.handleUnifiedLocalSearch(query || '');
-            document.getElementById('unified-loading')?.classList.add('hidden');
-            this.startBackgroundSync?.();
-            return;
-        }
-
         const result = await originalLoadFullReturns.apply(this, arguments);
         this.startBackgroundSync?.();
         return result;
@@ -16685,6 +17003,247 @@ App.prototype.exportModifiedRecordsToExcel = async function() {
         this.hideLoading();
         console.error('[ModifiedRecords] Export error:', e);
         this.showToast('خطأ أثناء تصدير البيانات', 'error');
+    }
+};
+
+// ========================================
+// منظومة الصادر بدون وارد (Standalone Outgoings)
+// ========================================
+
+App.prototype.loadStandaloneOutgoings = async function() {
+    try {
+        const res = await db.fetchApi('/api/standalone-outgoing');
+        if (res && res.success) {
+            this.standaloneOutgoingsData = res.data || [];
+            this.renderStandaloneOutgoingsTable(this.standaloneOutgoingsData);
+        }
+    } catch (e) {
+        console.error('Error loading standalone outgoings:', e);
+        this.showToast('تعذر تحميل بيانات الصادر بدون وارد', 'error');
+    }
+};
+
+App.prototype.renderStandaloneOutgoingsTable = function(list) {
+    const tbody = document.getElementById('so-table-body');
+    const badge = document.getElementById('so-table-badge');
+    const statTotal = document.getElementById('so-stat-total');
+    const statAttachments = document.getElementById('so-stat-attachments');
+    const statDestinations = document.getElementById('so-stat-destinations');
+    const statMonth = document.getElementById('so-stat-month');
+
+    if (!tbody) return;
+
+    if (badge) badge.textContent = `${list.length} سجل`;
+    if (statTotal) statTotal.textContent = list.length;
+    
+    let totalAttachments = 0;
+    const destinationsSet = new Set();
+    let monthCount = 0;
+    const nowMonthStr = new Date().toISOString().substring(0, 7);
+
+    list.forEach(item => {
+        totalAttachments += (item.attachmentsCount || item.AttachmentsCount || 0);
+        if (item.destination || item.Destination) destinationsSet.add(item.destination || item.Destination);
+        const dateStr = item.outgoingDate || item.OutgoingDate || '';
+        if (dateStr && dateStr.startsWith(nowMonthStr)) monthCount++;
+    });
+
+    if (statAttachments) statAttachments.textContent = totalAttachments;
+    if (statDestinations) statDestinations.textContent = destinationsSet.size;
+    if (statMonth) statMonth.textContent = monthCount;
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 40px; color: #94a3b8;">📭 لا توجد مكاتبات صادرة سجلت بعد</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = list.map((item, index) => {
+        const id = item.id || item.Id;
+        const number = item.outgoingNumber || item.OutgoingNumber || '-';
+        const date = item.outgoingDate || item.OutgoingDate || '-';
+        const serviceType = item.serviceType || item.ServiceType || 'استحقاقات ومكاتبات';
+        const dest = item.destination || item.Destination || '-';
+        const subject = item.subject || item.Subject || '-';
+        const status = item.actionStatus || item.ActionStatus || 'حفظ في الأرشيف';
+        const attCount = item.attachmentsCount || item.AttachmentsCount || 0;
+        const archiveStatus = item.archiveStatus || item.ArchiveStatus || 'أرشفة مكتملة';
+
+        const salon = item.salonLocation || item.SalonLocation || '-';
+        const cabinet = item.cabinetLocation || item.CabinetLocation || '-';
+        const shelf = item.shelfLocation || item.ShelfLocation || '-';
+        const folder = item.folderLocation || item.FolderLocation || '-';
+
+        let statusBadge = '';
+        if (status === 'حفظ في الأرشيف') {
+            statusBadge = `<span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 0.8rem;">● حفظ في الأرشيف</span>`;
+        } else if (status === 'تم اتخاذ إجراء') {
+            statusBadge = `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 0.8rem;">● تم اتخاذ إجراء</span>`;
+        } else {
+            statusBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 0.8rem;">● جارِ العمل</span>`;
+        }
+
+        let archiveBadge = '';
+        if (archiveStatus.includes('مكتملة')) {
+            archiveBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.78rem;">صادر مستقل</span>`;
+        } else {
+            archiveBadge = `<span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); padding: 3px 8px; border-radius: 6px; font-weight: 700; font-size: 0.78rem;">جارِ الأرشفة</span>`;
+        }
+
+        return `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(15, 23, 42, 0.4);">
+                <td style="text-align: center; color: #94a3b8;">${index + 1}</td>
+                <td style="text-align: center; font-weight: 800; color: #38bdf8;">${number}</td>
+                <td style="text-align: center; font-size: 0.85rem; color: #cbd5e1;">${date}</td>
+                <td style="text-align: center; font-size: 0.85rem;"><span style="background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 6px; color: #94a3b8;">${serviceType}</span></td>
+                <td style="text-align: center; font-weight: 700; color: #e2e8f0;">${dest}</td>
+                <td style="text-align: right; line-height: 1.5; color: #f1f5f9; font-size: 0.88rem;">${subject}</td>
+                <td style="text-align: center;">${statusBadge}</td>
+                <td style="text-align: center;">
+                    <span style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; color: #38bdf8; display: inline-flex; align-items: center; gap: 4px;">
+                        <span>📄</span> ${attCount} مرفق ورقي
+                    </span>
+                </td>
+                <td style="text-align: center;">
+                    <div style="background: rgba(15, 23, 42, 0.9); border: 1px dashed rgba(56, 189, 248, 0.4); border-radius: 8px; padding: 6px 10px; font-size: 0.78rem; color: #e2e8f0; display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;">
+                        <span>صالون: <strong style="color:#38bdf8">${salon}</strong></span> | 
+                        <span>دولاب: <strong style="color:#38bdf8">${cabinet}</strong></span> | 
+                        <span>رف: <strong style="color:#38bdf8">${shelf}</strong></span> | 
+                        <span>محفظة: <strong style="color:#38bdf8">${folder}</strong></span>
+                    </div>
+                </td>
+                <td style="text-align: center;">${archiveBadge}</td>
+                <td style="text-align: center;">
+                    <div style="display: flex; justify-content: center; gap: 6px;">
+                        <button onclick="app.showArchiveLocationModal(${id})" title="الأرشفة وتحديد الموضع" style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;">📂</button>
+                        <button onclick="app.editStandaloneOutgoing(${id})" title="تعديل" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); color: #f59e0b; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;">✏️</button>
+                        <button onclick="app.deleteStandaloneOutgoing(${id})" title="حذف" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; width: 32px; height: 32px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;">🗑️</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+};
+
+App.prototype.filterStandaloneOutgoings = function() {
+    const query = (document.getElementById('so-search-input')?.value || '').toLowerCase().trim();
+    const status = document.getElementById('so-filter-status')?.value || 'all';
+    const service = document.getElementById('so-filter-service')?.value || 'all';
+    const dest = document.getElementById('so-filter-destination')?.value || 'all';
+
+    if (!this.standaloneOutgoingsData) return;
+
+    const filtered = this.standaloneOutgoingsData.filter(item => {
+        const num = (item.outgoingNumber || item.OutgoingNumber || '').toLowerCase();
+        const subj = (item.subject || item.Subject || '').toLowerCase();
+        const cab = (item.cabinetLocation || item.CabinetLocation || '').toLowerCase();
+        const fol = (item.folderLocation || item.FolderLocation || '').toLowerCase();
+
+        const matchesQuery = !query || num.includes(query) || subj.includes(query) || cab.includes(query) || fol.includes(query);
+        const matchesStatus = status === 'all' || (item.actionStatus || item.ActionStatus) === status;
+        const matchesService = service === 'all' || (item.serviceType || item.ServiceType) === service;
+        const matchesDest = dest === 'all' || (item.destination || item.Destination) === dest;
+
+        return matchesQuery && matchesStatus && matchesService && matchesDest;
+    });
+
+    this.renderStandaloneOutgoingsTable(filtered);
+};
+
+App.prototype.showAddStandaloneOutgoingModal = async function() {
+    const num = prompt('أدخل رقم الصادر (مثال: ص-2025/10):');
+    if (!num) return;
+    const dest = prompt('أدخل الجهة الصادر إليها:');
+    if (!dest) return;
+    const subj = prompt('أدخل موضوع الصادر والملخص:');
+    if (!subj) return;
+
+    try {
+        await db.fetchApi('/api/standalone-outgoing', {
+            method: 'POST',
+            body: JSON.stringify({
+                OutgoingNumber: num,
+                OutgoingDate: new Date().toISOString().substring(0, 10),
+                ServiceType: 'استحقاقات ومكاتبات',
+                Destination: dest,
+                Subject: subj,
+                ActionStatus: 'حفظ في الأرشيف',
+                AttachmentsCount: 1,
+                SalonLocation: '1',
+                CabinetLocation: 'C-1',
+                ShelfLocation: 'S-1',
+                FolderLocation: 'F-1',
+                SerialLocation: '1',
+                ArchiveStatus: 'أرشفة مكتملة'
+            })
+        });
+        this.showToast('تمت إضافة الصادر بنجاح', 'success');
+        await this.loadStandaloneOutgoings();
+    } catch (e) {
+        this.showToast('تعذر إضافة الصادر', 'error');
+    }
+};
+
+App.prototype.showArchiveLocationModal = async function(id) {
+    const item = (this.standaloneOutgoingsData || []).find(x => (x.id || x.Id) === id);
+    if (!item) return;
+
+    const salon = prompt('صالون الحفظ:', item.salonLocation || item.SalonLocation || '10');
+    if (salon === null) return;
+    const cabinet = prompt('دولاب الحفظ:', item.cabinetLocation || item.CabinetLocation || 'C-1');
+    if (cabinet === null) return;
+    const shelf = prompt('رف الحفظ:', item.shelfLocation || item.ShelfLocation || 'S-1');
+    if (shelf === null) return;
+    const folder = prompt('محفظة الحفظ:', item.folderLocation || item.FolderLocation || 'F-15');
+    if (folder === null) return;
+
+    try {
+        await db.fetchApi(`/api/standalone-outgoing/archive-location/${id}`, {
+            method: 'POST',
+            body: JSON.stringify({
+                SalonLocation: salon,
+                CabinetLocation: cabinet,
+                ShelfLocation: shelf,
+                FolderLocation: folder,
+                SerialLocation: '1',
+                ArchiveStatus: 'أرشفة مكتملة'
+            })
+        });
+        this.showToast('تم تحديث أرشفة ومكان حفظ الملف', 'success');
+        await this.loadStandaloneOutgoings();
+    } catch (e) {
+        this.showToast('فشل تحديث موضع الأرشفة', 'error');
+    }
+};
+
+App.prototype.editStandaloneOutgoing = async function(id) {
+    const item = (this.standaloneOutgoingsData || []).find(x => (x.id || x.Id) === id);
+    if (!item) return;
+
+    const newSubj = prompt('تعديل الموضوع والملخص:', item.subject || item.Subject);
+    if (newSubj === null) return;
+
+    try {
+        item.Subject = newSubj;
+        item.subject = newSubj;
+        await db.fetchApi(`/api/standalone-outgoing/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(item)
+        });
+        this.showToast('تم تعديل السجل بنجاح', 'success');
+        await this.loadStandaloneOutgoings();
+    } catch (e) {
+        this.showToast('تعذر التعديل', 'error');
+    }
+};
+
+App.prototype.deleteStandaloneOutgoing = async function(id) {
+    if (!confirm('هل انت متاكد من حذف هذا الصادر؟')) return;
+    try {
+        await db.fetchApi(`/api/standalone-outgoing/${id}`, { method: 'DELETE' });
+        this.showToast('تم الحذف بنجاح', 'success');
+        await this.loadStandaloneOutgoings();
+    } catch (e) {
+        this.showToast('تعذر الحذف', 'error');
     }
 };
 

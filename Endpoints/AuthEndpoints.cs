@@ -1,4 +1,4 @@
-﻿using HKServer.Services;
+using HKServer.Services;
 using HKServer.Models;
 using Dapper;
 using Microsoft.Extensions.Caching.Memory;
@@ -135,11 +135,18 @@ public static class AuthEndpoints
              using var conn = db.GetConnection();
              var user = await conn.QueryFirstOrDefaultAsync<User>("SELECT * FROM Users WHERE Id = @Id", new { Id = id });
              if (user != null && user.username != "admin") {
-                 await conn.ExecuteAsync("DELETE FROM Users WHERE Id = @Id", new { Id = id });
-                 return Results.Ok(new { success = true });
+                 try {
+                     try { await conn.ExecuteAsync("DELETE FROM UserPermissions WHERE UserId = @Id;", new { Id = id }); } catch {}
+                     try { await conn.ExecuteAsync("DELETE FROM ChatMessages WHERE SenderId = @Id;", new { Id = id }); } catch {}
+                     try { await conn.ExecuteAsync("DELETE FROM ChatTasks WHERE AssignedToId = @Id OR CreatedById = @Id;", new { Id = id }); } catch {}
+                     try { await conn.ExecuteAsync("DELETE FROM ChatRingEvents WHERE CallerUserId = @Id OR TargetUserId = @Id;", new { Id = id }); } catch {}
+                     await conn.ExecuteAsync("DELETE FROM Users WHERE Id = @Id;", new { Id = id });
+                     return Results.Ok(new { success = true });
+                 } catch (Exception ex) {
+                     return Results.Json(new { success = false, message = ex.Message }, statusCode: 500);
+                 }
              }
-             return Results.BadRequest();
+             return Results.BadRequest(new { success = false, message = "لا يمكن حذف هذا الحساب" });
         });
     }
 }
-
